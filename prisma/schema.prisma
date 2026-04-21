@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Brainstorm (existing product area) ---
+
+model Project {
+  id        String              @id @default(cuid())
+  name      String              @default("Workspace")
+  sessions  BrainstormSession[]
+  chatThreads ChatThread[]
+  documents   ChatDocument[]
+  createdAt DateTime            @default(now())
+}
+
+model BrainstormSession {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String   @default("Brainstorm")
+  nodes     IdeaNode[]
+  edges     IdeaEdge[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IdeaNode {
+  id          String            @id @default(cuid())
+  sessionId   String
+  session     BrainstormSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  positionX   Float
+  positionY   Float
+  title       String
+  description String            @default("")
+  tags        String[]
+  status      String            @default("idea")
+  priority    String            @default("medium")
+  tasks       Task[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model IdeaEdge {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   BrainstormSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceId  String
+  targetId  String
+}
+
+// --- TaskFoundry: workspace → board → lists → tasks ---
+
+model Workspace {
+  id                   String                 @id @default(cuid())
+  name                 String
+  /// Sort order among non-archived workspaces (Boards page drag reorder).
+  position             Int                    @default(0)
+  archivedAt           DateTime?
+  boards               Board[]
+  chatThreads          ChatThread[]
+  notesFolders         NotesFolder[]
+  notes                Note[]
+  noteTags             NoteTag[]
+  customBoardTemplates CustomBoardTemplate[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@index([archivedAt])
+}
+
+/// User-defined board column layouts (global or legacy workspace-scoped), merged with built-in templates in the UI.
+model CustomBoardTemplate {
+  id          String     @id @default(cuid())
+  /// Null = usable from any workspace; set for legacy rows only.
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  name        String
+  description String     @default("")
+  /// [{ "title": string, "key": string | null }, ...]
+  lists       Json
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([workspaceId])
+}
+
+// --- Atlas Notes (folders + notes + tags; scoped to Workspace) ---
+
+model NotesFolder {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      NotesFolder?  @relation("NotesFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    NotesFolder[] @relation("NotesFolderTree")
+  title       String
+  position    Int           @default(0)
+  notes       Note[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([workspaceId])
+  @@index([parentId])
+}
+
+model Note {
+  id          String       @id @default(cuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  folderId    String?
+  folder      NotesFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  title       String         @default("Untitled")
+  slug        String?
+  contentJson Json?
+  previewText String?        @db.Text
+  position    Int            @default(0)
+  isPinned    Boolean        @default(false)
+  isPublic    Boolean        @default(false)
+  publicSlug  String?        @unique
+  tags        NoteTag[]
+  linksFrom   NoteLink[]     @relation("NoteLinkFrom")
+  linksTo     NoteLink[]     @relation("NoteLinkTo")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([workspaceId])
+  @@index([folderId])
+  @@unique([workspaceId, slug])
+}
+
+model NoteTag {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  color       String    @default("#6366f1")
+  notes       Note[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model NoteLink {
+  id         String   @id @default(cuid())
+  fromNoteId String
+  toNoteId   String
+  fromNote   Note     @relation("NoteLinkFrom", fields: [fromNoteId], references: [id], onDelete: Cascade)
+  toNote     Note     @relation("NoteLinkTo", fields: [toNoteId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([fromNoteId, toNoteId])
+  @@index([fromNoteId])
+  @@index([toNoteId])
+}
+
+model Board {
+  id          String      @id @default(cuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  position    Int         @default(0)
+  archivedAt  DateTime?
+  lists       BoardList[]
+  labels      Label[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, archivedAt])
+}
+
+/// Trello-style column on a board
+model BoardList {
+  id        String   @id @default(cuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title     String
+  /// Stable key for default columns (backlog / in_progress / done) — optional for custom lists
+  key       String?
+  position  Int      @default(0)
+  tasks     Task[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boardId, key])
+  @@index([boardId])
+}
+
+model Task {
+  id           String    @id @default(cuid())
+  listId       String
+  list         BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  title        String
+  description  String    @default("")
+  completed    Boolean   @default(false)
+  order        Int       @default(0)
+  priority     String    @default("none")
+  archivedAt   DateTime?
+  dueDate      DateTime?
+  startDate    DateTime?
+  ideaNodeId   String?
+  ideaNode     IdeaNode? @relation(fields: [ideaNodeId], references: [id], onDelete: SetNull)
+  chatThreadId String?
+  chatThread   ChatThread? @relation(fields: [chatThreadId], references: [id], onDelete: SetNull)
+  sourceMessageId String?
+  comments     Comment[]
+  checklist    ChecklistItem[]
+  labels       TaskLabel[]
+  activities   Activity[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([listId])
+  @@index([listId, archivedAt])
+  @@index([ideaNodeId])
+  @@index([chatThreadId])
+}
+
+// --- Consulting chat + RAG ---
+
+model ChatThread {
+  id              String        @id @default(cuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Optional default workspace for creating tasks from chat (TaskFoundry)
+  workspaceId     String?
+  workspace       Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  title           String        @default("New chat")
+  consultingMode  String        @default("strategy")
+  messages        ChatMessage[]
+  documents       ChatDocument[]
+  tasks           Task[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([projectId])
+  @@index([workspaceId])
+}
+
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role       String
+  content    String     @db.Text
+  citations  Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([threadId])
+}
+
+model ChatDocument {
+  id            String          @id @default(cuid())
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  threadId      String?
+  thread        ChatThread?     @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  filename      String
+  mime          String          @default("application/octet-stream")
+  source        String          @default("upload")
+  contentHash   String?
+  status        String          @default("pending")
+  extractedText String?         @db.Text
+  chunks        DocumentChunk[]
+  createdAt     DateTime        @default(now())
+
+  @@index([projectId])
+  @@index([threadId])
+}
+
+model DocumentChunk {
+  id         String       @id @default(cuid())
+  documentId String
+  document   ChatDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String       @db.Text
+  embedding  Json
+  createdAt  DateTime     @default(now())
+
+  @@index([documentId])
+}
+
+model Label {
+  id      String      @id @default(cuid())
+  boardId String
+  board   Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name    String
+  color   String      @default("#6366f1")
+  tasks   TaskLabel[]
+
+  @@index([boardId])
+}
+
+model TaskLabel {
+  taskId  String
+  labelId String
+  task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model ChecklistItem {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title     String
+  completed Boolean  @default(false)
+  position  Int      @default(0)
+
+  @@index([taskId])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  action    String
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}

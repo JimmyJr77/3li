@@ -1,0 +1,306 @@
+**Execution roadmap:** [phases.md](./phases.md) (checkbox phases). **Data model & API:** [data-model-notes.md](./data-model-notes.md).
+
+---
+
+You’re thinking about this the right way—don’t just build a “notes app,” build a thinking system + execution engine. Most brainstorming tools solve one slice well (visual, structured, AI, collaboration), but none unify all of them into a single command center.
+Below is a full synthesis + build prompt system you can feed into Cursor to create a best-in-class Brainstorming Studio App under your Three Lions Industries ecosystem.
+PART 1 — MARKET REVIEW (CONDENSED INTEL)
+1. Visual Brainstorming Tools
+Miro
+FigJam
+Whimsical
+Strengths
+Infinite canvas
+Drag/drop nodes
+Sticky notes + clustering
+Real-time collaboration
+Weaknesses
+No deep AI reasoning
+Weak execution tracking
+Ideas don’t convert into action
+2. Structured Thinking Tools
+Notion
+Coda
+Obsidian
+Strengths
+Databases + relationships
+Clean organization
+Long-term knowledge retention
+Weaknesses
+Not great for freeform ideation
+Visual thinking is limited
+Friction to start brainstorming
+3. AI Brainstorming Tools
+ChatGPT
+Claude
+Strengths
+Idea generation
+Expansion + synthesis
+Pattern recognition
+Weaknesses
+Not spatial
+Not persistent (ideas get lost)
+No project structure
+4. Mind Mapping Tools
+MindMeister
+XMind
+Strengths
+Hierarchical thinking
+Great for clarity
+Weaknesses
+Rigid
+Not dynamic enough for complex workflows
+5. Task + Execution Tools
+Trello
+Asana
+Strengths
+Execution tracking
+Workflow visibility
+Weaknesses
+No ideation layer
+No intelligence layer
+PART 2 — CORE INSIGHT
+No tool does all 4 layers simultaneously:
+Freeform thinking
+Structured organization
+AI-assisted expansion
+Execution conversion
+👉 Your app should.
+PART 3 — THE BRAINSTORMING STUDIO (TARGET PRODUCT)
+Product Name (working)
+3LI Brainstorm Studio
+CORE MODULES (SYSTEM ARCHITECTURE)
+1. Infinite Idea Canvas (Miro + FigJam)
+Zoomable canvas
+Nodes (ideas)
+Connectors (relationships)
+Drag clusters
+Color-coded thinking modes
+2. AI Co-Pilot (ChatGPT embedded)
+Expand idea
+Challenge idea
+Generate alternatives
+Convert idea → plan
+Auto-cluster ideas
+3. Idea Database (Notion-style)
+Every node = object
+Metadata:
+Category
+Priority
+Status
+Tags
+Linked ideas
+Searchable + filterable
+4. Thinking Modes (UNIQUE DIFFERENTIATOR)
+User can toggle modes:
+Divergent Thinking (generate)
+Convergent Thinking (refine)
+Strategic Thinking (structure)
+Execution Mode (act)
+👉 UI + AI behavior changes based on mode
+5. Idea → Execution Engine (CRITICAL)
+Convert any idea into:
+Tasks
+Kanban board
+Timeline
+Strategy doc
+6. Trello-Style Board (Execution Layer)
+Auto-generated from ideas
+Drag/drop tasks
+Linked back to source idea
+7. Session System
+Brainstorm sessions
+Save state
+Replay thinking evolution
+8. Collaboration Layer
+Multi-user editing
+Comments
+Live cursor tracking
+9. Knowledge Graph (Obsidian-style)
+Visual relationships between ideas
+Graph view of thinking
+10. Prompt Library
+Pre-built thinking prompts:
+“Break this idea”
+“Find weaknesses”
+“Monetize this”
+“Turn into MVP”
+PART 4 — UI / UX DESIGN
+Layout
+Left Sidebar
+Projects
+Sessions
+Templates
+Saved Ideas
+Center
+Infinite Canvas
+Right Panel
+AI Assistant
+Idea Details
+Metadata
+Top Bar
+Mode Switcher
+Zoom controls
+Add node
+PART 5 — TECH STACK (ALIGNED TO YOUR STACK)
+Frontend:
+React (Vite)
+Tailwind CSS
+Zustand (state)
+React Flow (canvas)
+Backend:
+Node.js or FastAPI
+PostgreSQL (or Supabase)
+AI:
+OpenAI API (you already decided this)
+Hosting:
+Vercel
+Realtime:
+Firebase or Supabase Realtime
+PART 6 — MASTER CURSOR PROMPT (FOUNDATION BUILD)
+Paste this into Cursor as your root instruction:
+📄 FILE: /docs/brainstorm-studio-spec.md
+You are building a full-scale Brainstorming Studio web application called "3LI Brainstorm Studio".
+
+This app is a hybrid between:
+- Miro (infinite canvas)
+- Notion (structured database)
+- ChatGPT (AI assistant)
+- Trello (execution board)
+
+---
+
+## CORE OBJECTIVE
+
+Create a system that allows users to:
+1. Brainstorm ideas freely on a visual canvas
+2. Use AI to expand and refine ideas
+3. Organize ideas into structured data
+4. Convert ideas into actionable execution plans
+
+---
+
+## CORE FEATURES
+
+### 1. Infinite Canvas
+- Use React Flow
+- Nodes represent ideas
+- Edges represent relationships
+- Drag, zoom, cluster nodes
+
+### 2. Idea Node
+Each node contains:
+- Title
+- Description
+- Tags
+- Status (idea, validated, executing)
+- Priority
+- Linked nodes
+
+---
+
+### 3. AI Assistant Panel
+- Located on right side
+- Can:
+  - Expand idea
+  - Critique idea
+  - Generate alternatives
+  - Convert to plan
+
+Use OpenAI API.
+
+---
+
+### 4. Thinking Modes
+Top bar toggle:
+- Divergent
+- Convergent
+- Strategic
+- Execution
+
+Each mode changes:
+- UI color theme
+- AI prompt behavior
+
+---
+
+### 5. Idea Database
+- Store all nodes in database
+- Enable:
+  - Filtering
+  - Search
+  - Tagging
+
+---
+
+### 6. Execution Conversion
+User can click:
+"Convert to Plan"
+
+This generates:
+- Task list
+- Kanban board
+
+---
+
+### 7. Kanban Board
+- Columns:
+  - Backlog
+  - In Progress
+  - Done
+- Drag and drop tasks
+
+---
+
+### 8. State Management
+Use Zustand.
+
+---
+
+### 9. Backend
+- Node.js or FastAPI
+- Store:
+  - Ideas
+  - Connections
+  - Projects
+
+---
+
+### 10. UI Design
+- Clean, modern
+- Light/Dark mode
+- Tailwind CSS
+
+---
+
+## DELIVERABLE
+
+Build this in phases:
+
+Phase 1:
+- Canvas + Nodes
+
+Phase 2:
+- AI integration
+
+Phase 3:
+- Database persistence
+
+Phase 4:
+- Execution board
+
+---
+
+Follow best practices. Modularize components.
+PART 7 — OPTIONAL (ADVANCED FEATURES YOU SHOULD ADD LATER)
+Voice brainstorming (talk → nodes)
+AI auto-clustering
+Idea scoring system
+Business model generator
+Pitch deck auto-builder
+“Second brain” memory system
+FINAL TAKE
+If you build this right, this becomes:
+Your consulting command center (3LI)
+A product you can sell
+A core differentiator vs every generic tool
