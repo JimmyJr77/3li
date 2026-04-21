@@ -19,10 +19,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider
         attribute="class"
-        defaultTheme="system"
+        defaultTheme="vibrant"
         enableSystem
         disableTransitionOnChange
-        themes={["light", "dark", "vibrant"]}
+        themes={["light", "dark", "vibrant", "rainbow-explosion"]}
       >
         {children}
       </ThemeProvider>

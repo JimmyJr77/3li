@@ -437,8 +437,16 @@ export function ChatPage() {
   }
 
   return (
-    <>
-      {/* Desktop: connected three-panel workflow (Atlas Notes–style) */}
+    <div className="mx-auto flex min-h-0 w-full max-w-[100vw] flex-1 flex-col">
+      <div className="mb-6 shrink-0">
+        <h1 className="text-3xl font-semibold tracking-tight">AI Consultant</h1>
+        <p className="mt-2 max-w-2xl text-muted-foreground">
+          Structured consulting conversations with document retrieval, tasks, and slide export. OpenAI runs
+          on the server.
+        </p>
+      </div>
+
+      {/* Desktop: connected three-panel workflow */}
       {isLg ?
         <div className="flex min-h-[calc(100vh-6rem)] flex-1 flex-col">
         <div className="flex min-h-[min(68vh,700px)] flex-1 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -537,36 +545,28 @@ export function ChatPage() {
 
       {/* Main chat (center column) */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col border-border bg-background">
-        <div className="border-border flex shrink-0 flex-row flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-          <div>
-            <h2 className="text-lg font-semibold">Consulting chat</h2>
-            <p className="text-muted-foreground text-sm">
-              Streaming assistant with RAG citations. OpenAI runs on the server.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Label htmlFor="mode-desktop" className="sr-only">
-              Mode
-            </Label>
-            <select
-              id="mode-desktop"
-              className="border-input bg-background h-9 rounded-md border px-2 text-sm"
-              value={mode}
-              onChange={(e) => {
-                const v = e.target.value as ConsultingMode;
-                setMode(v);
-                if (threadId) {
-                  void api.patch(`/api/chat/threads/${threadId}`, { consultingMode: v });
-                }
-              }}
-            >
-              {MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="border-border flex shrink-0 flex-row flex-wrap items-center justify-end gap-2 border-b px-4 py-3">
+          <Label htmlFor="mode-desktop" className="sr-only">
+            Consulting mode
+          </Label>
+          <select
+            id="mode-desktop"
+            className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+            value={mode}
+            onChange={(e) => {
+              const v = e.target.value as ConsultingMode;
+              setMode(v);
+              if (threadId) {
+                void api.patch(`/api/chat/threads/${threadId}`, { consultingMode: v });
+              }
+            }}
+          >
+            {MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
           <div className="flex flex-wrap gap-2">
@@ -859,7 +859,7 @@ export function ChatPage() {
 
       {/* Mobile / tablet: stacked cards */}
       {!isLg ?
-        <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
+        <div className="flex min-h-[calc(100vh-6rem)] flex-1 flex-col gap-4">
         <Card className="shrink-0">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Chats</CardTitle>
@@ -952,36 +952,28 @@ export function ChatPage() {
         </Card>
 
         <Card className="min-w-0 flex-1">
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-3">
-            <div>
-              <CardTitle className="text-lg">Consulting chat</CardTitle>
-              <CardDescription>
-                Streaming assistant with RAG citations. OpenAI runs on the server.
-              </CardDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Label htmlFor="mode-mobile" className="sr-only">
-                Mode
-              </Label>
-              <select
-                id="mode-mobile"
-                className="border-input bg-background h-9 rounded-md border px-2 text-sm"
-                value={mode}
-                onChange={(e) => {
-                  const v = e.target.value as ConsultingMode;
-                  setMode(v);
-                  if (threadId) {
-                    void api.patch(`/api/chat/threads/${threadId}`, { consultingMode: v });
-                  }
-                }}
-              >
-                {MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-end gap-2 pb-3">
+            <Label htmlFor="mode-mobile" className="sr-only">
+              Consulting mode
+            </Label>
+            <select
+              id="mode-mobile"
+              className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+              value={mode}
+              onChange={(e) => {
+                const v = e.target.value as ConsultingMode;
+                setMode(v);
+                if (threadId) {
+                  void api.patch(`/api/chat/threads/${threadId}`, { consultingMode: v });
+                }
+              }}
+            >
+              {MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
@@ -1270,6 +1262,6 @@ export function ChatPage() {
         </Card>
       </div>
       : null}
-    </>
+    </div>
   );
 }

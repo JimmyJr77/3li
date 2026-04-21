@@ -1,15 +1,5 @@
-import { Link } from "react-router-dom";
 import { ComingSoonCard } from "@/components/shared/ComingSoonCard";
-import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
-const mvpTools = [
-  { title: "Brainstorming Studio", body: "Expand ideas into structured concepts.", to: "/app/brainstorm" },
-  { title: "Task Manager", body: "Prioritized lists tied to delivery.", to: "/app/tasks" },
-  { title: "Kanban Board", body: "Visual flow for initiatives and workstreams.", to: "/app/boards" },
-  { title: "Notes / Knowledge Base", body: "Durable context and references.", to: "/app/notes" },
-  { title: "AI Chat Assistant", body: "Consulting assistant over secure APIs.", to: "/app/chat" },
-] as const;
+import { WorkspaceDashboardHomeGrid } from "@/components/workspace/WorkspaceDashboardHomeGrid";
 
 const phase2 = [
   { title: "Proposal Builder", description: "Draft and iterate client-ready proposals." },
@@ -37,22 +27,12 @@ export function SolutionsPage() {
       </div>
 
       <section className="mt-12">
-        <h2 className="text-lg font-semibold">Phase 1 — MVP</h2>
+        <h2 className="text-lg font-semibold">3LI Workspace</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Available in the workspace as we build each module out.
+          Workspace allows you to create, organize, and bring ideas to fruition.
         </p>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {mvpTools.map((t) => (
-            <Card key={t.title} className="transition-shadow hover:shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">{t.title}</CardTitle>
-                <CardDescription>{t.body}</CardDescription>
-                <Button asChild variant="outline" size="sm" className="mt-4 w-fit">
-                  <Link to={t.to}>Open in workspace</Link>
-                </Button>
-              </CardHeader>
-            </Card>
-          ))}
+        <div className="mx-auto mt-8 max-w-5xl">
+          <WorkspaceDashboardHomeGrid />
         </div>
       </section>
 

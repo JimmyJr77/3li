@@ -118,7 +118,7 @@ export function BoardPage() {
   const requestArchiveBoard = () => {
     if (
       !window.confirm(
-        "Archive this board? It will disappear from your workspace list until you restore it from Boards → Archived.",
+        "Archive this project board? It will disappear from your project spaces list until you restore it from Project Boards → Archived.",
       )
     ) {
       return;
@@ -131,7 +131,7 @@ export function BoardPage() {
       <p className="text-sm text-destructive">
         Missing board in URL. Open a board from{" "}
         <Link to="/app/boards" className="font-medium text-primary underline-offset-4 hover:underline">
-          Boards
+          Project Boards
         </Link>
         .
       </p>
@@ -162,7 +162,7 @@ export function BoardPage() {
           to="/app/boards"
           className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
-          ← Boards
+          ← Project Boards
         </Link>
       </div>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

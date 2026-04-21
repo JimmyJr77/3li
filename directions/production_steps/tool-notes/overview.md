@@ -3,7 +3,7 @@
 ## Product concept
 Build a full-scale modern notes application that merges the strongest patterns from the leading notes products on the market into one system.
 
-Working name: **Atlas Notes**
+Working name: **Notebooks**
 Positioning: **Fast enough for capture, powerful enough for knowledge work, structured enough for teams, private enough for serious users.**
 
 The product should feel:
@@ -76,7 +76,7 @@ Backend:
 
 # 5. Cursor Prompt (CORE)
 
-You are a senior full-stack engineer. Build a production-grade notes app called Atlas Notes.
+You are a senior full-stack engineer. Build a production-grade notes app called Notebooks.
 
 Requirements:
 - Fast capture

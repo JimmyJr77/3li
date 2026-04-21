@@ -219,9 +219,9 @@ export function RapidRouterPage() {
         where === "brandCenter"
           ? "Brand Center (this device)"
           : where === "notes"
-            ? "Notes"
+            ? "Notebooks"
             : where === "brainstorm"
-              ? "Brainstorm"
+              ? "Brainstorm Studio"
               : "Board";
       setCaptureOk(`Sent to ${label}.`);
       window.setTimeout(() => setCaptureOk(null), 3200);
@@ -250,10 +250,10 @@ export function RapidRouterPage() {
       (destination === "boards" && !!boardsBoardId && !!boardsListId));
 
   const selectClass =
-    "border-input bg-background h-9 w-full max-w-md rounded-md border px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    "border-input bg-background h-9 w-full rounded-md border px-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
-    <div className="mx-auto max-w-2xl space-y-8">
+    <div className="flex w-full flex-col gap-8">
       <div className="flex items-center gap-2">
         <RapidRouterIcon className="size-7 shrink-0 text-muted-foreground" />
         <h1 className="text-2xl font-semibold tracking-tight">Rapid Router</h1>
@@ -272,7 +272,7 @@ export function RapidRouterPage() {
 
       {notesBootstrapQuery.isError && (
         <p className="text-sm text-muted-foreground">
-          Notes routing may be unavailable until the notes workspace loads.
+          Notebooks routing may be unavailable until the notes workspace loads.
         </p>
       )}
 
@@ -323,21 +323,21 @@ export function RapidRouterPage() {
                 disabled={!notesReady}
                 onClick={() => setDestination("notes")}
                 icon={StickyNote}
-                label="Notes"
+                label="Notebooks"
               />
               <DestinationChip
                 active={destination === "brainstorm"}
                 disabled={brainstormSessionsQuery.isLoading}
                 onClick={() => setDestination("brainstorm")}
                 icon={Lightbulb}
-                label="Brainstorm"
+                label="Brainstorm Studio"
               />
               <DestinationChip
                 active={destination === "boards"}
                 disabled={!flatBoards.length}
                 onClick={() => setDestination("boards")}
                 icon={LayoutGrid}
-                label="Boards"
+                label="Project Boards"
               />
             </div>
           </div>
@@ -351,7 +351,7 @@ export function RapidRouterPage() {
 
             {destination === "boards" && workspacesQuery.isSuccess && flatBoards.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                No boards found — create one under Boards first.
+                No project boards found — create one under Project Boards first.
               </p>
             )}
 
@@ -402,7 +402,7 @@ export function RapidRouterPage() {
             {destination === "boards" && flatBoards.length > 0 && (
               <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
                 <div className="min-w-[200px] flex-1 space-y-1.5">
-                  <Label htmlFor="rr-boards-board">Board</Label>
+                  <Label htmlFor="rr-boards-board">Project board</Label>
                   <select
                     id="rr-boards-board"
                     className={selectClass}

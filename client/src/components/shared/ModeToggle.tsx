@@ -1,4 +1,4 @@
-import { Moon, Sparkles, Sun } from "lucide-react";
+import { Moon, Rainbow, Sparkles, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { startTransition, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -21,12 +21,20 @@ export function ModeToggle() {
   }, []);
 
   const showVibrant = mounted && theme === "vibrant";
-  const showDark = mounted && !showVibrant && resolvedTheme === "dark";
+  const showRainbow = mounted && theme === "rainbow-explosion";
+  const showDark = mounted && !showVibrant && !showRainbow && resolvedTheme === "dark";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label="Choose color theme">
+          <Rainbow
+            className={cn(
+              "absolute size-4 transition-all",
+              showRainbow ? "scale-100 rotate-0 text-primary opacity-100" : "scale-0 opacity-0",
+            )}
+            aria-hidden
+          />
           <Sparkles
             className={cn(
               "absolute size-4 transition-all",
@@ -37,7 +45,7 @@ export function ModeToggle() {
           <Sun
             className={cn(
               "size-4 transition-all",
-              showVibrant || showDark ? "scale-0 opacity-0" : "scale-100 rotate-0 opacity-100",
+              showVibrant || showRainbow || showDark ? "scale-0 opacity-0" : "scale-100 rotate-0 opacity-100",
             )}
             aria-hidden
           />
@@ -54,6 +62,7 @@ export function ModeToggle() {
         <DropdownMenuItem onClick={() => setTheme("light")}>Light</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("dark")}>Dark</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("vibrant")}>Vibrant</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("rainbow-explosion")}>Rainbow Explosion</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("system")}>System</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

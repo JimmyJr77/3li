@@ -20,7 +20,7 @@ export function NotesPortabilityPanel({
 
   const exportOne = () => {
     if (!selected) return;
-    downloadJson(`atlas-note-${slugify(selected.title || "note")}.json`, {
+    downloadJson(`notebooks-note-${slugify(selected.title || "note")}.json`, {
       version: NOTES_EXPORT_VERSION,
       exportedAt: new Date().toISOString(),
       note: {
@@ -34,7 +34,7 @@ export function NotesPortabilityPanel({
 
   const exportAll = () => {
     if (!exportableNotes.length) return;
-    downloadJson(`atlas-notes-export-${todayStamp()}.json`, {
+    downloadJson(`notebooks-export-${todayStamp()}.json`, {
       version: NOTES_EXPORT_VERSION,
       exportedAt: new Date().toISOString(),
       notes: exportableNotes.map((n) => ({
@@ -53,7 +53,7 @@ export function NotesPortabilityPanel({
     const text = await file.text();
     const parsed = parseNotesImportJson(text);
     if (!parsed) {
-      window.alert("Could not read this file. Use an Atlas Notes JSON export (version 1).");
+      window.alert("Could not read this file. Use a Notebooks JSON export (version 1).");
       return;
     }
     const payloads: ExportedNotePayload[] =
@@ -120,7 +120,7 @@ export function NotesPortabilityPanel({
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           Live co-editing is not available yet. Use <strong className="font-medium text-foreground">Publish</strong> for a
-          read-only public link, or copy an in-app link so teammates can open the same note in Atlas Notes (requires access
+          read-only public link, or copy an in-app link so teammates can open the same note in Notebooks (requires access
           to this workspace).
         </p>
         <Button type="button" size="sm" variant="secondary" className="mt-2 gap-1.5" onClick={() => void copyShare()}>

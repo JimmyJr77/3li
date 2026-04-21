@@ -13,13 +13,13 @@ const modes: { id: ThinkingMode; label: string }[] = [
 
 const modeAccent: Record<ThinkingMode, string> = {
   divergent:
-    "border-violet-500/50 bg-violet-500/10 text-violet-700 dark:text-violet-300 vibrant:border-violet-500/65 vibrant:bg-violet-500/16 vibrant:text-violet-800",
+    "border-violet-500/50 bg-violet-500/10 text-violet-700 dark:text-violet-300 vibrant:border-violet-500/65 vibrant:bg-violet-500/16 vibrant:text-violet-800 rainbow-explosion:border-violet-500/65 rainbow-explosion:bg-violet-500/16 rainbow-explosion:text-violet-800",
   convergent:
-    "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 vibrant:border-emerald-500/60 vibrant:bg-emerald-500/14 vibrant:text-emerald-900",
+    "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 vibrant:border-emerald-500/60 vibrant:bg-emerald-500/14 vibrant:text-emerald-900 rainbow-explosion:border-emerald-500/60 rainbow-explosion:bg-emerald-500/14 rainbow-explosion:text-emerald-900",
   strategic:
-    "border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300 vibrant:border-sky-500/60 vibrant:bg-sky-500/14 vibrant:text-sky-900",
+    "border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300 vibrant:border-sky-500/60 vibrant:bg-sky-500/14 vibrant:text-sky-900 rainbow-explosion:border-sky-500/60 rainbow-explosion:bg-sky-500/14 rainbow-explosion:text-sky-900",
   execution:
-    "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-200 vibrant:border-amber-500/60 vibrant:bg-amber-500/14 vibrant:text-amber-950",
+    "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-200 vibrant:border-amber-500/60 vibrant:bg-amber-500/14 vibrant:text-amber-950 rainbow-explosion:border-amber-500/60 rainbow-explosion:bg-amber-500/14 rainbow-explosion:text-amber-950",
 };
 
 type BrainstormToolbarProps = {
@@ -51,17 +51,17 @@ export function BrainstormToolbar({ saveStatus = "idle" }: BrainstormToolbarProp
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2">
           <Lightbulb className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Brainstorming Studio</h1>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Brainstorm Studio</h1>
         </div>
         {saveLabel && (
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
               saveStatus === "saved" &&
-                "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 vibrant:border-emerald-500/55 vibrant:bg-emerald-500/14 vibrant:text-emerald-900",
+                "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 vibrant:border-emerald-500/55 vibrant:bg-emerald-500/14 vibrant:text-emerald-900 rainbow-explosion:border-emerald-500/55 rainbow-explosion:bg-emerald-500/14 rainbow-explosion:text-emerald-900",
               saveStatus === "saving" && "border-border bg-muted/60 text-muted-foreground",
               saveStatus === "pending" &&
-                "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100 vibrant:border-amber-500/55 vibrant:bg-amber-500/14 vibrant:text-amber-950",
+                "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100 vibrant:border-amber-500/55 vibrant:bg-amber-500/14 vibrant:text-amber-950 rainbow-explosion:border-amber-500/55 rainbow-explosion:bg-amber-500/14 rainbow-explosion:text-amber-950",
               saveStatus === "error" && "border-destructive/40 bg-destructive/10 text-destructive",
             )}
             role="status"

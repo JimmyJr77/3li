@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, FileText, Lightbulb, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, FileText, Lightbulb, Loader2, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { stashNoteForBrainstormImport } from "@/features/brainstorm/brainstormNoteImport";
@@ -21,18 +21,14 @@ import {
 } from "./api";
 import { AtlasNotesBrowseColumns } from "./AtlasNotesBrowseColumns";
 import { applyLocalContentPatch, LOCAL_WORKSPACE_ID, useLocalNotesStore } from "./localNotesStore";
-import { extractPreviewFromDoc } from "./extractPreview";
-import type { NoteTemplate } from "./noteTemplates";
-import { templateSeedTitle } from "./noteTemplates";
 import { NoteAIActions } from "./NoteAIActions";
 import { NoteEditor } from "./NoteEditor";
 import { NoteLinksPanel } from "./NoteLinksPanel";
 import { NotePublishingBar } from "./NotePublishingBar";
 import { NoteTagsRow } from "./NoteTagsRow";
-import { NotesCommandPalette } from "./NotesCommandPalette";
 import { NotesPortabilityPanel } from "./NotesPortabilityPanel";
 import type { ExportedNotePayload } from "./notesImportExport";
-import { QuickCaptureSheet } from "./QuickCaptureSheet";
+import { useNotesWorkspaceShortcuts } from "./NotesWorkspaceShortcutsProvider";
 
 export function AtlasNotesApp() {
   const qc = useQueryClient();
@@ -72,12 +68,25 @@ export function AtlasNotesApp() {
   }, [localMode, localFolders, bootstrapData?.folders]);
 
   const [folderFilter, setFolderFilter] = useState<string | "all">("all");
+
+  /* Pick a default notebook once the list loads (no more “All notes” in the UI). */
+  useEffect(() => {
+    if (folderFilter !== "all") return;
+    if (!topFolders.length) return;
+    const pick =
+      defaultFolderId && topFolders.some((f) => f.id === defaultFolderId)
+        ? defaultFolderId
+        : topFolders[0]!.id;
+    setFolderFilter(pick);
+  }, [topFolders, defaultFolderId, folderFilter]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
-  const [searchHits, setSearchHits] = useState<AtlasNoteDto[] | null>(null);
-  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
-  const [commandOpen, setCommandOpen] = useState(false);
+  /** Workspace-wide search results (only while universal search mode is on). */
+  const [universalSearchHits, setUniversalSearchHits] = useState<AtlasNoteDto[] | null>(null);
+  const [universalSearch, setUniversalSearch] = useState(false);
+  const beforeUniversalRef = useRef<{ folderFilter: string | "all"; selectedId: string | null } | null>(null);
   const urlNoteApplied = useRef(false);
+  const { setActiveNotesFolderId, openQuickCapture } = useNotesWorkspaceShortcuts();
 
   const notesQuery = useQuery({
     queryKey: ["notes-app", "notes", workspaceId, folderFilter],
@@ -101,7 +110,54 @@ export function AtlasNotesApp() {
 
   const notesFromApi = notesQuery.data ?? [];
   const notes = localMode ? listNotesLocal(folderFilter) : notesFromApi;
-  const displayList = searchHits ?? notes;
+
+  const notebookClientFiltered = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return notes;
+    return notes.filter((n) => {
+      const title = (n.title || "").toLowerCase();
+      const prev = (n.previewText || "").toLowerCase();
+      return title.includes(q) || prev.includes(q);
+    });
+  }, [notes, searchQ]);
+
+  const displayList = useMemo(() => {
+    if (universalSearch) {
+      const q = searchQ.trim();
+      if (!q) return [];
+      return universalSearchHits ?? [];
+    }
+    return notebookClientFiltered;
+  }, [universalSearch, searchQ, universalSearchHits, notebookClientFiltered]);
+
+  /* Debounced search across all notebooks while globe mode is on. */
+  useEffect(() => {
+    if (!universalSearch) {
+      setUniversalSearchHits(null);
+      return;
+    }
+    const q = searchQ.trim();
+    if (!q) {
+      setUniversalSearchHits([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (localMode) {
+          setUniversalSearchHits(searchNotesLocal(q));
+          return;
+        }
+        if (!workspaceId) return;
+        try {
+          const hits = await searchNotes(workspaceId, q);
+          setUniversalSearchHits(hits);
+        } catch {
+          setUniversalSearchHits([]);
+        }
+      })();
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [universalSearch, searchQ, localMode, workspaceId, searchNotesLocal]);
 
   const resolvedSelectedId = useMemo(() => {
     if (!displayList.length) return null;
@@ -176,87 +232,60 @@ export function AtlasNotesApp() {
     },
   });
 
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => {
-      if (localMode) {
-        deleteNoteLocal(id);
-        return Promise.resolve();
-      }
-      return deleteNote(id);
-    },
-    onSuccess: () => {
-      if (!localMode) void qc.invalidateQueries({ queryKey: ["notes-app"] });
-      setSelectedId(null);
-    },
-  });
-
   const newFolderMut = useMutation({
     mutationFn: () => {
-      if (localMode) return Promise.resolve(createFolderLocal("New folder"));
+      if (localMode) return Promise.resolve(createFolderLocal("New notebook"));
       if (!workspaceId) throw new Error("No workspace");
-      return createFolder({ workspaceId, title: "New folder" });
+      return createFolder({ workspaceId, title: "New notebook" });
     },
     onSuccess: () => {
       if (!localMode) invalidateAll();
     },
   });
 
-  const runSearch = async () => {
-    if (!searchQ.trim()) {
-      setSearchHits(null);
-      return;
+  const pickNotebook = (id: string | "all") => {
+    setFolderFilter(id);
+    if (universalSearch) {
+      setUniversalSearch(false);
+      beforeUniversalRef.current = null;
+      setUniversalSearchHits(null);
+      setSearchQ("");
     }
-    if (localMode) {
-      setSearchHits(searchNotesLocal(searchQ.trim()));
-      return;
-    }
-    if (!workspaceId) return;
-    const hits = await searchNotes(workspaceId, searchQ.trim());
-    setSearchHits(hits);
   };
+
+  const setUniversalSearchMode = (on: boolean) => {
+    if (on) {
+      beforeUniversalRef.current = { folderFilter, selectedId };
+      setUniversalSearch(true);
+      setUniversalSearchHits([]);
+      return;
+    }
+    setUniversalSearch(false);
+    setUniversalSearchHits(null);
+    setSearchQ("");
+    const snap = beforeUniversalRef.current;
+    beforeUniversalRef.current = null;
+    if (snap) {
+      setFolderFilter(snap.folderFilter);
+      setSelectedId(snap.selectedId);
+    }
+  };
+
+  const captureFolderForShortcuts =
+    workspaceId && defaultFolderId
+      ? folderFilter === "all"
+        ? defaultFolderId
+        : folderFilter
+      : null;
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        const t = e.target as HTMLElement | null;
-        if (t?.closest?.('[data-slot="dialog-content"]')) return;
-        e.preventDefault();
-        setCommandOpen((o) => !o);
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "c") {
-        const t = e.target as HTMLElement | null;
-        if (t?.closest?.('[data-slot="sheet-content"]')) return;
-        e.preventDefault();
-        setQuickCaptureOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const applyTemplate = (template: NoteTemplate) => {
-    if (!defaultFolderId) return;
-    const folderId = folderFilter === "all" ? defaultFolderId : folderFilter;
-    const preview = extractPreviewFromDoc(template.contentJson);
-    const title = templateSeedTitle(template);
-    if (localMode) {
-      const note = createNoteLocal(folderId, title, template.contentJson, preview || null);
-      setSelectedId(note.id);
+    if (!captureFolderForShortcuts) {
+      setActiveNotesFolderId(null);
       return;
     }
-    if (!workspaceId) return;
-    void createNote({
-      workspaceId,
-      folderId,
-      title,
-      contentJson: template.contentJson,
-      previewText: preview || null,
-    }).then((note) => {
-      void qc.invalidateQueries({ queryKey: ["notes-app"] });
-      setSelectedId(note.id);
-    });
-  };
+    setActiveNotesFolderId(captureFolderForShortcuts);
+    return () => setActiveNotesFolderId(null);
+  }, [captureFolderForShortcuts, setActiveNotesFolderId]);
 
   const importPayloads = async (payloads: ExportedNotePayload[]) => {
     if (!defaultFolderId) return;
@@ -285,7 +314,7 @@ export function AtlasNotesApp() {
     return (
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        Loading Atlas Notes…
+        Loading Notebooks…
       </div>
     );
   }
@@ -298,8 +327,6 @@ export function AtlasNotesApp() {
     );
   }
 
-  const captureFolderId = folderFilter === "all" ? defaultFolderId : folderFilter;
-
   const forwardOverride = localMode && selected ? getForwardLinks(selected.id) : undefined;
   const backOverride = localMode && selected ? getBacklinks(selected.id) : undefined;
 
@@ -309,11 +336,27 @@ export function AtlasNotesApp() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
           <p>
-            <span className="font-medium">Using browser storage</span> — the Atlas Notes API is unavailable. Your notes
+            <span className="font-medium">Using browser storage</span> — the Notebooks API is unavailable. Your notes
             stay on this device until the server is reachable again.
           </p>
         </div>
       ) : null}
+
+      <div className="flex min-w-0 shrink-0 items-center justify-between gap-4">
+        <p className="min-w-0 text-left text-[0.65rem] leading-tight text-muted-foreground">
+          Quick capture: ⌘⇧C · Command palette: ⌘K
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="shrink-0 gap-1.5"
+          onClick={() => openQuickCapture()}
+        >
+          <Zap className="size-3.5" aria-hidden />
+          Quick capture
+        </Button>
+      </div>
 
       <div className="flex min-h-[min(68vh,700px)] flex-1 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex min-w-0 shrink-0 items-stretch">
@@ -321,18 +364,17 @@ export function AtlasNotesApp() {
           localMode={localMode}
           topFolders={topFolders}
           folderFilter={folderFilter}
-          setFolderFilter={setFolderFilter}
-          setSearchHits={setSearchHits}
+          onPickNotebook={pickNotebook}
+          universalSearch={universalSearch}
+          onUniversalSearchChange={setUniversalSearchMode}
           notesLoading={!localMode && notesQuery.isLoading}
           displayList={displayList}
           resolvedSelectedId={resolvedSelectedId}
           setSelectedId={setSelectedId}
           searchQ={searchQ}
           setSearchQ={setSearchQ}
-          runSearch={runSearch}
           createPending={createMut.isPending}
           onNewNote={() => createMut.mutate()}
-          onQuickCapture={() => setQuickCaptureOpen(true)}
           onNewFolder={() => newFolderMut.mutate()}
           newFolderPending={newFolderMut.isPending}
           onReorderFolders={async (ids) => {
@@ -352,13 +394,13 @@ export function AtlasNotesApp() {
             await reorderNotesApi(workspaceId!, folderFilter, ids);
             invalidateAll();
           }}
-          onRenameFolder={async (folderId, title) => {
+          onPatchFolder={async (folderId, payload) => {
             try {
               if (localMode) {
-                patchFolderStore(folderId, { title });
+                patchFolderStore(folderId, { title: payload.title, rowAccentColor: payload.rowAccentColor });
                 return;
               }
-              await patchFolderApi(folderId, { title });
+              await patchFolderApi(folderId, { title: payload.title, rowAccentColor: payload.rowAccentColor });
               invalidateAll();
             } catch (e: unknown) {
               const msg =
@@ -366,13 +408,50 @@ export function AtlasNotesApp() {
                   ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
                   : e instanceof Error
                     ? e.message
-                    : "Could not rename folder";
-              window.alert(msg ?? "Could not rename folder");
+                    : "Could not update notebook";
+              window.alert(msg ?? "Could not update notebook");
+            }
+          }}
+          onPatchNote={async (noteId, payload) => {
+            try {
+              if (localMode) {
+                patchNoteLocal(noteId, { title: payload.title, rowAccentColor: payload.rowAccentColor });
+                return;
+              }
+              await patchNote(noteId, { title: payload.title, rowAccentColor: payload.rowAccentColor });
+              void qc.invalidateQueries({ queryKey: ["notes-app"] });
+            } catch (e: unknown) {
+              const msg =
+                typeof e === "object" && e !== null && "response" in e
+                  ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+                  : e instanceof Error
+                    ? e.message
+                    : "Could not update note";
+              window.alert(msg ?? "Could not update note");
+            }
+          }}
+          onDeleteNote={async (noteId) => {
+            try {
+              if (localMode) {
+                deleteNoteLocal(noteId);
+              } else {
+                await deleteNote(noteId);
+                void qc.invalidateQueries({ queryKey: ["notes-app"] });
+              }
+              setSelectedId((prev) => (prev === noteId ? null : prev));
+            } catch (e: unknown) {
+              const msg =
+                typeof e === "object" && e !== null && "response" in e
+                  ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
+                  : e instanceof Error
+                    ? e.message
+                    : "Failed to delete note";
+              window.alert(msg ?? "Failed to delete note");
             }
           }}
           onDeleteFolder={async (folderId) => {
             if (topFolders.length <= 1) {
-              window.alert("Create a second folder before deleting this one. Every workspace needs at least one folder.");
+              window.alert("Create a second notebook before deleting this one. Every workspace needs at least one notebook.");
               return;
             }
             try {
@@ -389,11 +468,13 @@ export function AtlasNotesApp() {
                   ? (e as { response?: { data?: { error?: string } } }).response?.data?.error
                   : e instanceof Error
                     ? e.message
-                    : "Failed to delete folder";
-              window.alert(msg ?? "Failed to delete folder");
+                    : "Failed to delete notebook";
+              window.alert(msg ?? "Failed to delete notebook");
             }
           }}
-          canReorderNotes={folderFilter !== "all" && searchHits === null}
+          canReorderNotes={
+            !universalSearch && folderFilter !== "all" && searchQ.trim() === ""
+          }
         />
         </div>
 
@@ -419,7 +500,7 @@ export function AtlasNotesApp() {
                     size="sm"
                     variant="outline"
                     className="gap-1"
-                    title="Add this note as an idea card on the Brainstorm board"
+                    title="Add this note as an idea card on the Brainstorm Studio board"
                     onClick={() => {
                       stashNoteForBrainstormImport(selected);
                       void qc.invalidateQueries({ queryKey: ["brainstorm"] });
@@ -427,20 +508,7 @@ export function AtlasNotesApp() {
                     }}
                   >
                     <Lightbulb className="size-3.5" />
-                    Brainstorm
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    className="gap-1"
-                    onClick={() => {
-                      if (confirm("Delete this note?")) deleteMut.mutate(selected.id);
-                    }}
-                    disabled={deleteMut.isPending}
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete
+                    Brainstorm Studio
                   </Button>
                 </div>
               </div>
@@ -514,33 +582,8 @@ export function AtlasNotesApp() {
             </div>
           )}
         </section>
-        <QuickCaptureSheet
-          open={quickCaptureOpen}
-          onOpenChange={setQuickCaptureOpen}
-          workspaceId={workspaceId}
-          folderId={captureFolderId}
-          onCreated={(id) => setSelectedId(id)}
-          createNoteFn={
-            localMode
-              ? async (body) => {
-                  const note = createNoteLocal(body.folderId, body.title, body.contentJson, body.previewText);
-                  return { id: note.id };
-                }
-              : undefined
-          }
-        />
-        <NotesCommandPalette
-          open={commandOpen}
-          onOpenChange={setCommandOpen}
-          localMode={localMode}
-          workspaceId={workspaceId}
-          searchNotesLocal={searchNotesLocal}
-          onOpenNote={(id) => setSelectedId(id)}
-          onNewNote={() => createMut.mutate()}
-          onQuickCapture={() => setQuickCaptureOpen(true)}
-          onApplyTemplate={applyTemplate}
-        />
       </div>
+
     </div>
   );
 }

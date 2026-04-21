@@ -80,7 +80,7 @@ export function NotesCommandPalette({
         kind: "action",
         id: "new",
         label: "New note",
-        hint: "Create in the current folder",
+        hint: "Create in the current notebook",
         icon: Plus,
         run: () => {
           onNewNote();
@@ -147,7 +147,7 @@ export function NotesCommandPalette({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={false}>
         <div className="border-b border-border px-4 py-3">
-          <DialogTitle className="sr-only">Atlas Notes command palette</DialogTitle>
+          <DialogTitle className="sr-only">Notebooks command palette</DialogTitle>
           <DialogDescription className="sr-only">
             Search notes or run actions. Use arrow keys and Enter.
           </DialogDescription>
@@ -194,7 +194,7 @@ export function NotesCommandPalette({
           ) : (
             <ul className="space-y-0.5" role="listbox">
               {debounced.length >= 1 ? (
-                <li className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</li>
+                <li className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Notebooks</li>
               ) : (
                 <li className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Actions</li>
               )}

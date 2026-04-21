@@ -1,4 +1,5 @@
 import { prisma } from "./db.js";
+import { ensureTaskflowShowcase } from "./showcaseSeed.js";
 
 const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
   { title: "Backlog", key: "backlog", position: 0 },
@@ -30,7 +31,7 @@ export async function ensureDefaultWorkspaceBoard() {
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
   if (!workspace) {
-    workspace = await prisma.workspace.create({ data: { name: "My workspace", position: 0 } });
+    workspace = await prisma.workspace.create({ data: { name: "My Project", position: 0 } });
   }
 
   const existingBoard = await prisma.board.findFirst({
@@ -43,7 +44,7 @@ export async function ensureDefaultWorkspaceBoard() {
     board = await prisma.board.create({
       data: {
         workspaceId: workspace.id,
-        name: "Main board",
+        name: "Main project board",
         position: 0,
       },
     });
@@ -66,6 +67,8 @@ export async function ensureDefaultWorkspaceBoard() {
     board = existingBoard;
     await ensureBoardLists(board.id);
   }
+
+  await ensureTaskflowShowcase(board.id);
 
   return { workspace, board };
 }

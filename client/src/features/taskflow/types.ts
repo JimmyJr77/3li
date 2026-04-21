@@ -45,7 +45,7 @@ export type BoardDto = {
   id: string;
   name: string;
   workspaceId: string;
-  /** Set when the board is archived (hidden from default workspace lists). */
+  /** Set when the board is archived (hidden from default project space lists). */
   archivedAt?: string | null;
   lists: BoardListDto[];
   labels: LabelDto[];

@@ -92,7 +92,7 @@ export function NoteAIActions({
       <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/15 p-3">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI</div>
         <p className="text-xs text-muted-foreground">
-          AI actions need the Atlas Notes API. Edit notes locally, then sync when the server is available.
+          AI actions need the Notebooks API. Edit notes locally, then sync when the server is available.
         </p>
       </div>
     );

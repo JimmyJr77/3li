@@ -9,12 +9,21 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronLeft, FileText, FolderPlus, GripVertical, Loader2, Pencil, Plus, Search, Trash2, Zap } from "lucide-react";
+import {
+  BookPlus,
+  ChevronLeft,
+  FilePlus,
+  Globe,
+  GripVertical,
+  Loader2,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { BrowseItemOverflowMenu } from "./BrowseItemOverflowMenu";
+import { browseRowAccentSurface } from "./notebookRowAccent";
 import type { AtlasNoteDto, NotesFolderDto } from "./types";
 
 function CollapsibleRail({
@@ -94,31 +103,29 @@ function CollapsibleRail({
 function SortableFolderRow({
   folder,
   active,
-  editingId,
-  draftTitle,
-  setDraftTitle,
   onSelect,
-  onCommitRename,
+  onPatch,
   onDelete,
-  onStartRename,
+  dragDisabled,
 }: {
   folder: NotesFolderDto;
   active: boolean;
-  editingId: string | null;
-  draftTitle: string;
-  setDraftTitle: (s: string) => void;
   onSelect: () => void;
-  onCommitRename: () => void;
-  onDelete: () => void;
-  onStartRename: () => void;
+  onPatch: (payload: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
+  dragDisabled: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: folder.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: folder.id,
+    disabled: dragDisabled,
+  });
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const rowTint = browseRowAccentSurface(folder.rowAccentColor ?? null);
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...style, ...rowTint }}
       className={cn(
         "flex items-center gap-0.5 rounded-md",
         active && "bg-muted font-medium",
@@ -127,72 +134,36 @@ function SortableFolderRow({
     >
       <button
         type="button"
-        className="touch-none rounded p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-        aria-label="Drag to reorder folder"
+        className={cn(
+          "touch-none rounded p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+          dragDisabled && "pointer-events-none opacity-40",
+        )}
+        aria-label="Drag to reorder notebook"
         {...attributes}
         {...listeners}
       >
         <GripVertical className="size-3.5" />
       </button>
-      {editingId === folder.id ? (
-        <Input
-          value={draftTitle}
-          onChange={(e) => setDraftTitle(e.target.value)}
-          onPointerDown={(e) => e.stopPropagation()}
-          onBlur={onCommitRename}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-          className="h-8 min-w-0 flex-1 text-sm"
-          autoFocus
-        />
-      ) : (
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onSelect();
-          }}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onStartRename();
-          }}
-          className="min-w-0 flex-1 truncate rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/80"
-        >
-          {folder.title}
-        </button>
-      )}
-      <Button
+      <button
         type="button"
-        variant="ghost"
-        size="icon-xs"
-        className="size-7 shrink-0"
-        aria-label="Rename folder"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onStartRename();
+          onSelect();
         }}
+        className="min-w-0 flex-1 truncate rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/80"
       >
-        <Pencil className="size-3" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        className="size-7 shrink-0 text-destructive hover:text-destructive"
-        aria-label="Delete folder"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDelete();
-        }}
-      >
-        <Trash2 className="size-3" />
-      </Button>
+        {folder.title}
+      </button>
+      <BrowseItemOverflowMenu
+        kind="notebook"
+        initialTitle={folder.title}
+        initialAccent={folder.rowAccentColor ?? null}
+        onApply={onPatch}
+        onDelete={onDelete}
+        deleteConfirmation={`Delete notebook “${folder.title}”? Notes inside will be moved to another notebook if one exists.`}
+      />
     </div>
   );
 }
@@ -201,27 +172,33 @@ function SortableNoteRow({
   note,
   active,
   onSelect,
+  onPatch,
+  onDelete,
 }: {
   note: AtlasNoteDto;
   active: boolean;
   onSelect: () => void;
+  onPatch: (payload: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: note.id });
-  const style = { transform: CSS.Transform.toString(transform), transition };
+  const dndStyle = { transform: CSS.Transform.toString(transform), transition };
+  const rowTint = browseRowAccentSurface(note.rowAccentColor ?? null);
+  const title = note.title || "Untitled";
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...dndStyle, ...rowTint }}
       className={cn(
-        "flex w-full items-start gap-1 rounded-md",
+        "flex w-full items-center gap-0.5 rounded-md",
         active && "bg-muted font-medium",
         isDragging && "opacity-60",
       )}
     >
       <button
         type="button"
-        className="mt-1 shrink-0 touch-none rounded p-0.5 text-muted-foreground hover:bg-muted/80"
+        className="shrink-0 touch-none rounded p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
         aria-label="Drag to reorder note"
         {...attributes}
         {...listeners}
@@ -236,16 +213,18 @@ function SortableNoteRow({
           e.stopPropagation();
           onSelect();
         }}
-        className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-1 py-2 text-left text-sm transition-colors hover:bg-muted/80"
+        className="min-w-0 flex-1 truncate rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/80"
       >
-        <FileText className="mt-0.5 size-4 shrink-0 opacity-60" />
-        <span className="line-clamp-2">
-          {note.title || "Untitled"}
-          {note.previewText ? (
-            <span className="mt-0.5 block text-xs font-normal text-muted-foreground line-clamp-2">{note.previewText}</span>
-          ) : null}
-        </span>
+        {title}
       </button>
+      <BrowseItemOverflowMenu
+        kind="note"
+        initialTitle={title}
+        initialAccent={note.rowAccentColor ?? null}
+        onApply={onPatch}
+        onDelete={onDelete}
+        deleteConfirmation={`Delete note “${title}”?`}
+      />
     </div>
   );
 }
@@ -254,55 +233,63 @@ export function AtlasNotesBrowseColumns({
   localMode,
   topFolders,
   folderFilter,
-  setFolderFilter,
-  setSearchHits,
+  onPickNotebook,
+  universalSearch,
+  onUniversalSearchChange,
   notesLoading,
   displayList,
   resolvedSelectedId,
   setSelectedId,
   searchQ,
   setSearchQ,
-  runSearch,
   createPending,
   onNewNote,
-  onQuickCapture,
   onNewFolder,
   newFolderPending,
   onReorderFolders,
   onReorderNotes,
-  onRenameFolder,
+  onPatchFolder,
   onDeleteFolder,
+  onPatchNote,
+  onDeleteNote,
   canReorderNotes,
 }: {
   localMode: boolean;
   topFolders: NotesFolderDto[];
   folderFilter: string | "all";
-  setFolderFilter: (id: string | "all") => void;
-  setSearchHits: (v: AtlasNoteDto[] | null) => void;
+  onPickNotebook: (id: string | "all") => void;
+  universalSearch: boolean;
+  onUniversalSearchChange: (on: boolean) => void;
   notesLoading: boolean;
   displayList: AtlasNoteDto[];
   resolvedSelectedId: string | null;
   setSelectedId: (id: string | null) => void;
   searchQ: string;
   setSearchQ: (s: string) => void;
-  runSearch: () => void | Promise<void>;
   createPending: boolean;
   onNewNote: () => void;
-  onQuickCapture: () => void;
   onNewFolder: () => void;
   newFolderPending?: boolean;
   onReorderFolders: (orderedIds: string[]) => void | Promise<void>;
   onReorderNotes: (orderedIds: string[]) => void | Promise<void>;
-  onRenameFolder: (folderId: string, title: string) => void | Promise<void>;
+  onPatchFolder: (folderId: string, body: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
   onDeleteFolder: (folderId: string) => void | Promise<void>;
+  onPatchNote: (noteId: string, body: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
+  onDeleteNote: (noteId: string) => void | Promise<void>;
   canReorderNotes: boolean;
 }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
-  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
+  const [notebookSearch, setNotebookSearch] = useState("");
 
-  const folderIds = useMemo(() => topFolders.map((f) => f.id), [topFolders]);
+  const notebookSearchActive = notebookSearch.trim().length > 0;
+  const foldersShown = useMemo(() => {
+    const q = notebookSearch.trim().toLowerCase();
+    if (!q) return topFolders;
+    return topFolders.filter((f) => f.title.toLowerCase().includes(q));
+  }, [topFolders, notebookSearch]);
+
+  const folderIdsShown = useMemo(() => foldersShown.map((f) => f.id), [foldersShown]);
   const noteIds = useMemo(() => displayList.map((n) => n.id), [displayList]);
 
   const folderSensors = useSensors(
@@ -315,12 +302,14 @@ export function AtlasNotesBrowseColumns({
   );
 
   const onFolderDragEnd = (e: DragEndEvent) => {
+    if (notebookSearchActive) return;
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const oldIndex = folderIds.indexOf(active.id as string);
-    const newIndex = folderIds.indexOf(over.id as string);
+    const fullIds = topFolders.map((f) => f.id);
+    const oldIndex = fullIds.indexOf(active.id as string);
+    const newIndex = fullIds.indexOf(over.id as string);
     if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(folderIds, oldIndex, newIndex);
+    const next = arrayMove(fullIds, oldIndex, newIndex);
     void onReorderFolders(next);
   };
 
@@ -334,35 +323,20 @@ export function AtlasNotesBrowseColumns({
     void onReorderNotes(next);
   };
 
-  const startRename = (f: NotesFolderDto) => {
-    setEditingFolderId(f.id);
-    setDraftTitle(f.title);
-  };
-
-  const commitRename = async () => {
-    const id = editingFolderId;
-    if (!id) return;
-    const t = draftTitle.trim();
-    setEditingFolderId(null);
-    if (!t) return;
-    const folder = topFolders.find((x) => x.id === id);
-    if (!folder || t === folder.title) return;
-    await onRenameFolder(id, t);
-  };
-
   return (
     <>
       <CollapsibleRail
         open={foldersOpen}
         onOpenChange={setFoldersOpen}
-        label="FOLDERS"
+        label="NOTEBOOKS"
         widthClass="w-52"
         headerRight={
           <Button
             type="button"
             size="icon-xs"
             variant="ghost"
-            aria-label="New folder"
+            aria-label="New notebook"
+            title="New notebook"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.preventDefault();
@@ -371,48 +345,50 @@ export function AtlasNotesBrowseColumns({
             }}
             disabled={newFolderPending}
           >
-            <FolderPlus className="size-3.5" />
+            <BookPlus className="size-3.5" />
           </Button>
         }
       >
-        <DndContext id="atlas-folders-dnd" sensors={folderSensors} collisionDetection={closestCenter} onDragEnd={onFolderDragEnd}>
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setFolderFilter("all");
-              setSearchHits(null);
-            }}
-            className={cn(
-              "mb-1 w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted",
-              folderFilter === "all" && "bg-muted font-medium",
-            )}
-          >
-            All notes
-          </button>
-          <SortableContext items={folderIds} strategy={verticalListSortingStrategy}>
-            <nav className="flex flex-col gap-0.5">
-              {topFolders.map((f) => (
+        <Input
+          placeholder="Find notebooks…"
+          value={notebookSearch}
+          onChange={(e) => setNotebookSearch(e.target.value)}
+          className="mb-2 h-8 text-sm"
+          aria-label="Filter notebooks"
+        />
+        {universalSearch ? (
+          <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-500/35 bg-sky-500/10 px-2 py-1.5 text-[0.65rem] text-sky-900 dark:text-sky-100">
+            <Globe className="size-3.5 shrink-0" aria-hidden />
+            <span className="font-medium">Searching all notebooks</span>
+          </div>
+        ) : null}
+        {notebookSearchActive ? (
+          <p className="mb-2 text-[0.65rem] text-muted-foreground">Clear the filter to reorder notebooks.</p>
+        ) : null}
+        <DndContext
+          id="notebooks-dnd"
+          sensors={folderSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={onFolderDragEnd}
+        >
+          <SortableContext items={folderIdsShown} strategy={verticalListSortingStrategy}>
+            <nav
+              className={cn(
+                "flex flex-col gap-0.5",
+                universalSearch && "rounded-md opacity-60 transition-opacity",
+              )}
+            >
+              {foldersShown.map((f) => (
                 <SortableFolderRow
                   key={f.id}
                   folder={f}
-                  active={folderFilter === f.id}
-                  editingId={editingFolderId}
-                  draftTitle={draftTitle}
-                  setDraftTitle={setDraftTitle}
+                  active={!universalSearch && folderFilter === f.id}
                   onSelect={() => {
-                    setFolderFilter(f.id);
-                    setSearchHits(null);
+                    onPickNotebook(f.id);
                   }}
-                  onCommitRename={() => void commitRename()}
-                  onDelete={() => {
-                    if (confirm(`Delete folder “${f.title}”? Notes inside will move to another folder.`)) {
-                      void onDeleteFolder(f.id);
-                    }
-                  }}
-                  onStartRename={() => startRename(f)}
+                  onPatch={(payload) => onPatchFolder(f.id, payload)}
+                  onDelete={() => void onDeleteFolder(f.id)}
+                  dragDisabled={notebookSearchActive}
                 />
               ))}
             </nav>
@@ -420,40 +396,55 @@ export function AtlasNotesBrowseColumns({
         </DndContext>
       </CollapsibleRail>
 
-      <CollapsibleRail open={notesOpen} onOpenChange={setNotesOpen} label="NOTES" widthClass="w-64">
+      <CollapsibleRail
+        open={notesOpen}
+        onOpenChange={setNotesOpen}
+        label="NOTES"
+        widthClass="w-64"
+        headerRight={
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            aria-label="New note"
+            title="New note"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onNewNote();
+            }}
+            disabled={createPending}
+          >
+            <FilePlus className="size-3.5" />
+          </Button>
+        }
+      >
         <div className="mb-3 flex flex-col gap-2">
           <div className="flex gap-2">
             <Input
-              placeholder="Search…"
+              placeholder={universalSearch ? "Search all notebooks…" : "Filter notes in this notebook…"}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void runSearch()}
-              className="h-8 text-sm"
+              className="h-8 min-w-0 flex-1 text-sm"
+              aria-label={universalSearch ? "Search notes in all notebooks" : "Filter notes in the selected notebook"}
             />
-            <Button type="button" size="icon" variant="secondary" className="size-8 shrink-0" onClick={() => void runSearch()}>
-              <Search className="size-4" />
-            </Button>
-          </div>
-          <div className="flex flex-col gap-1.5">
             <Button
               type="button"
-              size="sm"
-              className="w-full justify-start gap-2"
-              onClick={onNewNote}
-              disabled={createPending}
+              size="icon"
+              variant={universalSearch ? "secondary" : "outline"}
+              className={cn("size-8 shrink-0", universalSearch && "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100")}
+              title={universalSearch ? "Universal search on — click to return to one notebook" : "Search across all notebooks"}
+              aria-pressed={universalSearch}
+              aria-label={universalSearch ? "Exit universal note search" : "Search all notebooks"}
+              onClick={() => onUniversalSearchChange(!universalSearch)}
             >
-              <Plus className="size-4" />
-              New note
+              <Globe className="size-4" />
             </Button>
-            <Button type="button" size="sm" variant="secondary" className="w-full justify-start gap-2" onClick={onQuickCapture}>
-              <Zap className="size-4" />
-              Quick capture
-            </Button>
-            <p className="text-[0.65rem] leading-tight text-muted-foreground">Quick capture: ⌘⇧C · Command palette: ⌘K</p>
           </div>
         </div>
         {!canReorderNotes ? (
-          <p className="mb-2 text-[0.65rem] text-muted-foreground">Select a single folder to reorder notes.</p>
+          <p className="mb-2 text-[0.65rem] text-muted-foreground">Select a single notebook to reorder notes.</p>
         ) : null}
         <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
           {!localMode && notesLoading ? (
@@ -462,7 +453,13 @@ export function AtlasNotesBrowseColumns({
               Loading…
             </div>
           ) : displayList.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No notes yet. Create one to get started.</p>
+            <p className="text-sm text-muted-foreground">
+              {universalSearch
+                ? searchQ.trim()
+                  ? "No notes match."
+                  : "Type above to search every notebook, or turn off the globe to browse one notebook."
+                : "No notes yet. Create one to get started."}
+            </p>
           ) : canReorderNotes ? (
             <DndContext id="atlas-notes-dnd" sensors={noteSensors} collisionDetection={closestCenter} onDragEnd={onNoteDragEnd}>
               <SortableContext items={noteIds} strategy={verticalListSortingStrategy}>
@@ -473,39 +470,49 @@ export function AtlasNotesBrowseColumns({
                     active={resolvedSelectedId === n.id}
                     onSelect={() => {
                       setSelectedId(n.id);
-                      setSearchHits(null);
                     }}
+                    onPatch={(payload) => onPatchNote(n.id, payload)}
+                    onDelete={() => void onDeleteNote(n.id)}
                   />
                 ))}
               </SortableContext>
             </DndContext>
           ) : (
-            displayList.map((n) => (
-              <button
-                key={n.id}
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setSelectedId(n.id);
-                  setSearchHits(null);
-                }}
-                className={cn(
-                  "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted",
-                  resolvedSelectedId === n.id && "bg-muted font-medium",
-                )}
-              >
-                <span className="line-clamp-2">
-                  {n.title || "Untitled"}
-                  {n.previewText ? (
-                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground line-clamp-2">
-                      {n.previewText}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))
+            displayList.map((n) => {
+              const nt = n.title || "Untitled";
+              const rowTint = browseRowAccentSurface(n.rowAccentColor ?? null);
+              return (
+                <div
+                  key={n.id}
+                  className="flex items-center gap-0.5 rounded-md"
+                  style={rowTint}
+                >
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedId(n.id);
+                    }}
+                    className={cn(
+                      "min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
+                      resolvedSelectedId === n.id && "bg-muted font-medium",
+                    )}
+                  >
+                    {nt}
+                  </button>
+                  <BrowseItemOverflowMenu
+                    kind="note"
+                    initialTitle={nt}
+                    initialAccent={n.rowAccentColor ?? null}
+                    onApply={(payload) => onPatchNote(n.id, payload)}
+                    onDelete={() => void onDeleteNote(n.id)}
+                    deleteConfirmation={`Delete note “${nt}”?`}
+                  />
+                </div>
+              );
+            })
           )}
         </div>
       </CollapsibleRail>

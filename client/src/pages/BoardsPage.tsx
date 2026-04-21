@@ -203,20 +203,21 @@ export function BoardsPage() {
       <div>
         <div className="flex items-center gap-2">
           <LayoutGrid className="size-5 text-muted-foreground" aria-hidden />
-          <h1 className="text-2xl font-semibold tracking-tight">Boards</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Project Boards</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Workspaces group boards. Create a board from a template, then open the main board view to work.
+          Project spaces group project boards. Create a project board from a template, then open the main board view
+          to work.
         </p>
       </div>
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Board templates</h2>
+          <h2 className="text-lg font-semibold">Project Board Templates</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Save column layouts to reuse when adding boards. Drag a template onto a workspace below. Hover for a
-            light floating motion. Drag a custom template to the narrow column beside workspaces to delete it;
-            built-in templates cannot be deleted.
+            Save column layouts to reuse when adding project boards. Drag a template onto a project space below. Hover
+            for a light floating motion. Drag a custom template to the narrow column beside project spaces to delete
+            it; built-in templates cannot be deleted.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -389,7 +390,7 @@ export function BoardsPage() {
                   isDragging && "boards-draggable-card--dragging",
                   !canDrag && "cursor-not-allowed opacity-80",
                 )}
-                title={canDrag ? "Drag onto a workspace below" : "Create a workspace first"}
+                title={canDrag ? "Drag onto a project space below" : "Create a project space first"}
               >
                 <CardHeader className="pb-4 pt-4">
                   <CardTitle className="text-base">{t.name}</CardTitle>
@@ -400,10 +401,10 @@ export function BoardsPage() {
                       ? "Built-in"
                       : t.workspaceId && t.workspaceName
                         ? `Custom · ${t.workspaceName}`
-                        : "Custom · Any workspace"}
+                        : "Custom · Any project space"}
                   </p>
                   {!canDrag ? (
-                    <p className="mt-2 text-xs text-muted-foreground">Create a workspace to enable drag.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Create a project space to enable drag.</p>
                   ) : null}
                 </CardHeader>
               </Card>
@@ -414,10 +415,10 @@ export function BoardsPage() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Your workspaces</h2>
+          <h2 className="text-lg font-semibold">Project Spaces</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Boards are thin cards—drag one to the narrow column to archive it. Drag a template here to add a
-            board. Drag workspaces to reorder, or onto the column to archive a workspace.
+            Project board cards are thin—drag one to the narrow column to archive it. Drag a template here to add a
+            project board. Drag project spaces to reorder, or onto the column to archive a project space.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -431,7 +432,7 @@ export function BoardsPage() {
               }
             }}
             className="w-full min-w-0 sm:max-w-xs"
-            aria-label="New workspace name"
+            aria-label="New project space name"
           />
           <Button
             type="button"
@@ -442,7 +443,7 @@ export function BoardsPage() {
             disabled={createWsMutation.isPending || !newWorkspaceName.trim()}
           >
             <Plus className="size-4" />
-            Add workspace
+            Add project space
           </Button>
         </div>
         {workspacesQuery.isLoading && (
@@ -452,7 +453,7 @@ export function BoardsPage() {
           </div>
         )}
         {workspacesQuery.isError && (
-          <p className="text-sm text-destructive">Could not load workspaces.</p>
+          <p className="text-sm text-destructive">Could not load project spaces.</p>
         )}
 
         <div className="flex flex-col items-stretch gap-4 md:flex-row">
@@ -462,9 +463,9 @@ export function BoardsPage() {
               aria-label={
                 showTemplateTrashStrip
                   ? "Drop to delete custom template"
-                  : showBoardArchiveStrip
-                    ? "Drop to archive board"
-                    : "Drop to archive workspace"
+                  :                 showBoardArchiveStrip
+                    ? "Drop to archive project board"
+                    : "Drop to archive project space"
               }
               className={cn(
                 "flex min-h-[12rem] w-11 shrink-0 flex-col items-center justify-center self-stretch rounded-lg border-2 border-dashed px-0 py-4 transition-colors",
@@ -656,7 +657,9 @@ export function BoardsPage() {
                   >
                     <CardTitle className="text-lg">{ws.name}</CardTitle>
                     <CardDescription>
-                      {ws.boards.length === 0 ? "No boards yet." : `${ws.boards.length} board(s)`}
+                      {ws.boards.length === 0
+                        ? "No project boards yet."
+                        : `${ws.boards.length} project board${ws.boards.length === 1 ? "" : "s"}`}
                     </CardDescription>
                   </div>
                   <ul className="mt-3 space-y-2">
@@ -707,12 +710,12 @@ export function BoardsPage() {
                   {archivedLoading && (
                     <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                      Loading archived boards…
+                      Loading archived project boards…
                     </div>
                   )}
                   {!archivedLoading && archivedBoards.length > 0 && (
                     <div className="mt-4 border-t pt-3">
-                      <p className="mb-2 text-xs font-medium text-muted-foreground">Archived boards</p>
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">Archived project boards</p>
                       <ul className="space-y-2 text-sm">
                         {archivedBoards.map((b) => (
                           <li key={b.id} className="flex items-center justify-between gap-2">
@@ -742,7 +745,7 @@ export function BoardsPage() {
 
         {archivedWorkspacesQuery.data && archivedWorkspacesQuery.data.length > 0 && (
           <div className="mt-6 space-y-3 rounded-lg border border-dashed bg-muted/15 p-4">
-            <p className="text-sm font-medium">Archived workspaces</p>
+            <p className="text-sm font-medium">Archived project spaces</p>
             <ul className="space-y-2 text-sm">
               {archivedWorkspacesQuery.data.map((w) => (
                 <li key={w.id} className="flex items-center justify-between gap-2">

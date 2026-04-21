@@ -1,6 +1,6 @@
-# Atlas Notes — execution roadmap
+# Notebooks — execution roadmap
 
-**Product spec:** [overview.md](./overview.md) (Atlas Notes: capture, editor, folders, tags, search, backlinks, templates, AI, publishing).
+**Product spec:** [overview.md](./overview.md) (Notebooks: capture, editor, folders, tags, search, backlinks, templates, AI, publishing).
 
 **Implementation stack (this repo):** Vite + React Router + Express + Prisma/Postgres — **not** Next.js. The overview’s Next.js/Vercel wording is conceptual; details here override for `3li`.
 
@@ -10,17 +10,17 @@
 
 ## Baseline (snapshot)
 
-- **Route:** `/app/notes` → Atlas shell with folders, note list, TipTap editor, autosave to `/api/notes-app`.
+- **Route:** `/app/notes` → Notebooks shell with folders, note list, TipTap editor, autosave to `/api/notes-app`.
 - **Data:** `Note`, `NotesFolder`, `NoteTag`, `NoteLink` scoped to existing `Workspace` ([prisma/schema.prisma](../../../prisma/schema.prisma)).
-- **Removed:** Prior placeholder-only `NotesPage` and empty `features/notes` stub — replaced by Atlas implementation.
+- **Removed:** Prior placeholder-only `NotesPage` and empty `features/notes` stub — replaced by Notebooks implementation.
 
 ---
 
 ## Erase / replace checklist (completed at initiation)
 
-- [x] Replace placeholder [NotesPage.tsx](../../../client/src/pages/NotesPage.tsx) with Atlas layout.
+- [x] Replace placeholder [NotesPage.tsx](../../../client/src/pages/NotesPage.tsx) with Notebooks layout.
 - [x] Replace stub [features/notes/index.ts](../../../client/src/features/notes/index.ts) with real module exports.
-- [x] Remove BoardNotes/Task-centric planning; this file now tracks Atlas only.
+- [x] Remove BoardNotes/Task-centric planning; this file now tracks Notebooks only.
 
 ---
 
@@ -70,7 +70,7 @@
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| — | Notes domain is **standalone** (`Note` / `NotesFolder`), not `Task` | Matches Atlas overview; TaskFoundry stays separate. |
+| — | Notes domain is **standalone** (`Note` / `NotesFolder`), not `Task` | Matches Notebooks overview; TaskFoundry stays separate. |
 | — | TipTap document stored as `contentJson` on `Note` | Simpler than normalized blocks for MVP. |
 
 ---

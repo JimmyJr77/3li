@@ -14,7 +14,7 @@ function VerticalLabel({ children }: { children: string }) {
   );
 }
 
-/** Left column: collapsing to a thin strip on the left (content folds right), matching Atlas Notes FOLDERS/NOTES rails. */
+/** Left column: collapsing to a thin strip on the left (content folds right), matching Notebooks FOLDERS/NOTES rails. */
 export function ChatChatsRail({
   open,
   onOpenChange,

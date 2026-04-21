@@ -19,6 +19,17 @@ export async function fetchNotesList(params: {
   return data;
 }
 
+export async function enrichQuickCapture(body: {
+  workspaceId: string;
+  folderId: string;
+  title?: string;
+  rawText: string;
+  brandCenterContext?: string;
+}): Promise<{ title: string; body: string }> {
+  const { data } = await api.post<{ title: string; body: string }>("/api/notes-app/quick-capture/enrich", body);
+  return data;
+}
+
 export async function createNote(body: {
   workspaceId: string;
   folderId?: string | null;
@@ -41,6 +52,7 @@ export type PatchNoteBody = {
   publicSlug?: string | null;
   tagIds?: string[];
   position?: number;
+  rowAccentColor?: string | null;
 };
 
 export async function patchNote(noteId: string, body: PatchNoteBody): Promise<AtlasNoteDto> {
@@ -63,7 +75,7 @@ export async function createFolder(body: {
 
 export async function patchFolder(
   folderId: string,
-  body: { title?: string; position?: number },
+  body: { title?: string; position?: number; rowAccentColor?: string | null },
 ): Promise<NotesFolderDto> {
   const { data } = await api.patch<NotesFolderDto>(`/api/notes-app/folders/${folderId}`, body);
   return data;

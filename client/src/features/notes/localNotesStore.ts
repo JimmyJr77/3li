@@ -31,6 +31,7 @@ function buildInitial(): {
         parentId: null,
         title: "Notes",
         position: 0,
+        rowAccentColor: null,
         createdAt: t,
         updatedAt: t,
       },
@@ -59,7 +60,7 @@ type LocalActions = {
   patchNote: (id: string, body: PatchNoteBody) => AtlasNoteDto;
   deleteNote: (id: string) => void;
   createFolder: (title: string) => NotesFolderDto;
-  patchFolder: (id: string, body: { title?: string; position?: number }) => NotesFolderDto;
+  patchFolder: (id: string, body: { title?: string; position?: number; rowAccentColor?: string | null }) => NotesFolderDto;
   deleteFolder: (id: string) => void;
   reorderFolders: (orderedFolderIds: string[]) => void;
   reorderNotesInFolder: (folderId: string, orderedNoteIds: string[]) => void;
@@ -118,6 +119,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           contentJson: contentJson ?? emptyDoc(),
           previewText: previewText ?? null,
           position,
+          rowAccentColor: null,
           isPinned: false,
           isPublic: false,
           publicSlug: null,
@@ -150,6 +152,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           isPublic: body.isPublic !== undefined ? body.isPublic : prev.isPublic,
           publicSlug: body.publicSlug !== undefined ? body.publicSlug : prev.publicSlug,
           position: body.position !== undefined ? body.position : prev.position,
+          rowAccentColor: body.rowAccentColor !== undefined ? body.rowAccentColor : prev.rowAccentColor,
           tags,
           updatedAt: nowIso(),
         };
@@ -173,6 +176,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           parentId: null,
           title: title.trim() || "Folder",
           position,
+          rowAccentColor: null,
           createdAt: t,
           updatedAt: t,
         };
@@ -189,6 +193,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           ...prev,
           title: body.title !== undefined ? body.title : prev.title,
           position: body.position !== undefined ? body.position : prev.position,
+          rowAccentColor: body.rowAccentColor !== undefined ? body.rowAccentColor : prev.rowAccentColor,
           updatedAt: nowIso(),
         };
         const folders = [...s.folders];

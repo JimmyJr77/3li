@@ -57,7 +57,7 @@ export function MyTasksPage() {
   });
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <ListTodo className="size-5 text-muted-foreground" aria-hidden />
@@ -189,7 +189,7 @@ export function MyTasksPage() {
           <li className="px-4 py-8 text-center text-sm text-muted-foreground">
             No tasks match. Add cards on a board or convert ideas from{" "}
             <Link to="/app/brainstorm" className="font-medium text-primary underline-offset-4 hover:underline">
-              Brainstorm
+              Brainstorm Studio
             </Link>
             .
           </li>

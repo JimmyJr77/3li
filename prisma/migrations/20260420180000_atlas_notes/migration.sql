@@ -1,4 +1,4 @@
--- Atlas Notes: folders, notes, tags (implicit M2M), links
+-- Notebooks: folders, notes, tags (implicit M2M), links
 
 CREATE TABLE "NotesFolder" (
     "id" TEXT NOT NULL,

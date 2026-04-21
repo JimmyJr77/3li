@@ -11,6 +11,8 @@ export type NotesFolderDto = {
   parentId: string | null;
   title: string;
   position: number;
+  /** #RRGGBB or null for default row tint */
+  rowAccentColor?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +35,8 @@ export type AtlasNoteDto = {
   contentJson: unknown;
   previewText: string | null;
   position: number;
+  /** #RRGGBB or null for default row tint */
+  rowAccentColor?: string | null;
   isPinned: boolean;
   isPublic: boolean;
   publicSlug: string | null;

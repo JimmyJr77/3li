@@ -1,7 +1,7 @@
 import { prisma } from "./db.js";
 import { ensureDefaultWorkspaceBoard } from "./taskDefaults.js";
 
-/** Ensures the first workspace has a default top-level notes folder for Atlas Notes. */
+/** Ensures the first workspace has a default top-level notes folder for Notebooks. */
 export async function ensureDefaultNotesFolder(workspaceId: string) {
   let folder = await prisma.notesFolder.findFirst({
     where: { workspaceId, parentId: null },

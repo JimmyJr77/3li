@@ -6,6 +6,15 @@ import { getOpenAIOrNull } from "../lib/openai/client.js";
 import { ensureDefaultNotesFolder, ensureNotesBootstrap } from "../lib/notesDefaults.js";
 import { syncNoteLinksFromContent } from "../lib/wikiLinks.js";
 
+function normalizeRowAccentColor(raw: unknown): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === "") return null;
+  if (typeof raw !== "string") return undefined;
+  const s = raw.trim();
+  if (!/^#([0-9a-f]{6})$/i.test(s)) return undefined;
+  return s.toLowerCase();
+}
+
 function normalizePublicSlug(raw: string | null | undefined): string | null {
   if (raw === null || raw === undefined) return null;
   const s = raw
@@ -192,7 +201,7 @@ router.patch("/folders/reorder", async (req, res) => {
 router.patch("/folders/:folderId", async (req, res) => {
   try {
     const folderId = req.params.folderId;
-    const body = req.body as { title?: string; position?: number };
+    const body = req.body as { title?: string; position?: number; rowAccentColor?: string | null };
     const existing = await prisma.notesFolder.findUnique({ where: { id: folderId } });
     if (!existing) {
       res.status(404).json({ error: "Folder not found" });
@@ -202,9 +211,15 @@ router.patch("/folders/:folderId", async (req, res) => {
       res.status(400).json({ error: "Title required" });
       return;
     }
+    const accent = normalizeRowAccentColor(body.rowAccentColor);
+    if (body.rowAccentColor !== undefined && accent === undefined && body.rowAccentColor !== null && body.rowAccentColor !== "") {
+      res.status(400).json({ error: "rowAccentColor must be #RRGGBB or empty" });
+      return;
+    }
     const data: Prisma.NotesFolderUpdateInput = {
       ...(body.title !== undefined ? { title: body.title.trim() } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
+      ...(body.rowAccentColor !== undefined ? { rowAccentColor: accent ?? null } : {}),
     };
     const folder = await prisma.notesFolder.update({ where: { id: folderId }, data });
     res.json(serializeFolder(folder));
@@ -340,6 +355,108 @@ router.get("/notes/:noteId", async (req, res) => {
     res.json(serializeNote(note));
   } catch {
     res.status(500).json({ error: "Failed to load note" });
+  }
+});
+
+/** Refine quick-capture draft using workspace + notebook + optional Brand Center (client-supplied) context. */
+router.post("/quick-capture/enrich", async (req, res) => {
+  try {
+    const openai = getOpenAIOrNull();
+    if (!openai) {
+      res.status(503).json({
+        error: "AI service unavailable",
+        detail: "OPENAI_API_KEY is not configured",
+      });
+      return;
+    }
+    const body = req.body as {
+      workspaceId?: string;
+      folderId?: string;
+      title?: string;
+      rawText?: string;
+      brandCenterContext?: string | null;
+    };
+    const workspaceId = body.workspaceId?.trim();
+    const folderId = body.folderId?.trim();
+    const rawText = body.rawText?.trim() ?? "";
+    if (!workspaceId || !folderId) {
+      res.status(400).json({ error: "workspaceId and folderId required" });
+      return;
+    }
+    if (rawText.length < 1) {
+      res.status(400).json({ error: "Add some note text to refine" });
+      return;
+    }
+    if (rawText.length > 50000) {
+      res.status(400).json({ error: "Note text too long" });
+      return;
+    }
+
+    const [workspace, folder] = await Promise.all([
+      prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } }),
+      prisma.notesFolder.findUnique({ where: { id: folderId }, select: { id: true, workspaceId: true, title: true } }),
+    ]);
+    if (!workspace || !folder) {
+      res.status(404).json({ error: "Workspace or notebook not found" });
+      return;
+    }
+    if (folder.workspaceId !== workspace.id) {
+      res.status(400).json({ error: "Notebook does not belong to workspace" });
+      return;
+    }
+
+    let brand = (body.brandCenterContext ?? "").trim();
+    if (brand.length > 12000) {
+      brand = `${brand.slice(0, 12000)}\n…(truncated)`;
+    }
+    const draftTitle = (body.title ?? "").trim().slice(0, 500);
+
+    const system = `You refine rough quick-capture notes into clear, usable content. Respond with valid JSON only (no markdown fences), using this exact shape: {"title":"string","body":"string"}.
+Rules:
+- title: concise, specific, at most 120 characters.
+- body: plain text only; use blank lines between paragraphs; optional simple bullet lines with leading "- ".
+- Connect the writing to the workspace and notebook when it helps the reader.
+- When Brand Center snippets describe positioning, tone, audience, or vocabulary, align emphasis and wording with them. Do not invent facts not present in the draft or brand context.
+- Preserve specific facts, names, dates, and numbers from the user's draft.`;
+
+    const userPayload = [
+      `Workspace: ${workspace.name}`,
+      `Notebook: ${folder.title}`,
+      brand
+        ? `Brand Center (recent captures stored on this user's device from the Brand Center flow):\n${brand}`
+        : "(No Brand Center snippets were supplied.)",
+      draftTitle ? `Working title: ${draftTitle}` : "Working title: (none)",
+      `Draft:\n${rawText}`,
+    ].join("\n\n");
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userPayload },
+      ],
+      temperature: 0.45,
+    });
+
+    const rawJson = completion.choices[0]?.message?.content?.trim() ?? "{}";
+    let parsed: { title?: unknown; body?: unknown };
+    try {
+      parsed = JSON.parse(rawJson) as { title?: unknown; body?: unknown };
+    } catch {
+      res.status(500).json({ error: "AI returned invalid JSON" });
+      return;
+    }
+    const titleOut = typeof parsed.title === "string" ? parsed.title.trim().slice(0, 500) : "";
+    const bodyOut = typeof parsed.body === "string" ? parsed.body.trim() : "";
+    if (!titleOut || !bodyOut) {
+      res.status(500).json({ error: "AI returned empty title or body" });
+      return;
+    }
+    res.json({ title: titleOut, body: bodyOut });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Quick capture enrich failed" });
   }
 });
 
@@ -526,11 +643,18 @@ router.patch("/notes/:noteId", async (req, res) => {
       publicSlug?: string | null;
       tagIds?: string[];
       position?: number;
+      rowAccentColor?: string | null;
     };
 
     const existing = await prisma.note.findUnique({ where: { id: noteId } });
     if (!existing) {
       res.status(404).json({ error: "Note not found" });
+      return;
+    }
+
+    const noteAccent = normalizeRowAccentColor(body.rowAccentColor);
+    if (body.rowAccentColor !== undefined && noteAccent === undefined && body.rowAccentColor !== null && body.rowAccentColor !== "") {
+      res.status(400).json({ error: "rowAccentColor must be #RRGGBB or empty" });
       return;
     }
 
@@ -550,6 +674,7 @@ router.patch("/notes/:noteId", async (req, res) => {
       ...(body.isPinned !== undefined ? { isPinned: body.isPinned } : {}),
       ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
+      ...(body.rowAccentColor !== undefined ? { rowAccentColor: noteAccent ?? null } : {}),
       ...(body.publicSlug !== undefined
         ? {
             publicSlug:

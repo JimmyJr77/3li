@@ -41,7 +41,7 @@ export function NotePublishingBar({
           Publish
         </div>
         <p className="text-xs text-muted-foreground">
-          Public links require the Atlas Notes API. Notes in this session stay in your browser only.
+          Public links require the Notebooks API. Notes in this session stay in your browser only.
         </p>
       </div>
     );

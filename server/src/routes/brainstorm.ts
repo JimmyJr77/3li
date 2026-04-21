@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/db.js";
+import { ensureBrainstormShowcaseForProject } from "../lib/showcaseSeed.js";
 import { ensureDefaultWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
 import { CONVERT_PLAN_SYSTEM } from "../lib/openai/brainstormPrompts.js";
 import { runBrainstormWithSystem } from "../lib/openai/orchestrator.js";
@@ -181,6 +182,18 @@ router.get("/sessions", async (_req, res) => {
         },
       });
     }
+
+    await ensureBrainstormShowcaseForProject(project.id);
+    sessions = await prisma.brainstormSession.findMany({
+      where: { projectId: project.id },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        updatedAt: true,
+        _count: { select: { nodes: true } },
+      },
+    });
 
     res.json({
       project: { id: project.id, name: project.name },

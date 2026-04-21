@@ -259,7 +259,7 @@ export function NoteEditor({
             </div>
           ) : null}
 
-          <div className="atlas-notes-editor min-h-0 flex-1 overflow-y-auto px-3 py-2">
+          <div className="notebooks-editor min-h-0 flex-1 overflow-y-auto px-3 py-2">
             <EditorContent editor={editor} />
           </div>
         </div>

@@ -34,6 +34,7 @@ export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
 
   return (
     <div
+      data-slot="card"
       className={cn(
         "min-w-[220px] max-w-[280px] rounded-lg border bg-card p-3 shadow-sm",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
