@@ -3,10 +3,5 @@
   "framework": null,
   "installCommand": "cd .. && npm install",
   "buildCommand": "cd .. && npm run vercel-build",
-  "outputDirectory": "public",
-  "functions": {
-    "server.ts": {
-      "includeFiles": "public/**"
-    }
-  }
+  "outputDirectory": "public"
 }

@@ -72,10 +72,15 @@ protectedApi.use("/notes-app", notesAppRouter);
 
 app.use("/api", protectedApi);
 
-/** Vercel serves `public/` from the edge CDN; the function bundle often has no `public/` on disk unless included. */
+/**
+ * SPA shell: `vercel-build` / root `build` copy `client/dist/index.html` → `server/dist/spa-index.html`
+ * so Express can sendFile it on Vercel (no `public/` inside the function bundle). Repo `public/` is a fallback.
+ */
 function resolveIndexHtmlPath(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    path.join(here, "spa-index.html"),
+    path.join(here, "..", "dist", "spa-index.html"),
     path.join(process.cwd(), "public", "index.html"),
     path.join(process.cwd(), "client", "public", "index.html"),
     path.join(here, "..", "..", "public", "index.html"),
