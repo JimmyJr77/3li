@@ -7,6 +7,7 @@ import express from "express";
 import type { Request } from "express";
 import { ensureSeedUsers } from "./lib/auth/seedUsers.js";
 import { loadSessionUser, requireAuth } from "./lib/auth/sessionDb.js";
+import { prisma } from "./lib/db.js";
 import aiRouter from "./routes/ai.js";
 import authRouter from "./routes/auth.js";
 import brainstormRouter from "./routes/brainstorm.js";
@@ -14,16 +15,41 @@ import chatAppRouter from "./routes/chatApp.js";
 import notesAppRouter, { handleNotesAppPublicSlug } from "./routes/notesApp.js";
 import taskAppRouter from "./routes/taskApp.js";
 
+/** Add `https://host` plus `www.` / apex variant so CORS works for both custom-domain shapes. */
+function addOriginVariants(raw: string, out: Set<string>): void {
+  const s = raw.trim();
+  if (!s) return;
+  const withProto = s.startsWith("http://") || s.startsWith("https://") ? s : `https://${s}`;
+  out.add(withProto);
+  try {
+    const u = new URL(withProto);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return;
+    const h = u.hostname;
+    if (h.startsWith("www.")) {
+      const alt = new URL(withProto);
+      alt.hostname = h.slice(4);
+      out.add(alt.origin);
+    } else if (h && !h.startsWith("www.")) {
+      const alt = new URL(withProto);
+      alt.hostname = `www.${h}`;
+      out.add(alt.origin);
+    }
+  } catch {
+    /* ignore malformed URLs */
+  }
+}
+
 function parseAllowedOrigins(): string[] {
-  const fromEnv =
-    process.env.CLIENT_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-  const out = new Set<string>(["http://localhost:5173", "http://127.0.0.1:5173", ...fromEnv]);
+  const out = new Set<string>(["http://localhost:5173", "http://127.0.0.1:5173"]);
+  for (const s of process.env.CLIENT_ORIGIN?.split(",").map((x) => x.trim()).filter(Boolean) ?? []) {
+    addOriginVariants(s, out);
+  }
   if (process.env.VERCEL_URL) {
     out.add(`https://${process.env.VERCEL_URL}`);
   }
   const prodUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
   if (prodUrl) {
-    out.add(prodUrl.startsWith("http") ? prodUrl : `https://${prodUrl}`);
+    addOriginVariants(prodUrl, out);
   }
   return [...out];
 }
@@ -52,8 +78,19 @@ app.use(express.json({ limit: "5mb" }));
 
 app.use(loadSessionUser);
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "three-lions-api" });
+app.get("/api/health", async (req, res) => {
+  const base = { ok: true as const, service: "three-lions-api" as const };
+  if (req.query.db === "1") {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ ...base, database: "ok" as const });
+    } catch (e) {
+      console.error("[health] database ping failed", e);
+      res.status(503).json({ ok: false as const, service: base.service, database: "error" as const });
+    }
+    return;
+  }
+  res.json(base);
 });
 
 app.get("/api/notes-app/public/:publicSlug", (req, res) => {
