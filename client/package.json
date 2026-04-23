@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "vercel-build": "npm install --prefix .. && npm run vercel-build --prefix ..",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

@@ -60,6 +60,10 @@ export async function loadSessionUser(req: Request, res: Response, next: NextFun
     req.appUser = {
       id: session.user.id,
       username: session.user.username,
+      email: session.user.email,
+      phone: session.user.phone,
+      firstName: session.user.firstName,
+      lastName: session.user.lastName,
       displayName: session.user.displayName,
       role: session.user.role,
     };

@@ -3,6 +3,10 @@ import { api } from "@/lib/api/client";
 export type AuthUser = {
   id: string;
   username: string;
+  email: string;
+  phone: string | null;
+  firstName: string | null;
+  lastName: string | null;
   displayName: string | null;
   role: string;
 };
@@ -16,15 +20,18 @@ export async function fetchMe(): Promise<AuthUser | null> {
   }
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
-  const { data } = await api.post<{ user: AuthUser }>("/api/auth/login", { username, password });
+export async function login(loginId: string, password: string): Promise<AuthUser> {
+  const { data } = await api.post<{ user: AuthUser }>("/api/auth/login", { login: loginId, password });
   return data.user;
 }
 
 export async function register(body: {
   username: string;
   password: string;
-  displayName?: string;
+  email: string;
+  phone: string;
+  firstName: string;
+  lastName: string;
 }): Promise<AuthUser> {
   const { data } = await api.post<{ user: AuthUser }>("/api/auth/register", body);
   return data.user;

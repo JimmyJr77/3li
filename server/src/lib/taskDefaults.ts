@@ -113,8 +113,10 @@ export async function ensurePersonalWorkspaceBoard(user: AppUserPrincipal) {
     });
     const position = (maxPos._max.position ?? -1) + 1;
     const userRow = await prisma.appUser.findUnique({ where: { id: user.id } });
+    const fromNames = [userRow?.firstName, userRow?.lastName].filter(Boolean).join(" ").trim();
     const rawLabel =
       userRow?.displayName?.trim() ||
+      fromNames ||
       (userRow?.username
         ? `${userRow.username.slice(0, 1).toUpperCase()}${userRow.username.slice(1)}`
         : "Workspace");

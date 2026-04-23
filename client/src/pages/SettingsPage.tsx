@@ -246,6 +246,10 @@ export function SettingsPage() {
                             </span>
                           ) : null}
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          {authUser.email}
+                          {authUser.phone ? ` · ${authUser.phone}` : null}
+                        </p>
                       </div>
                       <Button
                         type="button"

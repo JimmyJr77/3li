@@ -21,9 +21,9 @@ export function LoginPage() {
 
   const mutation = useMutation({
     mutationFn: async (fd: FormData) => {
-      const username = String(fd.get("username") ?? "").trim();
+      const loginId = String(fd.get("login") ?? "").trim();
       const password = String(fd.get("password") ?? "");
-      return login(username, password);
+      return login(loginId, password);
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -37,7 +37,8 @@ export function LoginPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Enter your workspace username and password. New here? You can create an account from the home page.
+          Use your email, username, or US phone number (10 digits), plus your password. New here? Create an account from
+          the home page.
         </p>
         <form
           className="mt-8 space-y-6"
@@ -48,14 +49,14 @@ export function LoginPage() {
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="login">Email, username, or phone</Label>
             <Input
-              id="username"
-              name="username"
+              id="login"
+              name="login"
               type="text"
               autoComplete="username"
               required
-              placeholder="jimmyobrien"
+              placeholder="you@company.com or jane_consultant or 555-123-4567"
             />
           </div>
           <div className="space-y-2">
@@ -81,7 +82,7 @@ export function LoginPage() {
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Need an account?{" "}
           <Link to="/register" className="font-medium text-primary underline-offset-4 hover:underline">
-            Create one
+            Create account
           </Link>
         </p>
       </div>
