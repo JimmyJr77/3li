@@ -120,15 +120,7 @@ export function PublicLayout() {
           </nav>
           <div className="flex items-center gap-2">
             <PublicThemeToggle />
-            <Button
-              asChild
-              size="sm"
-              className={cn(
-                marketingDark
-                  ? "bg-red-600 text-white hover:bg-red-500"
-                  : "bg-red-600 text-white hover:bg-red-500",
-              )}
-            >
+            <Button asChild size="sm" className="bg-red-600 text-white hover:bg-red-500">
               <Link to="/login">Log in</Link>
             </Button>
           </div>
