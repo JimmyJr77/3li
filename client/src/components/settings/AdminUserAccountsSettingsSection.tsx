@@ -237,7 +237,15 @@ function AddUserDialog({
         <div className="grid gap-3 py-2">
           <div className="space-y-2">
             <Label htmlFor="adm-add-user">Username</Label>
-            <Input id="adm-add-user" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+            <Input
+              id="adm-add-user"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="off"
+              minLength={3}
+              maxLength={32}
+            />
+            <p className="text-xs text-muted-foreground">Letters, digits, underscore; case-insensitive.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="adm-add-email">Email</Label>
@@ -280,7 +288,14 @@ function AddUserDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="adm-add-pw">Initial password</Label>
-            <Input id="adm-add-pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} />
+            <Input
+              id="adm-add-pw"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={3}
+              maxLength={15}
+            />
           </div>
           {mutation.isError ? (
             <p className="text-sm text-destructive">{formatApiError(mutation.error, "Could not create user")}</p>
@@ -479,11 +494,25 @@ function SetPasswordDialog({
         <div className="grid gap-3 py-2">
           <div className="space-y-2">
             <Label htmlFor="adm-pw1">New password</Label>
-            <Input id="adm-pw1" type="password" value={pw} onChange={(e) => setPw(e.target.value)} minLength={8} />
+            <Input
+              id="adm-pw1"
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              minLength={3}
+              maxLength={15}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="adm-pw2">Confirm password</Label>
-            <Input id="adm-pw2" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} minLength={8} />
+            <Input
+              id="adm-pw2"
+              type="password"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+              minLength={3}
+              maxLength={15}
+            />
           </div>
           {pw && pw2 && pw !== pw2 ? <p className="text-sm text-destructive">Passwords do not match.</p> : null}
           {mutation.isError ? (
@@ -496,7 +525,9 @@ function SetPasswordDialog({
           </Button>
           <Button
             type="button"
-            disabled={mutation.isPending || pw.length < 8 || pw !== pw2 || !user}
+            disabled={
+              mutation.isPending || pw.length < 3 || pw.length > 15 || pw !== pw2 || !pw2.length || !user
+            }
             onClick={() => user && void mutation.mutateAsync({ id: user.id, pw })}
           >
             {mutation.isPending ? "Saving…" : "Set password"}

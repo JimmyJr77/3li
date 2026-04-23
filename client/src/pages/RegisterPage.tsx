@@ -145,10 +145,14 @@ export function RegisterPage() {
               required
               minLength={3}
               maxLength={32}
-              pattern="[a-z0-9_]{3,32}"
-              title="3–32 characters: lowercase letters, digits, or underscore"
+              pattern="[a-zA-Z0-9_]{3,32}"
+              title="3–32 characters: letters, digits, or underscore (case-insensitive)"
               placeholder="jane_consultant"
+              aria-describedby="username-hint"
             />
+            <p id="username-hint" className="text-xs text-muted-foreground">
+              Usernames are stored case-insensitively (Jane and jane are the same).
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
@@ -158,9 +162,11 @@ export function RegisterPage() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={3}
+              maxLength={15}
               placeholder="••••••••"
             />
+            <p className="text-xs text-muted-foreground">3–15 characters; any letters, numbers, or symbols you like.</p>
           </div>
           {mutation.isError ? (
             <p className="text-sm text-destructive" role="alert">

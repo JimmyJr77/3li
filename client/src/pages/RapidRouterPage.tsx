@@ -411,7 +411,7 @@ export function RapidRouterPage() {
   const mailDecomposeMutation = useMutation({
     mutationFn: async () => {
       if (!activeWorkspaceId) throw new Error("no-workspace");
-      const capture = redTeamContext.trim();
+      const capture = text.trim();
       if (!capture) throw new Error("empty-capture");
       setMailPlanError(null);
       const res = await postMailroomDecomposition({
@@ -433,7 +433,7 @@ export function RapidRouterPage() {
     onError: (e) => {
       const msg = e instanceof Error ? e.message : "";
       if (msg === "empty-capture") {
-        setMailPlanError("Add text in Capture or sticky notes first.");
+        setMailPlanError("Add text in the Capture field first (Mail Clerk does not use sticky notes).");
       } else if (msg === "no-decomposition") {
         setMailPlanError("Mail Clerk did not return any actions — try again or shorten the capture.");
       } else {
@@ -452,7 +452,7 @@ export function RapidRouterPage() {
         workspaceId: activeWorkspaceId,
         actionItems,
         instruction: mailInstruction.trim() || undefined,
-        originalCapture: redTeamContext.trim(),
+        originalCapture: text.trim(),
       });
       if (!res.plan?.chunks?.length) throw new Error("no-plan");
       return res.plan;
@@ -1149,8 +1149,9 @@ export function RapidRouterPage() {
                 <div className="min-w-0 space-y-1">
                   <span className="block text-base font-semibold tracking-tight">Mail Clerk routing plan</span>
                   <p className="text-sm text-muted-foreground">
-                    Two steps: scan the capture for every routable action, then let Mail Clerk assign destinations for
-                    the lines you keep. Refine with Manual routing or the Mailroom wizard.
+                    Two steps: scan the <span className="font-medium text-foreground">Capture</span> field only (not
+                    sticky notes) for routable actions, then let Mail Clerk assign destinations for the lines you keep.
+                    Refine with Manual routing or the Mailroom wizard.
                   </p>
                 </div>
               </div>
@@ -1177,7 +1178,7 @@ export function RapidRouterPage() {
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={!redTeamContext.trim() || mailDecomposeMutation.isPending || mailRouteMutation.isPending}
+                    disabled={!text.trim() || mailDecomposeMutation.isPending || mailRouteMutation.isPending}
                     onClick={() => mailDecomposeMutation.mutate()}
                   >
                     {mailDecomposeMutation.isPending ? (

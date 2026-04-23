@@ -322,7 +322,7 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
               className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              3–32 characters: lowercase letters, digits, or underscore.
+              3–32 characters: letters, digits, or underscore. Matching is case-insensitive.
             </p>
           </div>
           {authUser.role === "admin" ? (
@@ -351,7 +351,8 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
         <div>
           <p className="text-sm font-medium text-foreground">Password</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Enter your current password, then choose a new one (at least 8 characters).
+            Enter your current password, then choose a new one (3–15 characters; any mix of letters, numbers, and
+            symbols).
           </p>
         </div>
         <div className="grid max-w-md gap-4">
@@ -373,7 +374,8 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              minLength={8}
+              minLength={3}
+              maxLength={15}
             />
           </div>
           <div className="space-y-2">
@@ -384,7 +386,8 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
               autoComplete="new-password"
               value={newPassword2}
               onChange={(e) => setNewPassword2(e.target.value)}
-              minLength={8}
+              minLength={3}
+              maxLength={15}
             />
           </div>
           {passwordMut.isError ? (
@@ -403,7 +406,8 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
               passwordMut.isPending ||
               !currentPassword ||
               !newPassword ||
-              newPassword.length < 8 ||
+              newPassword.length < 3 ||
+              newPassword.length > 15 ||
               !newPassword2
             }
             onClick={() => passwordMut.mutate()}

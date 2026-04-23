@@ -2,18 +2,14 @@ import { Router } from "express";
 import type { AppUser, Prisma } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { EMAIL_RE, normalizeEmail, normalizeUsPhoneToStored } from "../lib/auth/identifiers.js";
-import { hashPassword } from "../lib/auth/password.js";
+import { hashPassword, passwordLengthError } from "../lib/auth/password.js";
+import { normalizeUsername, USERNAME_RE, USERNAME_REQUIREMENTS_ERROR } from "../lib/auth/username.js";
 import { requireAuth } from "../lib/auth/sessionDb.js";
 import { ensurePersonalWorkspaceBoard } from "../lib/taskDefaults.js";
 
 const router = Router();
 
-const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
 const NAME_RE = /^[\p{L}\p{M}'\-. ]{1,80}$/u;
-
-function normalizeUsername(raw: string): string {
-  return raw.trim().toLowerCase();
-}
 
 function trimName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
@@ -107,9 +103,7 @@ router.post("/", async (req, res) => {
       return;
     }
     if (!USERNAME_RE.test(username)) {
-      res.status(400).json({
-        error: "username must be 3–32 characters: lowercase letters, digits, or underscore",
-      });
+      res.status(400).json({ error: USERNAME_REQUIREMENTS_ERROR });
       return;
     }
     if (!EMAIL_RE.test(email)) {
@@ -129,8 +123,9 @@ router.post("/", async (req, res) => {
       res.status(400).json({ error: "names may only include letters, spaces, hyphen, apostrophe, or period" });
       return;
     }
-    if (password.length < 8) {
-      res.status(400).json({ error: "password must be at least 8 characters" });
+    const pwErr = passwordLengthError(password);
+    if (pwErr) {
+      res.status(400).json({ error: pwErr });
       return;
     }
 
@@ -189,9 +184,7 @@ router.patch("/:id", async (req, res) => {
     if (body.username !== undefined) {
       const username = normalizeUsername(String(body.username));
       if (!USERNAME_RE.test(username)) {
-        res.status(400).json({
-          error: "username must be 3–32 characters: lowercase letters, digits, or underscore",
-        });
+        res.status(400).json({ error: USERNAME_REQUIREMENTS_ERROR });
         return;
       }
       data.username = username;
@@ -281,8 +274,13 @@ router.post("/:id/password", async (req, res) => {
     }
     const body = req.body as { newPassword?: string };
     const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
-    if (!newPassword || newPassword.length < 8) {
-      res.status(400).json({ error: "new password must be at least 8 characters" });
+    if (!newPassword) {
+      res.status(400).json({ error: "new password is required" });
+      return;
+    }
+    const newPwErr = passwordLengthError(newPassword);
+    if (newPwErr) {
+      res.status(400).json({ error: newPwErr });
       return;
     }
     await prisma.appUser.update({

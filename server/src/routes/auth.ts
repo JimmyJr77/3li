@@ -3,7 +3,8 @@ import type { AppUser, Prisma } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { acceptBrandInviteForUser, hashInviteToken } from "../lib/auth/brandInvite.js";
 import { EMAIL_RE, findAppUserForAuth, normalizeEmail, normalizeUsPhoneToStored } from "../lib/auth/identifiers.js";
-import { hashPassword, verifyPassword } from "../lib/auth/password.js";
+import { hashPassword, passwordLengthError, verifyPassword } from "../lib/auth/password.js";
+import { normalizeUsername, USERNAME_RE, USERNAME_REQUIREMENTS_ERROR } from "../lib/auth/username.js";
 import {
   attachClearSessionCookie,
   createSessionCookieForUser,
@@ -18,12 +19,7 @@ class BrandInviteRejectedError extends Error {
   override readonly name = "BrandInviteRejectedError";
 }
 
-const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
 const NAME_RE = /^[\p{L}\p{M}'\-. ]{1,80}$/u;
-
-function normalizeUsername(raw: string): string {
-  return raw.trim().toLowerCase();
-}
 
 function trimName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
@@ -101,9 +97,7 @@ router.post("/register", async (req, res) => {
       return;
     }
     if (!USERNAME_RE.test(username)) {
-      res.status(400).json({
-        error: "username must be 3–32 characters: lowercase letters, digits, or underscore",
-      });
+      res.status(400).json({ error: USERNAME_REQUIREMENTS_ERROR });
       return;
     }
     if (!EMAIL_RE.test(email)) {
@@ -119,8 +113,9 @@ router.post("/register", async (req, res) => {
       res.status(400).json({ error: "names may only include letters, spaces, hyphen, apostrophe, or period" });
       return;
     }
-    if (password.length < 8) {
-      res.status(400).json({ error: "password must be at least 8 characters" });
+    const pwErr = passwordLengthError(password);
+    if (pwErr) {
+      res.status(400).json({ error: pwErr });
       return;
     }
     const displayName = `${firstName} ${lastName}`.trim();
@@ -280,9 +275,7 @@ router.patch("/profile", requireAuth, async (req, res) => {
     const data: Prisma.AppUserUpdateInput = {};
     if (username !== undefined) {
       if (!USERNAME_RE.test(username)) {
-        res.status(400).json({
-          error: "username must be 3–32 characters: lowercase letters, digits, or underscore",
-        });
+        res.status(400).json({ error: USERNAME_REQUIREMENTS_ERROR });
         return;
       }
       data.username = username;
@@ -355,8 +348,9 @@ router.post("/change-password", requireAuth, async (req, res) => {
       res.status(400).json({ error: "current password and new password are required" });
       return;
     }
-    if (newPassword.length < 8) {
-      res.status(400).json({ error: "new password must be at least 8 characters" });
+    const newPwErr = passwordLengthError(newPassword);
+    if (newPwErr) {
+      res.status(400).json({ error: newPwErr });
       return;
     }
     const row = await prisma.appUser.findUniqueOrThrow({ where: { id: req.appUser!.id } });
