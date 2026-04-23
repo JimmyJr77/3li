@@ -497,7 +497,7 @@ model Activity {
   id        String   @id @default(cuid())
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  /// Who performed this action; null = legacy/system rows (hidden from non-admin Activity Tracker).
+  /// Who performed this action; null = legacy/system rows (shown as System in the Activity Tracker).
   actorUserId String?
   actorUser   AppUser? @relation("TaskActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   action    String

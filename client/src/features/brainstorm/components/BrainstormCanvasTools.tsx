@@ -116,7 +116,7 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
             onChange={(e) => setAgentsPanelVisible(e.target.checked)}
           />
           <Label htmlFor="brainstorm-canvas-tools-agents" className="text-xs font-normal leading-snug">
-            Show Brainstorm Agents panel
+            Show Brainstorm Agents (side sheet)
           </Label>
         </div>
       ) : null}

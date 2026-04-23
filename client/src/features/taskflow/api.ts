@@ -165,9 +165,12 @@ export async function fetchAllTasks(params?: TaskListParams): Promise<TaskFlowTa
 
 export type ActivityFeedItem = {
   id: string;
+  actorUserId: string | null;
   action: string;
   detail: string;
   createdAt: string;
+  /** Who performed the action; null when legacy/system (no attributed user). */
+  actor: { id: string; label: string } | null;
   task: {
     id: string;
     title: string;

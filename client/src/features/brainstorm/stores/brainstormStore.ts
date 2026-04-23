@@ -256,6 +256,11 @@ type BrainstormState = {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   addIdeaNode: (position?: { x: number; y: number }) => void;
+  addIdeaWithContent: (
+    payload: { title: string; description?: string },
+    position?: { x: number; y: number },
+  ) => void;
+  addTextWithPlain: (plainText: string, position?: { x: number; y: number }) => void;
   addShapeNode: (opts?: { position?: { x: number; y: number }; data?: Partial<ShapeNodeData> }) => void;
   setShapePickerOpen: (open: boolean) => void;
   addImageNode: (opts: {
@@ -311,7 +316,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   nodes: [],
   edges: [],
   presentationMode: false,
-  agentsPanelVisible: true,
+  agentsPanelVisible: false,
   shapePickerOpen: false,
   selectedEdgeId: null,
 
@@ -424,6 +429,39 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       type: "idea",
       position: position ?? { x: 120 + Math.random() * 60, y: 80 + Math.random() * 60 },
       data: defaultIdeaData(),
+    };
+    set({ nodes: [...get().nodes, node] });
+  },
+
+  addIdeaWithContent: (payload, position) => {
+    const title = payload.title.trim() || "Untitled idea";
+    const description = (payload.description ?? "").trim();
+    const id = crypto.randomUUID();
+    const node: IdeaFlowNode = {
+      id,
+      type: "idea",
+      position: position ?? { x: 120 + Math.random() * 60, y: 80 + Math.random() * 60 },
+      data: { ...defaultIdeaData(), title, description },
+    };
+    set({ nodes: [...get().nodes, node] });
+  },
+
+  addTextWithPlain: (plainText, position) => {
+    const html = plainTextToStudioHtml(plainText);
+    const preview = stripHtmlToPlain(html).slice(0, 80) || "Note";
+    const id = crypto.randomUUID();
+    const pos = position ?? { x: 140 + Math.random() * 40, y: 120 + Math.random() * 40 };
+    const node: TextFlowNode = {
+      id,
+      type: "text",
+      position: pos,
+      width: 240,
+      height: 120,
+      data: {
+        ...defaultTextData(),
+        html,
+        outsideCaptionText: preview,
+      },
     };
     set({ nodes: [...get().nodes, node] });
   },

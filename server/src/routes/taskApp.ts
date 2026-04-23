@@ -28,6 +28,7 @@ import { parseBrandProfileForSave } from "../lib/brandProfileSchema.js";
 import { brandDisplayNameFromProfileJson } from "../lib/brandDisplayName.js";
 import { defaultWorkspaceTitleFromBrandName, normalizeWorkspaceName } from "../lib/workspaceLimits.js";
 import { boardJsonForApi, taskJsonForApi } from "../lib/boardForApi.js";
+import { activityActorDto } from "../lib/activityActorLabel.js";
 import { buildRoutingIndexPayload } from "../lib/routingIndexForWorkspace.js";
 
 const router = Router();
@@ -155,10 +156,21 @@ async function resolveWorkspaceTemplate(
   return { templateName: row.name, lists };
 }
 
-function taskActivitiesInclude(user: AppUserPrincipal, take: number) {
-  const base = { orderBy: { createdAt: "desc" as const }, take };
-  if (user.role === "admin") return base;
-  return { ...base, where: { actorUserId: user.id } };
+const activityActorSelect = {
+  id: true,
+  username: true,
+  displayName: true,
+  firstName: true,
+  lastName: true,
+} as const;
+
+/** Full task history for everyone with workspace access (Activity Tracker shows who did what). */
+function taskActivitiesInclude(take: number) {
+  return {
+    orderBy: { createdAt: "desc" as const },
+    take,
+    include: { actorUser: { select: activityActorSelect } },
+  };
 }
 
 function buildTaskInclude(user: AppUserPrincipal) {
@@ -177,7 +189,7 @@ function buildTaskInclude(user: AppUserPrincipal) {
     labels: { include: { label: true } },
     comments: { orderBy: { createdAt: "asc" as const } },
     checklist: { orderBy: { position: "asc" as const } },
-    activities: taskActivitiesInclude(user, 30),
+    activities: taskActivitiesInclude(30),
   } as const;
 }
 
@@ -216,7 +228,7 @@ function buildBoardIncludeFull(user: AppUserPrincipal) {
             labels: { include: { label: true } },
             comments: { orderBy: { createdAt: "asc" as const } },
             checklist: { orderBy: { position: "asc" as const } },
-            activities: taskActivitiesInclude(user, 20),
+            activities: taskActivitiesInclude(20),
           },
         },
       },
@@ -795,18 +807,16 @@ router.get("/tasks", async (req, res) => {
 router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
   try {
     const workspaceId = req.params.workspaceId;
-    const user = req.appUser!;
     const taskScope = {
       archivedAt: null,
       list: { board: { projectSpace: { workspaceId } } },
     };
-    const where: Prisma.ActivityWhereInput =
-      user.role === "admin" ? { task: taskScope } : { task: taskScope, actorUserId: user.id };
     const rows = await prisma.activity.findMany({
-      where,
+      where: { task: taskScope },
       orderBy: { createdAt: "desc" },
       take: 120,
       include: {
+        actorUser: { select: activityActorSelect },
         task: {
           select: {
             id: true,
@@ -816,7 +826,20 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
         },
       },
     });
-    res.json(rows);
+    res.json(
+      rows.map((row) => {
+        const { actorUser, ...rest } = row;
+        return {
+          id: rest.id,
+          actorUserId: rest.actorUserId,
+          action: rest.action,
+          detail: rest.detail,
+          createdAt: rest.createdAt,
+          actor: activityActorDto(actorUser),
+          task: rest.task,
+        };
+      }),
+    );
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to load Activity Tracker" });

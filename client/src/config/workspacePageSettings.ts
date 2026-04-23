@@ -25,7 +25,7 @@ export const WORKSPACE_PAGE_SETTINGS = [
     id: "wp-notifications",
     to: "/app/notifications",
     label: "Activity Tracker",
-    description: "Recent task activity and notifications for the active project space.",
+    description: "Recent task activity in the active brand workspace, including who performed each action.",
     icon: Bell,
   },
   {

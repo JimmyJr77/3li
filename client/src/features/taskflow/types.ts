@@ -32,7 +32,13 @@ export type TaskFlowTask = {
   };
   comments?: { id: string; body: string; createdAt: string }[];
   checklist?: { id: string; title: string; completed: boolean; position: number }[];
-  activities?: { id: string; action: string; detail: string; createdAt: string }[];
+  activities?: {
+    id: string;
+    action: string;
+    detail: string;
+    createdAt: string;
+    actor: { id: string; label: string } | null;
+  }[];
 };
 
 export type BoardListDto = {

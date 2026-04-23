@@ -2,7 +2,9 @@ import { aiServiceUnavailableDetail, getOpenAIOrNull } from "./client.js";
 import { chatModel } from "../ai/models.js";
 import {
   buildBrainstormUserPrompt,
+  businessCaseSynthesisPromptForMode,
   overlayForBrainstormAgentRole,
+  overlaySessionSynthesisConsultant,
   systemPromptForMode,
   type BrainstormAgentRole,
 } from "./brainstormPrompts.js";
@@ -34,13 +36,15 @@ export async function runAI(prompt: string): Promise<string> {
 export async function runBrainstormAI(
   mode: ThinkingMode,
   userPrompt: string,
-  context?: { selectedNodeSummary?: string; canvasSummary?: string },
+  context?: { selectedNodeSummary?: string; canvasSummary?: string; sessionPanelLog?: string },
   brandContextBlock = "",
   agentRole: BrainstormAgentRole = "consultant",
   options?: {
     workspaceId?: string | null;
     /** Appended last (e.g. Brand Rep overlay). */
     personaAddon?: string;
+    /** Whole-session business synthesis: different system stack; role must be consultant. */
+    sessionSynthesis?: boolean;
   },
 ): Promise<string> {
   const openai = getOpenAIOrNull();
@@ -48,8 +52,13 @@ export async function runBrainstormAI(
     throw new Error(aiServiceUnavailableDetail());
   }
 
-  const roleOverlay = overlayForBrainstormAgentRole(agentRole);
-  const systemBase = `${systemPromptForMode(mode)}\n\n---\n${roleOverlay}`;
+  const sessionSynthesis = options?.sessionSynthesis === true;
+  const roleOverlay = sessionSynthesis
+    ? overlaySessionSynthesisConsultant()
+    : overlayForBrainstormAgentRole(agentRole);
+  const systemBase = sessionSynthesis
+    ? `${businessCaseSynthesisPromptForMode(mode)}\n\n---\n${roleOverlay}`
+    : `${systemPromptForMode(mode)}\n\n---\n${roleOverlay}`;
   const ctxBlock = await formatBrainstormContextAddonForBrainstorm(options?.workspaceId);
   let system = systemBase;
   if (ctxBlock.trim()) {

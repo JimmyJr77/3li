@@ -108,11 +108,13 @@ export type BrainstormAgentRoleApi = "consultant" | "red_team";
 export async function postBrainstormAI(body: {
   prompt: string;
   mode: ThinkingModeApi;
-  context?: { selectedNodeSummary?: string; canvasSummary?: string };
+  context?: { selectedNodeSummary?: string; canvasSummary?: string; sessionPanelLog?: string };
   /** Loads saved workspace brand kit on the server when set. */
   workspaceId?: string | null;
   /** AI Consultant (default) vs Red Team Agent overlay. */
   agentRole?: BrainstormAgentRoleApi;
+  /** Whole-session synthesis: server uses consultant business-case stack. */
+  sessionSynthesis?: boolean;
 }): Promise<{ result: string }> {
   const { data } = await api.post<{ result: string }>("/api/ai/brainstorm", body);
   return data;

@@ -327,7 +327,7 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
               Open-ended Q&amp;A with a senior brand strategist. Context is the Brand Center kit on this page plus your
               messages here; answers do not auto-edit your kit.
             </p>
-            <div className="max-h-[42vh] min-h-[140px] flex-1 space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/20 p-4 text-sm sm:p-5">
+            <div className="max-h-[42vh] min-h-[140px] flex-1 space-y-3 overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-muted/20 p-4 text-sm sm:p-5">
               {askLines.length === 0 ? (
                 <p className="leading-relaxed text-muted-foreground">Ask about naming, positioning, narrative arcs, channel fit…</p>
               ) : (
@@ -402,7 +402,7 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
               The agent walks the kit with you: questions and patches refer to the Brand Center fields on this page (your
               live draft). You can edit everything afterward and save when ready.
             </p>
-            <div className="max-h-[40vh] min-h-[140px] flex-1 space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/20 p-4 text-sm sm:max-h-[48vh] sm:p-5">
+            <div className="max-h-[40vh] min-h-[140px] flex-1 space-y-3 overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-muted/20 p-4 text-sm sm:max-h-[48vh] sm:p-5">
               {consultLines.length === 0 ? (
                 <p className="leading-relaxed text-muted-foreground">
                   Start the automated walkthrough — it opens with a broad question so you can explain the brand in your
@@ -520,7 +520,7 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
               <p className="text-sm text-destructive">Could not run review. Save your kit and try again.</p>
             ) : null}
             {reviewOut ? (
-              <div className="max-h-72 overflow-y-auto rounded-xl border border-border bg-muted/20 p-4 text-sm leading-relaxed whitespace-pre-wrap sm:p-5">
+              <div className="max-h-72 overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-muted/20 p-4 text-sm leading-relaxed whitespace-pre-wrap sm:p-5">
                 {reviewOut}
               </div>
             ) : null}

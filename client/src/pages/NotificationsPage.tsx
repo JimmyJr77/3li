@@ -14,6 +14,7 @@ function matchesActivitySearch(row: ActivityFeedItem, q: string): boolean {
   const hay = [
     row.action,
     row.detail,
+    row.actor?.label,
     row.task.title,
     row.task.list.board.name,
     row.task.list.title,
@@ -53,7 +54,7 @@ export function NotificationsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Activity Tracker</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Your recent task actions for the active brand workspace. Open a task from the{" "}
+          Recent task activity in the active brand workspace (who did what). Open a task from the{" "}
           <Link
             to={defaultBoardId ? `/app/boards/${defaultBoardId}` : "/app/boards"}
             className="font-medium text-primary underline-offset-4 hover:underline"
@@ -76,7 +77,7 @@ export function NotificationsPage() {
           <Input
             id="activity-search"
             type="search"
-            placeholder="Filter by action, task, board, list, or date…"
+            placeholder="Filter by person, action, task, board, list, or date…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -99,7 +100,7 @@ export function NotificationsPage() {
       <ul className="divide-y rounded-xl border bg-card">
         {rows.length === 0 && !loading && (
           <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Nothing in Activity Tracker yet. Create, move, or comment on tasks on a board to see your feed.
+            Nothing in Activity Tracker yet. Create, move, or comment on tasks on a board to see the team feed.
           </li>
         )}
         {rows.length > 0 && filteredRows.length === 0 && !loading && (
@@ -115,6 +116,9 @@ export function NotificationsPage() {
                 {new Date(row.createdAt).toLocaleString()}
               </time>
             </div>
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{row.actor?.label ?? "System"}</span>
+            </p>
             <p className="text-muted-foreground">
               <span className="text-foreground">{row.task.title}</span>
               {row.detail ? ` — ${row.detail}` : ""}

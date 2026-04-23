@@ -341,6 +341,8 @@ export function TaskDetailSheet({
             <ul className="max-h-36 space-y-1 overflow-y-auto text-xs text-muted-foreground">
               {(task.activities ?? []).map((a) => (
                 <li key={a.id}>
+                  <span className="font-medium text-foreground">{a.actor?.label ?? "System"}</span>
+                  {": "}
                   <span className="font-medium text-foreground">{a.action}</span>
                   {a.detail ? ` — ${a.detail}` : ""}{" "}
                   <span className="text-muted-foreground">

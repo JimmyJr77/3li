@@ -376,7 +376,7 @@ function CaptureAITools({
       </div>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {output ? (
-        <div className="max-h-52 overflow-y-auto rounded-md border border-border bg-background p-3 text-sm whitespace-pre-wrap text-foreground">
+        <div className="max-h-52 overflow-y-auto overscroll-y-contain rounded-md border border-border bg-background p-3 text-sm whitespace-pre-wrap text-foreground">
           {output}
         </div>
       ) : (
@@ -730,7 +730,7 @@ export function RedTeamPanel({
                   </div>
                   {redError ? <p className="text-sm text-destructive">{redError}</p> : null}
                   {redOutput ? (
-                    <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                    <div className="max-h-64 overflow-y-auto overscroll-y-contain rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
                       {redOutput}
                     </div>
                   ) : null}
@@ -803,7 +803,7 @@ export function RedTeamPanel({
               </div>
               {consultantError ? <p className="text-sm text-destructive">{consultantError}</p> : null}
               {consultantOutput ? (
-                <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                <div className="max-h-64 overflow-y-auto overscroll-y-contain rounded-md border border-border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
                   {consultantOutput}
                 </div>
               ) : null}

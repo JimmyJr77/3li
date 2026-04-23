@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { consumeBrainstormNoteImport, ideaNodeFromBrainstormNoteImport } from "@/features/brainstorm/brainstormNoteImport";
-import { BrainstormAIPanel } from "@/features/brainstorm/components/BrainstormAIPanel";
+import { BrainstormAgentsSheet } from "@/features/brainstorm/components/BrainstormAgentsSheet";
 import { BrainstormCanvasTools } from "@/features/brainstorm/components/BrainstormCanvasTools";
 import type { BrainstormSessionResponse } from "@/features/brainstorm/api";
 import { fetchBrainstormSessionById, saveBrainstormCanvas } from "@/features/brainstorm/api";
@@ -71,7 +71,6 @@ export function BrainstormWorkspace({
   const edges = useBrainstormStore((s) => s.edges);
   const resetCanvas = useBrainstormStore((s) => s.resetCanvas);
   const presentationMode = useBrainstormStore((s) => s.presentationMode);
-  const agentsPanelVisible = useBrainstormStore((s) => s.agentsPanelVisible);
   const setPresentationMode = useBrainstormStore((s) => s.setPresentationMode);
 
   const fsRef = useRef<HTMLDivElement>(null);
@@ -218,8 +217,6 @@ export function BrainstormWorkspace({
     presentationMode
       ? "fixed inset-0 z-50 m-0 flex min-h-0 flex-row gap-2 bg-background p-2 lg:gap-3"
       : "grid min-h-[min(560px,calc(100vh-11rem))] grid-cols-1 gap-4 lg:min-h-[min(640px,calc(100vh-10rem))] lg:items-stretch",
-    !presentationMode && agentsPanelVisible && "lg:grid-cols-[1fr_min(100%,380px)]",
-    !presentationMode && !agentsPanelVisible && "lg:grid-cols-1",
   );
 
   return (
@@ -325,17 +322,7 @@ export function BrainstormWorkspace({
         {header ? <div className="shrink-0 border-b bg-background px-3 py-2.5">{header}</div> : null}
         <div className="min-h-0 flex-1">{children}</div>
       </div>
-      {agentsPanelVisible ? (
-        <div
-          className={cn(
-            "min-h-0 w-full shrink-0",
-            !presentationMode && "lg:w-[380px]",
-            presentationMode && "flex min-h-0 min-w-0 flex-col lg:max-w-[380px] lg:min-w-[min(100%,320px)]",
-          )}
-        >
-          <BrainstormAIPanel sessionId={sessionId} workspaceId={workspaceId} />
-        </div>
-      ) : null}
+      <BrainstormAgentsSheet sessionId={sessionId} workspaceId={workspaceId} />
     </div>
   );
 }
