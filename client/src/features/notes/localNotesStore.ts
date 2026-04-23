@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { PatchNoteBody } from "./api";
 import { previewFromDoc, titleMatchesWiki } from "./localWiki";
 import type { AtlasNoteDto, NoteLinkSummaryDto, NoteTagDto, NotesBootstrapDto, NotesFolderDto } from "./types";
+import { DEFAULT_NOTEBOOK_BASE, DEFAULT_NOTE_BASE, nextSequencedTitle } from "./defaultNames";
 
 export const LOCAL_WORKSPACE_ID = "local-workspace";
 
@@ -17,16 +18,18 @@ function emptyDoc() {
 function buildInitial(): {
   folders: NotesFolderDto[];
   defaultFolderId: string;
+  quickCaptureFolderId: string;
   notes: AtlasNoteDto[];
   tags: NoteTagDto[];
   workspaceCreatedAt: string;
 } {
-  const folderId = crypto.randomUUID();
+  const notesFolderId = crypto.randomUUID();
+  const quickFolderId = crypto.randomUUID();
   const t = nowIso();
   return {
     folders: [
       {
-        id: folderId,
+        id: notesFolderId,
         workspaceId: LOCAL_WORKSPACE_ID,
         parentId: null,
         title: "Notes",
@@ -35,8 +38,19 @@ function buildInitial(): {
         createdAt: t,
         updatedAt: t,
       },
+      {
+        id: quickFolderId,
+        workspaceId: LOCAL_WORKSPACE_ID,
+        parentId: null,
+        title: "Quicknotes",
+        position: 1,
+        rowAccentColor: null,
+        createdAt: t,
+        updatedAt: t,
+      },
     ],
-    defaultFolderId: folderId,
+    defaultFolderId: notesFolderId,
+    quickCaptureFolderId: quickFolderId,
     notes: [],
     tags: [],
     workspaceCreatedAt: t,
@@ -46,6 +60,7 @@ function buildInitial(): {
 type LocalState = {
   folders: NotesFolderDto[];
   defaultFolderId: string;
+  quickCaptureFolderId: string;
   notes: AtlasNoteDto[];
   tags: NoteTagDto[];
   /** Stable timestamps for workspace DTO */
@@ -59,7 +74,7 @@ type LocalActions = {
   createNote: (folderId: string, title?: string, contentJson?: unknown | null, previewText?: string | null) => AtlasNoteDto;
   patchNote: (id: string, body: PatchNoteBody) => AtlasNoteDto;
   deleteNote: (id: string) => void;
-  createFolder: (title: string) => NotesFolderDto;
+  createFolder: (title?: string) => NotesFolderDto;
   patchFolder: (id: string, body: { title?: string; position?: number; rowAccentColor?: string | null }) => NotesFolderDto;
   deleteFolder: (id: string) => void;
   reorderFolders: (orderedFolderIds: string[]) => void;
@@ -67,6 +82,7 @@ type LocalActions = {
   getForwardLinks: (noteId: string) => NoteLinkSummaryDto[];
   getBacklinks: (noteId: string) => NoteLinkSummaryDto[];
   createTag: (name: string, color?: string) => NoteTagDto;
+  deleteTag: (tagId: string) => void;
 };
 
 export const useLocalNotesStore = create<LocalState & LocalActions>()(
@@ -85,6 +101,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
             updatedAt: t,
           },
           defaultFolderId: s.defaultFolderId,
+          quickCaptureFolderId: s.quickCaptureFolderId,
           folders: s.folders,
           notes: s.notes,
         };
@@ -110,11 +127,15 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         const inFolder = s.notes.filter((n) => n.folderId === folderId);
         const position = (inFolder.reduce((m, n) => Math.max(m, n.position), -1) ?? -1) + 1;
         const t = nowIso();
+        const trimmed = title !== undefined && title !== null ? String(title).trim() : "";
+        const resolvedTitle = trimmed
+          ? trimmed
+          : nextSequencedTitle(inFolder.map((n) => n.title), DEFAULT_NOTE_BASE);
         const note: AtlasNoteDto = {
           id: crypto.randomUUID(),
           workspaceId: LOCAL_WORKSPACE_ID,
           folderId,
-          title: title?.trim() || "Untitled",
+          title: resolvedTitle,
           slug: null,
           contentJson: contentJson ?? emptyDoc(),
           previewText: previewText ?? null,
@@ -168,13 +189,18 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
 
       createFolder: (title) => {
         const s = get();
+        const top = s.folders.filter((f) => f.parentId === null);
+        const trimmed = title !== undefined && title !== null ? String(title).trim() : "";
+        const resolvedTitle = trimmed
+          ? trimmed
+          : nextSequencedTitle(top.map((f) => f.title), DEFAULT_NOTEBOOK_BASE);
         const position = (s.folders.reduce((m, f) => Math.max(m, f.position), -1) ?? -1) + 1;
         const t = nowIso();
         const folder: NotesFolderDto = {
           id: crypto.randomUUID(),
           workspaceId: LOCAL_WORKSPACE_ID,
           parentId: null,
-          title: title.trim() || "Folder",
+          title: resolvedTitle,
           position,
           rowAccentColor: null,
           createdAt: t,
@@ -221,7 +247,8 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           return { ...f, position: ti, updatedAt: nowIso() };
         });
         const defaultFolderId = s.defaultFolderId === id ? target.id : s.defaultFolderId;
-        set({ notes, folders, defaultFolderId });
+        const quickCaptureFolderId = s.quickCaptureFolderId === id ? target.id : s.quickCaptureFolderId;
+        set({ notes, folders, defaultFolderId, quickCaptureFolderId });
       },
 
       reorderFolders: (orderedFolderIds) => {
@@ -309,12 +336,25 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         set((st) => ({ tags: [...st.tags, tag] }));
         return tag;
       },
+
+      deleteTag: (tagId) => {
+        const t = nowIso();
+        set((s) => ({
+          tags: s.tags.filter((tag) => tag.id !== tagId),
+          notes: s.notes.map((n) => ({
+            ...n,
+            tags: n.tags.filter((tag) => tag.id !== tagId),
+            updatedAt: t,
+          })),
+        }));
+      },
     }),
     {
       name: "atlas-notes-local-v1",
       partialize: (s) => ({
         folders: s.folders,
         defaultFolderId: s.defaultFolderId,
+        quickCaptureFolderId: s.quickCaptureFolderId,
         notes: s.notes,
         tags: s.tags,
         workspaceCreatedAt: s.workspaceCreatedAt,
@@ -324,9 +364,43 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         if (!p || !p.folders?.length) {
           return { ...current, ...buildInitial() };
         }
+        const top = p.folders.filter((f) => f.parentId === null);
+        const hasQuicknotes = top.some((f) => f.title === "Quicknotes");
+        let folders = p.folders;
+        let quickCaptureFolderId = p.quickCaptureFolderId;
+        if (!hasQuicknotes) {
+          const t = nowIso();
+          const nextPos =
+            top.length > 0 ? Math.max(...top.map((f) => f.position), -1) + 1 : 0;
+          const qid = crypto.randomUUID();
+          folders = [
+            ...p.folders,
+            {
+              id: qid,
+              workspaceId: LOCAL_WORKSPACE_ID,
+              parentId: null,
+              title: "Quicknotes",
+              position: nextPos,
+              rowAccentColor: null,
+              createdAt: t,
+              updatedAt: t,
+            },
+          ];
+          quickCaptureFolderId = qid;
+        } else {
+          const qf = folders.find((f) => f.parentId === null && f.title === "Quicknotes");
+          if (
+            qf &&
+            (!quickCaptureFolderId || !folders.some((f) => f.id === quickCaptureFolderId))
+          ) {
+            quickCaptureFolderId = qf.id;
+          }
+        }
         return {
           ...current,
           ...p,
+          folders,
+          quickCaptureFolderId: quickCaptureFolderId ?? current.quickCaptureFolderId,
           workspaceCreatedAt: p.workspaceCreatedAt ?? current.workspaceCreatedAt,
         };
       },

@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, Loader2, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchActivityFeed, fetchBootstrap } from "@/features/taskflow/api";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { fetchActivityFeed } from "@/features/taskflow/api";
 import type { ActivityFeedItem } from "@/features/taskflow/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,22 +26,17 @@ function matchesActivitySearch(row: ActivityFeedItem, q: string): boolean {
 }
 
 export function NotificationsPage() {
-  const bootstrapQuery = useQuery({
-    queryKey: ["bootstrap"],
-    queryFn: fetchBootstrap,
-  });
-
-  const workspaceId = bootstrapQuery.data?.workspace?.id;
-  const defaultBoardId = bootstrapQuery.data?.board?.id;
+  const { activeWorkspace, activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
+  const defaultBoardId = activeWorkspace?.projectSpaces?.[0]?.boards?.[0]?.id ?? null;
 
   const feedQuery = useQuery({
-    queryKey: ["activity-feed", workspaceId],
-    queryFn: () => fetchActivityFeed(workspaceId!),
-    enabled: Boolean(workspaceId),
+    queryKey: ["activity-feed", activeWorkspaceId],
+    queryFn: () => fetchActivityFeed(activeWorkspaceId!),
+    enabled: Boolean(activeWorkspaceId) && !wsLoading,
   });
 
   const rows = feedQuery.data ?? [];
-  const loading = bootstrapQuery.isLoading || (Boolean(workspaceId) && feedQuery.isLoading);
+  const loading = wsLoading || (Boolean(activeWorkspaceId) && feedQuery.isLoading);
 
   const [search, setSearch] = useState("");
 
@@ -54,10 +50,10 @@ export function NotificationsPage() {
       <div>
         <div className="flex items-center gap-2">
           <Bell className="size-5 text-muted-foreground" aria-hidden />
-          <h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Activity Tracker</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Recent task events across your workspace. Open a task from the{" "}
+          Recent task events for the active brand workspace. Open a task from the{" "}
           <Link
             to={defaultBoardId ? `/app/boards/${defaultBoardId}` : "/app/boards"}
             className="font-medium text-primary underline-offset-4 hover:underline"
@@ -70,7 +66,7 @@ export function NotificationsPage() {
 
       <div className="max-w-xl space-y-1">
         <Label htmlFor="activity-search" className="text-xs text-muted-foreground">
-          Search activity
+          Search Activity Tracker
         </Label>
         <div className="relative">
           <Search
@@ -85,7 +81,7 @@ export function NotificationsPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
             autoComplete="off"
-            aria-label="Search activity"
+            aria-label="Search Activity Tracker"
           />
         </div>
       </div>
@@ -97,18 +93,18 @@ export function NotificationsPage() {
         </div>
       )}
       {feedQuery.isError && (
-        <p className="text-sm text-destructive">Could not load activity. Is the API running?</p>
+        <p className="text-sm text-destructive">Could not load Activity Tracker. Is the API running?</p>
       )}
 
       <ul className="divide-y rounded-xl border bg-card">
         {rows.length === 0 && !loading && (
           <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-            No activity yet. Create or move tasks on a board to see the feed.
+            Nothing in Activity Tracker yet. Create or move tasks on a board to see the feed.
           </li>
         )}
         {rows.length > 0 && filteredRows.length === 0 && !loading && (
           <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-            No activity matches &ldquo;{search.trim()}&rdquo;. Try a different search.
+            Nothing in Activity Tracker matches &ldquo;{search.trim()}&rdquo;. Try a different search.
           </li>
         )}
         {filteredRows.map((row) => (

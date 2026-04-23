@@ -56,7 +56,7 @@ export function PublicNotePage() {
             </p>
             {htmlBody ? (
               <article
-                className="public-note-content mt-8 text-sm leading-relaxed text-foreground [&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0 [&_li[data-type=taskItem]]:flex [&_li[data-type=taskItem]]:items-start [&_li[data-type=taskItem]]:gap-2 [&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border [&_td]:px-2 [&_th]:px-2 [&_th]:bg-muted/40 [&_th]:text-left"
+                className="public-note-content mt-8 text-sm leading-relaxed text-foreground [&_h1]:my-3 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:my-2.5 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:my-2 [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:my-2 [&_h4]:text-base [&_h4]:font-semibold [&_h5]:my-2 [&_h5]:text-sm [&_h5]:font-semibold [&_h5]:uppercase [&_h5]:tracking-wide [&_h6]:my-2 [&_h6]:text-xs [&_h6]:font-semibold [&_h6]:uppercase [&_h6]:tracking-wide [&_h6]:text-muted-foreground [&_a]:break-words [&_img]:my-3 [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-md [&_img]:border [&_img]:border-border [&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border [&_td]:px-2 [&_th]:px-2 [&_th]:bg-muted/40 [&_th]:text-left"
                 dangerouslySetInnerHTML={{ __html: htmlBody }}
               />
             ) : data.previewText ? (

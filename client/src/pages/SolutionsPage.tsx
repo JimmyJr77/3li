@@ -4,7 +4,7 @@ import { WorkspaceDashboardHomeGrid } from "@/components/workspace/WorkspaceDash
 const phase2 = [
   { title: "Proposal Builder", description: "Draft and iterate client-ready proposals." },
   { title: "Roadmap Planner", description: "Time-phased plans with dependencies." },
-  { title: "Client Workspaces", description: "Dedicated spaces per engagement." },
+  { title: "Dedicated project spaces", description: "Per client or engagement—aligned with in-app project spaces under each brand." },
   { title: "Template Library", description: "Reusable assets and playbooks." },
 ] as const;
 
@@ -27,12 +27,15 @@ export function SolutionsPage() {
       </div>
 
       <section className="mt-12">
-        <h2 className="text-lg font-semibold">3LI Workspace</h2>
+        <h2 className="text-lg font-semibold">Brands, project spaces, and tools</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Workspace allows you to create, organize, and bring ideas to fruition.
+          After you sign in, <span className="font-medium text-foreground/90">My brands</span> in the sidebar lists
+          each client or company context; the title prefers your Brand Center display name when set. Each row is a{" "}
+          <span className="font-medium text-foreground/90">project space</span> (boards, tasks, and notes scoped
+          together). Rapid Router, Notebooks, Brainstorm, boards, tasks, and calendar stay aligned to that thread.
         </p>
-        <div className="mx-auto mt-8 max-w-5xl">
-          <WorkspaceDashboardHomeGrid />
+        <div className="mt-8 w-full">
+          <WorkspaceDashboardHomeGrid variant="solutions" />
         </div>
       </section>
 

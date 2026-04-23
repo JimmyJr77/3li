@@ -1,4 +1,4 @@
-/** Brainstorm Studio — canvas, AI co-pilot, session persistence. */
+/** Brainstorm — studio boards, AI Consultant / Red Team, session persistence. */
 export {
   convertPlanToTasks,
   createBrainstormSession,

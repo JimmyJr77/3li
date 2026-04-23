@@ -1,44 +1,66 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import type { Edge } from "@xyflow/react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { consumeBrainstormNoteImport, ideaNodeFromBrainstormNoteImport } from "@/features/brainstorm/brainstormNoteImport";
 import { BrainstormAIPanel } from "@/features/brainstorm/components/BrainstormAIPanel";
+import { BrainstormCanvasTools } from "@/features/brainstorm/components/BrainstormCanvasTools";
+import type { BrainstormSessionResponse } from "@/features/brainstorm/api";
 import { fetchBrainstormSessionById, saveBrainstormCanvas } from "@/features/brainstorm/api";
 import type { BrainstormSaveStatus } from "@/features/brainstorm/saveStatus";
-import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
-import type { IdeaFlowNode } from "@/features/brainstorm/types";
+import { normalizeBrainstormNode, useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
+import type { BrainstormEdge, BrainstormFlowNode, TextFlowNode } from "@/features/brainstorm/types";
+import { isIdeaNode } from "@/features/brainstorm/types";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-function mapNodesFromApi(
-  nodes: Array<{
-    id: string;
-    position: { x: number; y: number };
-    data: IdeaFlowNode["data"];
-  }>,
-): IdeaFlowNode[] {
-  return nodes.map((n) => ({
-    id: n.id,
-    type: "idea",
-    position: n.position,
+function normalizeEdgesFromApi(edges: BrainstormSessionResponse["edges"]): BrainstormEdge[] {
+  return edges.map((e) => ({
+    ...e,
     data: {
-      title: n.data.title,
-      description: n.data.description ?? "",
-      tags: n.data.tags ?? [],
-      status: n.data.status as IdeaFlowNode["data"]["status"],
-      priority: n.data.priority as IdeaFlowNode["data"]["priority"],
+      lineStyle: e.data?.lineStyle ?? "solid",
+      label: typeof e.data?.label === "string" ? e.data.label : "",
     },
   }));
 }
 
+/** Root-level text cards: drop fixed width/height so React Flow measures DOM (toolbar toggles height). */
+function normalizeRootTextNodesForMeasurement(nodes: BrainstormFlowNode[]): BrainstormFlowNode[] {
+  return nodes.map((n) => {
+    if (n.type !== "text" || n.parentId) return n;
+    const { width: _w, height: _h, ...rest } = n as TextFlowNode;
+    return rest as TextFlowNode;
+  });
+}
+
+function mapSessionFromApi(data: BrainstormSessionResponse): {
+  nodes: BrainstormFlowNode[];
+  edges: BrainstormEdge[];
+} {
+  const normalized = (data.nodes as BrainstormFlowNode[]).map(normalizeBrainstormNode);
+  return {
+    nodes: normalizeRootTextNodesForMeasurement(normalized),
+    edges: normalizeEdgesFromApi(data.edges),
+  };
+}
+
 type BrainstormWorkspaceProps = {
+  workspaceId: string;
   sessionId: string;
-  children: React.ReactNode;
+  children: ReactNode;
+  /** Renders above the canvas, inside the idea-board column (aligned with canvas width). */
+  header?: ReactNode;
   onSaveStatusChange?: (status: BrainstormSaveStatus) => void;
 };
 
-export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }: BrainstormWorkspaceProps) {
+export function BrainstormWorkspace({
+  workspaceId,
+  sessionId,
+  children,
+  header,
+  onSaveStatusChange,
+}: BrainstormWorkspaceProps) {
   const sessionQuery = useQuery({
-    queryKey: ["brainstorm", "session", sessionId],
-    queryFn: () => fetchBrainstormSessionById(sessionId),
+    queryKey: ["brainstorm", "session", workspaceId, sessionId],
+    queryFn: () => fetchBrainstormSessionById(sessionId, workspaceId),
     enabled: Boolean(sessionId),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
@@ -47,6 +69,45 @@ export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }:
   const nodes = useBrainstormStore((s) => s.nodes);
   const edges = useBrainstormStore((s) => s.edges);
   const resetCanvas = useBrainstormStore((s) => s.resetCanvas);
+  const presentationMode = useBrainstormStore((s) => s.presentationMode);
+  const agentsPanelVisible = useBrainstormStore((s) => s.agentsPanelVisible);
+  const setPresentationMode = useBrainstormStore((s) => s.setPresentationMode);
+
+  const fsRef = useRef<HTMLDivElement>(null);
+  const toolsAsideRef = useRef<HTMLDivElement>(null);
+  const [hideCanvasTools, setHideCanvasTools] = useState(false);
+  const [edgeToolsPeekOpen, setEdgeToolsPeekOpen] = useState(false);
+  const peekCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelPeekClose = useCallback(() => {
+    if (peekCloseTimer.current !== null) {
+      clearTimeout(peekCloseTimer.current);
+      peekCloseTimer.current = null;
+    }
+  }, []);
+
+  const schedulePeekClose = useCallback(() => {
+    cancelPeekClose();
+    peekCloseTimer.current = window.setTimeout(() => {
+      setEdgeToolsPeekOpen(false);
+      peekCloseTimer.current = null;
+    }, 400);
+  }, [cancelPeekClose]);
+
+  const openEdgePeek = useCallback(() => {
+    cancelPeekClose();
+    setEdgeToolsPeekOpen(true);
+  }, [cancelPeekClose]);
+
+  useEffect(() => {
+    if (!presentationMode) {
+      setHideCanvasTools(false);
+      setEdgeToolsPeekOpen(false);
+      cancelPeekClose();
+    }
+  }, [presentationMode, cancelPeekClose]);
+
+  useEffect(() => () => cancelPeekClose(), [cancelPeekClose]);
 
   const hydratedRef = useRef(false);
   /** Dedupes React Strict Mode double effect runs for the same fetched session snapshot. */
@@ -61,7 +122,7 @@ export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }:
     lastHydrateSigRef.current = null;
     lastPersistedRef.current = null;
     onSaveStatusChangeRef.current?.("idle");
-  }, [sessionId, resetCanvas]);
+  }, [sessionId, workspaceId, resetCanvas]);
 
   useEffect(() => {
     if (!sessionQuery.isSuccess || !sessionQuery.data) {
@@ -76,13 +137,14 @@ export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }:
     }
     lastHydrateSigRef.current = hydrateSig;
 
-    const { nodes: rawNodes, edges: rawEdges } = sessionQuery.data;
-    let mapped = mapNodesFromApi(rawNodes);
+    const mappedBase = mapSessionFromApi(sessionQuery.data);
+    let mapped = mappedBase.nodes;
+    const rawEdges = mappedBase.edges;
     const pending = consumeBrainstormNoteImport();
     if (pending) {
-      mapped = [...mapped, ideaNodeFromBrainstormNoteImport(pending, mapped.length)];
+      mapped = [...mapped, ideaNodeFromBrainstormNoteImport(pending, mapped.filter(isIdeaNode).length)];
     }
-    resetCanvas(mapped, rawEdges as Edge[]);
+    resetCanvas(mapped, rawEdges);
     hydratedRef.current = true;
     lastPersistedRef.current = null;
   }, [sessionQuery.isSuccess, sessionQuery.data, sessionQuery.dataUpdatedAt, sessionId, resetCanvas]);
@@ -107,7 +169,7 @@ export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }:
       onSaveStatusChangeRef.current?.("saving");
       void (async () => {
         try {
-          await saveBrainstormCanvas(sessionId, { nodes, edges });
+          await saveBrainstormCanvas(sessionId, workspaceId, { nodes, edges });
           lastPersistedRef.current = JSON.stringify({ nodes, edges });
           onSaveStatusChangeRef.current?.("saved");
           window.setTimeout(() => onSaveStatusChangeRef.current?.("idle"), 2200);
@@ -117,22 +179,162 @@ export function BrainstormWorkspace({ sessionId, children, onSaveStatusChange }:
       })();
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [nodes, edges, sessionId]);
+  }, [nodes, edges, sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (!presentationMode) return;
+    const el = fsRef.current;
+    if (!el) return;
+    void (async () => {
+      try {
+        await el.requestFullscreen();
+      } catch {
+        /* optional */
+      }
+    })();
+    return () => {
+      if (document.fullscreenElement === el) {
+        void document.exitFullscreen().catch(() => {});
+      }
+    };
+  }, [presentationMode]);
+
+  useEffect(() => {
+    const onFs = () => {
+      if (document.fullscreenElement) return;
+      const st = useBrainstormStore.getState();
+      if (st.presentationMode) st.setPresentationMode(false);
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  const toolsPaneClass =
+    "flex min-h-0 w-[min(15rem,calc(100vw-2rem))] max-w-[16rem] flex-col gap-2 rounded-md border bg-card/95 p-3 shadow-sm";
+
+  const outerClass = cn(
+    "min-h-0 flex-1",
+    presentationMode
+      ? "fixed inset-0 z-50 m-0 flex min-h-0 flex-row gap-2 bg-background p-2 lg:gap-3"
+      : "grid min-h-[min(560px,calc(100vh-11rem))] grid-cols-1 gap-4 lg:min-h-[min(640px,calc(100vh-10rem))] lg:items-stretch",
+    !presentationMode && agentsPanelVisible && "lg:grid-cols-[1fr_min(100%,380px)]",
+    !presentationMode && !agentsPanelVisible && "lg:grid-cols-1",
+  );
 
   return (
-    <div className="grid min-h-[min(560px,calc(100vh-11rem))] flex-1 grid-cols-1 gap-4 lg:min-h-[min(640px,calc(100vh-10rem))] lg:grid-cols-[1fr_min(100%,380px)] lg:items-stretch">
-      <div className="relative flex min-h-[min(480px,calc(100vh-12rem))] flex-1 flex-col overflow-hidden rounded-lg border bg-background">
+    <div ref={fsRef} className={outerClass}>
+      {presentationMode && hideCanvasTools ? (
+        <>
+          <div
+            data-brainstorm-edge-peek-strip=""
+            className="pointer-events-auto fixed inset-y-0 left-0 z-[55] w-5"
+            aria-hidden
+            onMouseEnter={openEdgePeek}
+            onMouseLeave={(e) => {
+              const next = e.relatedTarget as Node | null;
+              if (toolsAsideRef.current?.contains(next)) return;
+              schedulePeekClose();
+            }}
+          />
+          <aside
+            ref={toolsAsideRef}
+            aria-label="Canvas tools"
+            className={cn(
+              toolsPaneClass,
+              "pointer-events-auto fixed left-0 top-0 z-[56] h-[100dvh] max-h-[100dvh] shadow-lg transition-transform duration-200 ease-out",
+              edgeToolsPeekOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
+            )}
+            onMouseEnter={openEdgePeek}
+            onMouseLeave={(e) => {
+              const next = e.relatedTarget as HTMLElement | null;
+              if (next?.closest?.("[data-brainstorm-edge-peek-strip]")) return;
+              if (toolsAsideRef.current?.contains(next)) return;
+              schedulePeekClose();
+            }}
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-full shrink-0 justify-start text-xs font-normal"
+              aria-pressed={hideCanvasTools}
+              onClick={() => {
+                setHideCanvasTools(false);
+                setEdgeToolsPeekOpen(false);
+                cancelPeekClose();
+              }}
+            >
+              Hide canvas tools
+            </Button>
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <BrainstormCanvasTools layout="presentation" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full shrink-0"
+              onClick={() => setPresentationMode(false)}
+            >
+              Exit full screen
+            </Button>
+          </aside>
+        </>
+      ) : null}
+      {presentationMode && !hideCanvasTools ? (
+        <aside className={cn(toolsPaneClass, "shrink-0 self-stretch")} aria-label="Canvas tools">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full shrink-0 justify-start text-xs font-normal"
+            aria-pressed={false}
+            onClick={() => setHideCanvasTools(true)}
+          >
+            Hide canvas tools
+          </Button>
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <BrainstormCanvasTools layout="presentation" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full shrink-0"
+            onClick={() => setPresentationMode(false)}
+          >
+            Exit full screen
+          </Button>
+        </aside>
+      ) : null}
+      <div
+        className={cn(
+          "relative flex min-h-[min(480px,calc(100vh-12rem))] flex-1 flex-col overflow-hidden rounded-lg border bg-background",
+          presentationMode && "min-h-0 min-w-0 rounded-md",
+        )}
+      >
         {sessionQuery.isError && (
           <p className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            Could not load session. Is the API running and the database migrated?
+            Could not load studio board. Is the API running and the database migrated?
           </p>
         )}
         {sessionQuery.isLoading && (
-          <p className="border-b px-3 py-2 text-xs text-muted-foreground">Loading session…</p>
+          <p className="border-b px-3 py-2 text-xs text-muted-foreground">Loading studio board…</p>
         )}
+        {header ? <div className="shrink-0 border-b bg-background px-3 py-2.5">{header}</div> : null}
         <div className="min-h-0 flex-1">{children}</div>
       </div>
-      <BrainstormAIPanel sessionId={sessionId} />
+      {agentsPanelVisible ? (
+        <div
+          className={cn(
+            "min-h-0 w-full shrink-0",
+            !presentationMode && "lg:w-[380px]",
+            presentationMode && "flex min-h-0 min-w-0 flex-col lg:max-w-[380px] lg:min-w-[min(100%,320px)]",
+          )}
+        >
+          <BrainstormAIPanel sessionId={sessionId} workspaceId={workspaceId} />
+        </div>
+      ) : null}
     </div>
   );
 }

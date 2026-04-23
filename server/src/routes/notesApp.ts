@@ -2,9 +2,22 @@ import { Prisma, type Note, type NoteTag, type NotesFolder } from "@prisma/clien
 import { Router } from "express";
 import { prisma } from "../lib/db.js";
 import { extractFullPlainText } from "../lib/notePlainText.js";
-import { getOpenAIOrNull } from "../lib/openai/client.js";
-import { ensureDefaultNotesFolder, ensureNotesBootstrap } from "../lib/notesDefaults.js";
+import {
+  aiServiceUnavailableDetail,
+  chatModel,
+  getAiPublicMetadata,
+  getOpenAIOrNull,
+} from "../lib/openai/client.js";
+import { ensureDefaultNotesFolder, ensureNotesBootstrap, ensureQuicknotesFolder } from "../lib/notesDefaults.js";
+import type { Workspace } from "@prisma/client";
 import { syncNoteLinksFromContent } from "../lib/wikiLinks.js";
+import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
+import {
+  DEFAULT_NOTEBOOK_BASE,
+  DEFAULT_NOTE_BASE,
+  nextSequencedTitle,
+} from "../lib/sequencedDefaultTitle.js";
+import { runMailClerkNotebookAutotag } from "../lib/openai/surfaceAgents.js";
 
 function normalizeRowAccentColor(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined;
@@ -95,9 +108,24 @@ router.get("/public/:publicSlug", async (req, res) => {
   }
 });
 
-router.get("/bootstrap", async (_req, res) => {
+router.get("/bootstrap", async (req, res) => {
   try {
-    const { workspace, defaultFolder } = await ensureNotesBootstrap();
+    const q = req.query.workspaceId;
+    let workspace: Workspace;
+    if (typeof q === "string" && q.trim()) {
+      const ws = await prisma.workspace.findFirst({
+        where: { id: q.trim(), archivedAt: null },
+      });
+      if (!ws) {
+        res.status(404).json({ error: "Workspace not found" });
+        return;
+      }
+      workspace = ws;
+    } else {
+      workspace = (await ensureNotesBootstrap()).workspace;
+    }
+    const defaultFolder = await ensureDefaultNotesFolder(workspace.id);
+    const quickCaptureFolder = await ensureQuicknotesFolder(workspace.id);
     const folders = await prisma.notesFolder.findMany({
       where: { workspaceId: workspace.id },
       orderBy: [{ parentId: "asc" }, { position: "asc" }],
@@ -109,12 +137,14 @@ router.get("/bootstrap", async (_req, res) => {
       take: 200,
     });
     res.json({
+      ai: getAiPublicMetadata(),
       workspace: {
         ...workspace,
         createdAt: workspace.createdAt.toISOString(),
         updatedAt: workspace.updatedAt.toISOString(),
       },
       defaultFolderId: defaultFolder.id,
+      quickCaptureFolderId: quickCaptureFolder.id,
       folders: folders.map(serializeFolder),
       notes: notes.map(serializeNote),
     });
@@ -148,20 +178,36 @@ router.post("/folders", async (req, res) => {
       title?: string;
       parentId?: string | null;
     };
-    if (!body.workspaceId || !body.title?.trim()) {
-      res.status(400).json({ error: "workspaceId and title required" });
+    if (!body.workspaceId) {
+      res.status(400).json({ error: "workspaceId required" });
       return;
     }
+    const parentId = body.parentId ?? null;
+    const trimmed = typeof body.title === "string" ? body.title.trim() : "";
+    let title: string;
+    if (trimmed) {
+      title = trimmed;
+    } else {
+      const siblings = await prisma.notesFolder.findMany({
+        where: { workspaceId: body.workspaceId, parentId },
+        select: { title: true },
+      });
+      const base = parentId === null ? DEFAULT_NOTEBOOK_BASE : "Folder";
+      title = nextSequencedTitle(
+        siblings.map((s) => s.title),
+        base,
+      );
+    }
     const maxPos = await prisma.notesFolder.aggregate({
-      where: { workspaceId: body.workspaceId, parentId: body.parentId ?? null },
+      where: { workspaceId: body.workspaceId, parentId },
       _max: { position: true },
     });
     const position = (maxPos._max.position ?? -1) + 1;
     const folder = await prisma.notesFolder.create({
       data: {
         workspaceId: body.workspaceId,
-        parentId: body.parentId ?? undefined,
-        title: body.title.trim(),
+        parentId: parentId ?? undefined,
+        title,
         position,
       },
     });
@@ -365,7 +411,7 @@ router.post("/quick-capture/enrich", async (req, res) => {
     if (!openai) {
       res.status(503).json({
         error: "AI service unavailable",
-        detail: "OPENAI_API_KEY is not configured",
+        detail: aiServiceUnavailableDetail(),
       });
       return;
     }
@@ -374,7 +420,10 @@ router.post("/quick-capture/enrich", async (req, res) => {
       folderId?: string;
       title?: string;
       rawText?: string;
+      /** Preferred: merged kit (API) + Rapid Router from `getBrandContextForAI`. */
       brandCenterContext?: string | null;
+      /** Legacy: rapid-only when brandCenterContext omitted. */
+      brandRapidCaptureContext?: string | null;
     };
     const workspaceId = body.workspaceId?.trim();
     const folderId = body.folderId?.trim();
@@ -393,7 +442,14 @@ router.post("/quick-capture/enrich", async (req, res) => {
     }
 
     const [workspace, folder] = await Promise.all([
-      prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } }),
+      prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: {
+          id: true,
+          name: true,
+          brand: { select: { brandProfile: true } },
+        },
+      }),
       prisma.notesFolder.findUnique({ where: { id: folderId }, select: { id: true, workspaceId: true, title: true } }),
     ]);
     if (!workspace || !folder) {
@@ -405,9 +461,22 @@ router.post("/quick-capture/enrich", async (req, res) => {
       return;
     }
 
-    let brand = (body.brandCenterContext ?? "").trim();
-    if (brand.length > 12000) {
-      brand = `${brand.slice(0, 12000)}\n…(truncated)`;
+    const mergedFromClient = (body.brandCenterContext ?? "").trim();
+    const rapidOnly = (body.brandRapidCaptureContext ?? "").trim();
+    const dbKit = formatBrandProfileForPrompt(workspace.brand?.brandProfile ?? null);
+    const kitMarker = "## Company brand kit (authoritative for this workspace)";
+    let brandSection = "";
+    if (mergedFromClient.length) {
+      const merged =
+        mergedFromClient.length > 14_000 ? `${mergedFromClient.slice(0, 14_000)}\n…(truncated)` : mergedFromClient;
+      if (dbKit && !merged.includes(kitMarker)) {
+        brandSection = `${dbKit}\n\n---\n\nSupplemental (client bundle, incl. Rapid Router):\n${merged}`;
+      } else {
+        brandSection = merged;
+      }
+    } else {
+      const rapid = rapidOnly.length > 8000 ? `${rapidOnly.slice(0, 8000)}\n…(truncated)` : rapidOnly;
+      brandSection = [dbKit, rapid ? `Rapid Router quick captures (device):\n${rapid}` : ""].filter(Boolean).join("\n\n");
     }
     const draftTitle = (body.title ?? "").trim().slice(0, 500);
 
@@ -416,21 +485,21 @@ Rules:
 - title: concise, specific, at most 120 characters.
 - body: plain text only; use blank lines between paragraphs; optional simple bullet lines with leading "- ".
 - Connect the writing to the workspace and notebook when it helps the reader.
-- When Brand Center snippets describe positioning, tone, audience, or vocabulary, align emphasis and wording with them. Do not invent facts not present in the draft or brand context.
+- When the company brand kit or Brand Center snippets describe positioning, tone, audience, or vocabulary, align emphasis and wording with them. Do not invent facts not present in the draft or brand context.
 - Preserve specific facts, names, dates, and numbers from the user's draft.`;
 
     const userPayload = [
       `Workspace: ${workspace.name}`,
       `Notebook: ${folder.title}`,
-      brand
-        ? `Brand Center (recent captures stored on this user's device from the Brand Center flow):\n${brand}`
-        : "(No Brand Center snippets were supplied.)",
+      brandSection
+        ? `Brand context (saved kit + Rapid Router when applicable):\n${brandSection}`
+        : "(No brand context — consider filling Brand Center for this workspace.)",
       draftTitle ? `Working title: ${draftTitle}` : "Working title: (none)",
       `Draft:\n${rawText}`,
     ].join("\n\n");
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: chatModel("jsonQuick"),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
@@ -460,22 +529,33 @@ Rules:
   }
 });
 
+const NOTE_AI_EXTRA_CONTEXT_MAX = 4000;
+
+function withNoteAiExtraContext(baseUserContent: string, extraContext: string): string {
+  const t = extraContext.trim();
+  if (!t) return baseUserContent;
+  const capped = t.slice(0, NOTE_AI_EXTRA_CONTEXT_MAX);
+  return `${baseUserContent}\n\n---\n\nAdditional instructions / context from the author:\n${capped}`;
+}
+
 router.post("/notes/:noteId/ai", async (req, res) => {
   try {
     const openai = getOpenAIOrNull();
     if (!openai) {
       res.status(503).json({
         error: "AI service unavailable",
-        detail: "OPENAI_API_KEY is not configured",
+        detail: aiServiceUnavailableDetail(),
       });
       return;
     }
-    const body = req.body as { action?: string };
+    const body = req.body as { action?: string; extraContext?: string };
     const action = body.action;
-    if (!action || !["summarize", "rewrite", "suggestTags"].includes(action)) {
-      res.status(400).json({ error: "action must be summarize | rewrite | suggestTags" });
+    if (!action || !["summarize", "rewrite", "suggestTags", "notebookLinking"].includes(action)) {
+      res.status(400).json({ error: "action must be summarize | rewrite | suggestTags | notebookLinking" });
       return;
     }
+    const extraContext =
+      typeof body.extraContext === "string" ? body.extraContext.trim().slice(0, NOTE_AI_EXTRA_CONTEXT_MAX) : "";
     const note = await prisma.note.findUnique({ where: { id: req.params.noteId } });
     if (!note) {
       res.status(404).json({ error: "Note not found" });
@@ -485,13 +565,17 @@ router.post("/notes/:noteId/ai", async (req, res) => {
     const title = note.title;
 
     if (action === "summarize") {
+      const userContent = withNoteAiExtraContext(
+        `Summarize this note in 2-5 sentences. Title: "${title}"\n\n${text || "(empty note)"}`,
+        extraContext,
+      );
       const completion = await openai.chat.completions.create({
-        model: "gpt-4.1",
+        model: chatModel("primary"),
         messages: [
           { role: "system", content: "You are a concise note summarizer." },
           {
             role: "user",
-            content: `Summarize this note in 2-5 sentences. Title: "${title}"\n\n${text || "(empty note)"}`,
+            content: userContent,
           },
         ],
       });
@@ -501,15 +585,16 @@ router.post("/notes/:noteId/ai", async (req, res) => {
     }
 
     if (action === "rewrite") {
+      const userContent = withNoteAiExtraContext(`Title: "${title}"\n\n${text || "(empty note)"}`, extraContext);
       const completion = await openai.chat.completions.create({
-        model: "gpt-4.1",
+        model: chatModel("primary"),
         messages: [
           {
             role: "system",
             content:
               "Rewrite for clarity and scannability. Keep the author's meaning. Output plain text only; use blank lines between paragraphs.",
           },
-          { role: "user", content: `Title: "${title}"\n\n${text || "(empty note)"}` },
+          { role: "user", content: userContent },
         ],
       });
       const result = completion.choices[0]?.message?.content ?? "";
@@ -517,15 +602,65 @@ router.post("/notes/:noteId/ai", async (req, res) => {
       return;
     }
 
+    if (action === "notebookLinking") {
+      const links = await prisma.noteLink.findMany({
+        where: { OR: [{ fromNoteId: note.id }, { toNoteId: note.id }] },
+        include: {
+          fromNote: { select: { id: true, title: true, previewText: true } },
+          toNote: { select: { id: true, title: true, previewText: true } },
+        },
+      });
+      const neighborLines = links.map((l) => {
+        const other = l.fromNoteId === note.id ? l.toNote : l.fromNote;
+        const prev = (other.previewText ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+        return `- ${other.title}${prev ? ` — ${prev}` : ""} (id: ${other.id})`;
+      });
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: note.workspaceId },
+        select: { brand: { select: { brandProfile: true } } },
+      });
+      const brandSection = formatBrandProfileForPrompt(workspace?.brand?.brandProfile ?? null);
+
+      const system = `You are the notebook linking assistant. Suggest how this note connects to linked notes, what implications to track, and 1–3 concrete link ideas the author could add. Be concise. If there are no linked notes, suggest what kinds of notes might connect later. Output plain text with short sections: Connections, Implications, Suggested next links.`;
+      const userBlock = withNoteAiExtraContext(
+        [
+          brandSection ? `Brand context (summary):\n${brandSection.slice(0, 6000)}` : "",
+          `Note title: ${title}`,
+          `Note body:\n${text || "(empty)"}`,
+          neighborLines.length
+            ? `Linked notes:\n${neighborLines.join("\n")}`
+            : "Linked notes: (none yet)",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        extraContext,
+      );
+
+      const completion = await openai.chat.completions.create({
+        model: chatModel("primary"),
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userBlock },
+        ],
+      });
+      const result = completion.choices[0]?.message?.content ?? "";
+      res.json({ result });
+      return;
+    }
+
+    const tagUserContent = withNoteAiExtraContext(
+      `Suggest tags for this note.\nTitle: "${title}"\n\n${text || ""}`,
+      extraContext,
+    );
     const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: chatModel("mini"),
       messages: [
         {
           role: "system",
           content:
             'Reply with JSON only in this shape: {"tags":["tag1","tag2"]}. At most 5 short tags, lowercase, single words or hyphenated. No # or quotes inside strings.',
         },
-        { role: "user", content: `Suggest tags for this note.\nTitle: "${title}"\n\n${text || ""}` },
+        { role: "user", content: tagUserContent },
       ],
     });
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -556,6 +691,7 @@ router.post("/notes", async (req, res) => {
       title?: string;
       contentJson?: unknown | null;
       previewText?: string | null;
+      routingSource?: string | null;
     };
     if (!body.workspaceId) {
       res.status(400).json({ error: "workspaceId required" });
@@ -571,11 +707,31 @@ router.post("/notes", async (req, res) => {
       _max: { position: true },
     });
     const position = (maxOrder._max.position ?? -1) + 1;
+    const routingSource =
+      typeof body.routingSource === "string" && body.routingSource.trim()
+        ? body.routingSource.trim().slice(0, 64)
+        : undefined;
+
+    const trimmedTitle = typeof body.title === "string" ? body.title.trim() : "";
+    let resolvedTitle: string;
+    if (trimmedTitle) {
+      resolvedTitle = trimmedTitle;
+    } else {
+      const existingTitles = await prisma.note.findMany({
+        where: { workspaceId: body.workspaceId, folderId },
+        select: { title: true },
+      });
+      resolvedTitle = nextSequencedTitle(
+        existingTitles.map((r) => r.title),
+        DEFAULT_NOTE_BASE,
+      );
+    }
+
     const note = await prisma.note.create({
       data: {
         workspaceId: body.workspaceId,
         folderId,
-        title: body.title?.trim() || "Untitled",
+        title: resolvedTitle,
         ...(body.contentJson !== undefined
           ? {
               contentJson:
@@ -585,6 +741,7 @@ router.post("/notes", async (req, res) => {
             }
           : {}),
         ...(body.previewText !== undefined ? { previewText: body.previewText } : {}),
+        ...(routingSource ? { routingSource } : {}),
       },
       include: noteInclude,
     });
@@ -704,6 +861,65 @@ router.patch("/notes/:noteId", async (req, res) => {
   }
 });
 
+/** Mail Clerk–style autotag: merge AI-picked workspace tags onto the note (routing index + vocabulary). */
+router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
+  try {
+    const openai = getOpenAIOrNull();
+    if (!openai) {
+      res.status(503).json({
+        error: "AI service unavailable",
+        detail: aiServiceUnavailableDetail(),
+      });
+      return;
+    }
+    const noteId = req.params.noteId;
+    const note = await prisma.note.findUnique({
+      where: { id: noteId },
+      include: { tags: true },
+    });
+    if (!note) {
+      res.status(404).json({ error: "Note not found" });
+      return;
+    }
+
+    const workspaceTags = await prisma.noteTag.findMany({
+      where: { workspaceId: note.workspaceId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    if (!workspaceTags.length) {
+      res.status(409).json({
+        error: "No workspace tags",
+        detail: "Create at least one workspace tag before using Mail Clerk autotag.",
+      });
+      return;
+    }
+
+    const plain = extractFullPlainText(note.contentJson);
+    const picked = await runMailClerkNotebookAutotag(openai, {
+      workspaceId: note.workspaceId,
+      noteTitle: note.title,
+      notePlainText: plain,
+      tagsOnNoteNames: note.tags.map((t) => t.name),
+      tagVocabulary: workspaceTags.map((t) => ({ name: t.name })),
+    });
+
+    const nameToId = new Map(workspaceTags.map((t) => [t.name.toLowerCase(), t.id]));
+    const newIds = picked.map((n) => nameToId.get(n.toLowerCase())).filter((id): id is string => Boolean(id));
+    const mergedIds = [...new Set([...note.tags.map((t) => t.id), ...newIds])];
+
+    const updated = await prisma.note.update({
+      where: { id: noteId },
+      data: { tags: { set: mergedIds.map((id) => ({ id })) } },
+      include: noteInclude,
+    });
+    res.json(serializeNote(updated));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Mail Clerk autotag failed" });
+  }
+});
+
 router.delete("/notes/:noteId", async (req, res) => {
   try {
     await prisma.note.delete({ where: { id: req.params.noteId } });
@@ -799,6 +1015,33 @@ router.get("/tags", async (req, res) => {
     );
   } catch {
     res.status(500).json({ error: "Failed to list tags" });
+  }
+});
+
+router.delete("/tags/:tagId", async (req, res) => {
+  try {
+    const workspaceId = req.query.workspaceId as string | undefined;
+    const tagId = req.params.tagId?.trim();
+    if (!workspaceId?.trim()) {
+      res.status(400).json({ error: "workspaceId required" });
+      return;
+    }
+    if (!tagId) {
+      res.status(400).json({ error: "tagId required" });
+      return;
+    }
+    const tag = await prisma.noteTag.findFirst({
+      where: { id: tagId, workspaceId: workspaceId.trim() },
+    });
+    if (!tag) {
+      res.status(404).json({ error: "Tag not found" });
+      return;
+    }
+    await prisma.noteTag.delete({ where: { id: tag.id } });
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to delete tag" });
   }
 });
 

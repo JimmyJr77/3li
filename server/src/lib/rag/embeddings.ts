@@ -1,14 +1,14 @@
 import type OpenAI from "openai";
-
-const EMBEDDING_MODEL = "text-embedding-3-small";
+import { embeddingModel } from "../ai/models.js";
 
 export async function embedTexts(openai: OpenAI, texts: string[]): Promise<number[][]> {
   const out: number[][] = [];
   const batchSize = 64;
+  const model = embeddingModel();
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize);
     const res = await openai.embeddings.create({
-      model: EMBEDDING_MODEL,
+      model,
       input: batch,
     });
     const ordered = [...res.data].sort((x, y) => x.index - y.index);

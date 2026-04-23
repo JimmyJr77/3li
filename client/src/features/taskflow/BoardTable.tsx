@@ -4,10 +4,16 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type Row as TanstackRow,
   type SortingState,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import {
+  clearRoutedGlow,
+  useRoutedTaskGlow,
+} from "@/features/rapidRouter/routedHighlightStore";
 import type { TaskFlowTask } from "./types";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +21,38 @@ type Row = TaskFlowTask & {
   listTitle: string;
   boardName: string;
 };
+
+function BoardTableRow({
+  row,
+  onRowClick,
+}: {
+  row: TanstackRow<Row>;
+  onRowClick: (task: TaskFlowTask) => void;
+}) {
+  const { activeWorkspaceId } = useActiveWorkspace();
+  const taskWs = row.original.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
+  const glow = useRoutedTaskGlow(row.original.id, taskWs);
+  return (
+    <tr
+      className={cn(
+        "cursor-pointer border-t transition-colors hover:bg-muted/30",
+        row.original.completed && "opacity-70",
+        glow &&
+          "bg-yellow-500/5 shadow-[inset_0_0_0_2px_rgba(234,179,8,0.55)] dark:bg-yellow-500/10",
+      )}
+      onClick={() => {
+        if (taskWs) clearRoutedGlow("task", row.original.id, taskWs);
+        onRowClick(row.original);
+      }}
+    >
+      {row.getVisibleCells().map((cell) => (
+        <td key={cell.id} className="px-3 py-2 align-top">
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      ))}
+    </tr>
+  );
+}
 
 export function BoardTable({
   tasks,
@@ -71,6 +109,7 @@ export function BoardTable({
     [],
   );
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table API
   const table = useReactTable({
     data,
     columns,
@@ -113,20 +152,7 @@ export function BoardTable({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className={cn(
-                "cursor-pointer border-t transition-colors hover:bg-muted/30",
-                row.original.completed && "opacity-70",
-              )}
-              onClick={() => onRowClick(row.original)}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-3 py-2 align-top">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
+            <BoardTableRow key={row.id} row={row} onRowClick={onRowClick} />
           ))}
         </tbody>
       </table>

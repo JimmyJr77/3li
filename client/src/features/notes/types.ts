@@ -40,14 +40,24 @@ export type AtlasNoteDto = {
   isPinned: boolean;
   isPublic: boolean;
   publicSlug: string | null;
+  /** When set, note was created from Rapid Router / similar capture flows. */
+  routingSource?: string | null;
   createdAt: string;
   updatedAt: string;
   tags: NoteTagDto[];
 };
 
 export type NotesBootstrapDto = {
+  /** Which LLM stack the API uses (Ollama locally, OpenAI when deployed). */
+  ai?: {
+    backend: "openai" | "ollama";
+    chatModel: string;
+    embeddingModel: string;
+  };
   workspace: NotesWorkspaceDto;
   defaultFolderId: string;
+  /** Notebook where Quick Capture (⌘⇧C) saves new notes (typically "Quicknotes"). */
+  quickCaptureFolderId: string;
   folders: NotesFolderDto[];
   notes: AtlasNoteDto[];
 };

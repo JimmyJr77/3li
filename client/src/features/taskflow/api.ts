@@ -1,5 +1,5 @@
 import { api } from "@/lib/api/client";
-import type { BoardDto, BootstrapDto, TaskFlowTask, WorkspaceDto } from "./types";
+import type { BoardDto, BootstrapDto, BrandTreeDto, TaskFlowTask, WorkspaceDto } from "./types";
 
 export type TaskListParams = {
   workspaceId?: string;
@@ -26,6 +26,87 @@ export async function fetchBoard(boardId: string): Promise<BoardDto> {
 
 export async function fetchWorkspaces(): Promise<WorkspaceDto[]> {
   const { data } = await api.get<WorkspaceDto[]>("/api/task-app/workspaces");
+  return data;
+}
+
+export type RoutingIndexDto = {
+  workspaceId: string;
+  workspaceName: string;
+  brandDisplayName: string | null;
+  notesFolders: { id: string; title: string }[];
+  recentNoteTitles: string[];
+  brainstormSessions: { id: string; title: string }[];
+  projectSpaces: {
+    id: string;
+    name: string;
+    boards: {
+      id: string;
+      name: string;
+      lists: {
+        id: string;
+        title: string;
+        key: string | null;
+        taskTitles: string[];
+      }[];
+    }[];
+  }[];
+};
+
+export async function fetchRoutingIndex(workspaceId: string): Promise<RoutingIndexDto> {
+  const { data } = await api.get<RoutingIndexDto>(`/api/task-app/workspaces/${workspaceId}/routing-index`);
+  return data;
+}
+
+export type RoutingHoldDto = {
+  id: string;
+  workspaceId: string;
+  body: string;
+  meta: unknown;
+  status: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function fetchRoutingHolds(
+  workspaceId: string,
+  params?: { status?: "pending" | "routed" | "dismissed" },
+): Promise<RoutingHoldDto[]> {
+  const { data } = await api.get<RoutingHoldDto[]>(`/api/task-app/workspaces/${workspaceId}/routing-holds`, {
+    params: params?.status ? { status: params.status } : undefined,
+  });
+  return data;
+}
+
+export async function createRoutingHold(
+  workspaceId: string,
+  body: { body: string; source?: string; meta?: unknown },
+): Promise<RoutingHoldDto> {
+  const { data } = await api.post<RoutingHoldDto>(
+    `/api/task-app/workspaces/${workspaceId}/routing-holds`,
+    body,
+  );
+  return data;
+}
+
+export async function patchRoutingHold(
+  workspaceId: string,
+  holdId: string,
+  body: { status: "pending" | "routed" | "dismissed" },
+): Promise<RoutingHoldDto> {
+  const { data } = await api.patch<RoutingHoldDto>(
+    `/api/task-app/workspaces/${workspaceId}/routing-holds/${holdId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteRoutingHold(workspaceId: string, holdId: string): Promise<void> {
+  await api.delete(`/api/task-app/workspaces/${workspaceId}/routing-holds/${holdId}`);
+}
+
+export async function fetchBrandTree(): Promise<BrandTreeDto[]> {
+  const { data } = await api.get<BrandTreeDto[]>("/api/task-app/brands");
   return data;
 }
 
@@ -93,9 +174,43 @@ export async function createCustomBoardTemplate(body: {
   return data;
 }
 
-export async function createWorkspace(name: string): Promise<WorkspaceDto> {
-  const { data } = await api.post<WorkspaceDto>("/api/task-app/workspaces", { name });
+export type ProjectSpaceDto = {
+  id: string;
+  name: string;
+  position: number;
+  boards: { id: string; name: string; position: number }[];
+};
+
+export async function createProjectSpace(workspaceId: string, name: string): Promise<ProjectSpaceDto> {
+  const { data } = await api.post<ProjectSpaceDto>(
+    `/api/task-app/workspaces/${workspaceId}/project-spaces`,
+    { name },
+  );
   return data;
+}
+
+export async function patchProjectSpace(
+  projectSpaceId: string,
+  body: { name?: string; archived?: boolean },
+): Promise<ProjectSpaceDto> {
+  const { data } = await api.patch<ProjectSpaceDto>(`/api/task-app/project-spaces/${projectSpaceId}`, body);
+  return data;
+}
+
+export async function createBrand(name: string): Promise<BrandTreeDto> {
+  const { data } = await api.post<BrandTreeDto>("/api/task-app/brands", { name });
+  return data;
+}
+
+export async function patchBrand(
+  brandId: string,
+  body: { archived?: boolean; name?: string },
+): Promise<void> {
+  await api.patch(`/api/task-app/brands/${brandId}`, body);
+}
+
+export async function reorderBrands(orderedIds: string[]): Promise<void> {
+  await api.post("/api/task-app/brands/reorder", { orderedIds });
 }
 
 export type ArchivedWorkspaceSummary = {
@@ -117,8 +232,33 @@ export async function patchWorkspace(
   return data;
 }
 
-export async function reorderWorkspaces(orderedIds: string[]): Promise<void> {
-  await api.post("/api/task-app/workspaces/reorder", { orderedIds });
+export type ContextInstructionsDto = {
+  workspaceId: string;
+  brandId: string;
+  teamContextInstructions: string;
+  userContextInstructions: string;
+};
+
+export async function fetchContextInstructions(workspaceId: string): Promise<ContextInstructionsDto> {
+  const { data } = await api.get<ContextInstructionsDto>(
+    `/api/task-app/workspaces/${workspaceId}/context-instructions`,
+  );
+  return data;
+}
+
+export async function patchContextInstructions(
+  workspaceId: string,
+  body: { teamContextInstructions?: string; userContextInstructions?: string },
+): Promise<ContextInstructionsDto> {
+  const { data } = await api.put<ContextInstructionsDto>(
+    `/api/task-app/workspaces/${workspaceId}/context-instructions`,
+    body,
+  );
+  return data;
+}
+
+export async function reorderProjectSpaces(workspaceId: string, orderedIds: string[]): Promise<void> {
+  await api.post(`/api/task-app/workspaces/${workspaceId}/project-spaces/reorder`, { orderedIds });
 }
 
 export async function deleteBoardTemplate(templateId: string): Promise<void> {
@@ -127,7 +267,7 @@ export async function deleteBoardTemplate(templateId: string): Promise<void> {
 
 export async function createBoardFromTemplate(
   workspaceId: string,
-  body: { templateId: string; name?: string },
+  body: { templateId: string; name?: string; projectSpaceId?: string },
 ): Promise<BoardDto> {
   const { data } = await api.post<BoardDto>(
     `/api/task-app/workspaces/${workspaceId}/boards/from-template`,
@@ -148,7 +288,13 @@ export async function applyBoardPositions(
 
 export async function createBoardTask(
   boardId: string,
-  body: { title: string; description?: string; listId?: string; priority?: string },
+  body: {
+    title: string;
+    description?: string;
+    listId?: string;
+    priority?: string;
+    routingSource?: string | null;
+  },
 ): Promise<TaskFlowTask> {
   const { data } = await api.post<TaskFlowTask>(`/api/task-app/boards/${boardId}/tasks`, body);
   return data;

@@ -3,7 +3,7 @@ import {
   Bell,
   BookOpen,
   CalendarDays,
-  Goal,
+  Palette,
   Home,
   LayoutGrid,
   Lightbulb,
@@ -23,15 +23,15 @@ export const workspaceNavSections: readonly {
   {
     items: [
       { to: "/app/dashboard", label: "Home", icon: Home },
-      { to: "/app/notifications", label: "Activity", icon: Bell },
-      { to: "/app/goals", label: "Brand Center", icon: Goal },
+      { to: "/app/notifications", label: "Activity Tracker", icon: Bell },
+      { to: "/app/brand-center", label: "Brand Center", icon: Palette },
     ],
   },
   {
     items: [
       { to: "/app/rapid-router", label: "Rapid Router", icon: RapidRouterIcon },
       { to: "/app/notes", label: "Notebooks", icon: StickyNote },
-      { to: "/app/brainstorm", label: "Brainstorm Studio", icon: Lightbulb },
+      { to: "/app/brainstorm", label: "Brainstorm", icon: Lightbulb },
       { to: "/app/boards", label: "Project Boards", icon: LayoutGrid },
       { to: "/app/my-tasks", label: "Task Lists", icon: ListTodo },
       { to: "/app/calendar", label: "Calendar", icon: CalendarDays },

@@ -4,24 +4,22 @@ import FullCalendar from "@fullcalendar/react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, Loader2 } from "lucide-react";
 import { useMemo } from "react";
-import { fetchAllTasks, fetchBootstrap } from "@/features/taskflow/api";
+import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { fetchAllTasks } from "@/features/taskflow/api";
 
 export function CalendarPage() {
-  const bootstrapQuery = useQuery({
-    queryKey: ["bootstrap"],
-    queryFn: fetchBootstrap,
-  });
-
-  const workspaceId = bootstrapQuery.data?.workspace?.id;
+  const { activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
 
   const tasksQuery = useQuery({
-    queryKey: ["tasks", "flat", "calendar", workspaceId],
-    queryFn: () => fetchAllTasks(workspaceId ? { workspaceId } : undefined),
-    enabled: Boolean(workspaceId),
+    queryKey: ["tasks", "flat", "calendar", activeWorkspaceId],
+    queryFn: () => fetchAllTasks(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : undefined),
+    enabled: Boolean(activeWorkspaceId) && !wsLoading,
   });
 
+  const tasks = tasksQuery.data ?? [];
+
   const events = useMemo(() => {
-    const tasks = tasksQuery.data ?? [];
     return tasks
       .filter((t) => t.dueDate)
       .map((t) => ({
@@ -30,19 +28,33 @@ export function CalendarPage() {
         date: t.dueDate!.slice(0, 10),
         extendedProps: { task: t },
       }));
-  }, [tasksQuery.data]);
+  }, [tasks]);
+
+  const calendarPmContext = useMemo(
+    () => buildTasksContextSnapshot("Tasks with due dates (calendar scope)", tasks),
+    [tasks],
+  );
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <CalendarDays className="size-5 text-muted-foreground" aria-hidden />
-        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="size-5 text-muted-foreground" aria-hidden />
+          <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+        </div>
+        {activeWorkspaceId ? (
+          <PMAgentSheet
+            workspaceId={activeWorkspaceId}
+            contextText={calendarPmContext}
+            surfaceLabel="Calendar task list"
+          />
+        ) : null}
       </div>
       <p className="max-w-2xl text-sm text-muted-foreground">
         Tasks with a due date appear on the calendar. Set due dates from the task panel on the board.
       </p>
 
-      {(bootstrapQuery.isLoading || tasksQuery.isLoading) && (
+      {(wsLoading || tasksQuery.isLoading) && (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Loading…

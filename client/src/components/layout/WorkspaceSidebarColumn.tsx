@@ -1,9 +1,37 @@
+import { Eye, EyeOff } from "lucide-react";
 import { Fragment } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { workspaceNavSections } from "@/config/workspaceNav";
 import { ModeToggle } from "@/components/shared/ModeToggle";
+import { WorkspaceBrandSwitcher } from "@/components/layout/WorkspaceBrandSwitcher";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useWorkspacePrefs } from "@/context/WorkspacePrefsContext";
 import { cn } from "@/lib/utils";
+
+function SidebarBehaviorToggle() {
+  const { sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
+  const pinned = sidebarBehavior === "pinned";
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="shrink-0"
+      aria-label={
+        pinned
+          ? "Sidebar always visible — click to hide until you hover the left edge"
+          : "Sidebar hides until hover — click to keep always visible"
+      }
+      aria-pressed={pinned}
+      title={pinned ? "Hide sidebar until hover" : "Keep sidebar visible"}
+      onClick={() => setSidebarBehavior(pinned ? "overlay" : "pinned")}
+    >
+      {pinned ? <Eye className="size-4" aria-hidden /> : <EyeOff className="size-4" aria-hidden />}
+    </Button>
+  );
+}
 
 function WorkspaceNav({
   navClassName,
@@ -55,9 +83,7 @@ export function WorkspaceSidebarColumn() {
   return (
     <>
       <div className="px-3 pt-4 pb-3">
-        <Link to="/app/dashboard" className="text-sm font-semibold tracking-tight">
-          3LI Workspace
-        </Link>
+        <WorkspaceBrandSwitcher className="text-sm" />
       </div>
       <Separator />
       <WorkspaceNav navClassName="flex flex-col gap-0 px-2 pt-0 pb-0" separatorMobile={false} />
@@ -70,7 +96,10 @@ export function WorkspaceSidebarColumn() {
           >
             ← Public site
           </Link>
-          <ModeToggle />
+          <div className="flex items-center gap-1">
+            <ModeToggle />
+            <SidebarBehaviorToggle />
+          </div>
         </div>
       </div>
     </>

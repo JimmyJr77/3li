@@ -9,12 +9,15 @@ export function NotesPortabilityPanel({
   selected,
   exportableNotes,
   onImportPayloads,
+  embedded,
 }: {
   localMode: boolean;
   selected: AtlasNoteDto | null;
   /** All notes in the workspace (for bulk export), with bodies when available */
   exportableNotes: AtlasNoteDto[];
   onImportPayloads: (payloads: ExportedNotePayload[]) => void | Promise<void>;
+  /** Omit outer card chrome when nested inside a larger panel */
+  embedded?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -74,7 +77,7 @@ export function NotesPortabilityPanel({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-muted/15 p-3">
+    <div className={embedded ? "space-y-4" : "rounded-lg border border-border bg-muted/15 p-3"}>
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Import / export</div>
       <p className="mt-1 text-xs text-muted-foreground">
         Download JSON backups or bring notes in from another export. IDs are regenerated on import.

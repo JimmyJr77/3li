@@ -11,11 +11,14 @@ export function NotePublishingBar({
   note,
   onUpdated,
   offline,
+  embedded,
 }: {
   note: AtlasNoteDto;
   onUpdated: () => void;
   /** When true (browser-only storage), public links are not available */
   offline?: boolean;
+  /** Omit outer card chrome when nested inside a larger panel */
+  embedded?: boolean;
 }) {
   const [isPublic, setIsPublic] = useState(note.isPublic);
   const [slugDraft, setSlugDraft] = useState(note.publicSlug ?? "");
@@ -33,9 +36,16 @@ export function NotePublishingBar({
   const fullUrl =
     typeof window !== "undefined" && publicPath ? `${window.location.origin}${publicPath}` : "";
 
+  const offlineShell = embedded
+    ? "flex flex-col gap-2"
+    : "flex flex-col gap-2 rounded-lg border border-border bg-muted/15 p-3";
+  const onlineShell = embedded
+    ? "flex flex-col gap-3"
+    : "flex flex-col gap-3 rounded-lg border border-border bg-muted/15 p-3";
+
   if (offline) {
     return (
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/15 p-3">
+      <div className={offlineShell}>
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <Globe className="size-3.5" />
           Publish
@@ -48,7 +58,7 @@ export function NotePublishingBar({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/15 p-3">
+    <div className={onlineShell}>
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Globe className="size-3.5" />
         Publish

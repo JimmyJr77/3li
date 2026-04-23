@@ -1,16 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Navigate } from "react-router-dom";
-import { fetchBootstrap } from "@/features/taskflow/api";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 
-/** Legacy `/app/board` → default board Kanban or boards list (Trello-style hub). */
+/** Legacy `/app/board` → first board of the active workspace, or boards hub. */
 export function DefaultBoardRedirect() {
-  const q = useQuery({
-    queryKey: ["bootstrap"],
-    queryFn: fetchBootstrap,
-  });
+  const { activeWorkspace, isLoading } = useActiveWorkspace();
 
-  if (q.isLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -19,7 +15,7 @@ export function DefaultBoardRedirect() {
     );
   }
 
-  const id = q.data?.board?.id;
+  const id = activeWorkspace?.projectSpaces?.[0]?.boards?.[0]?.id;
   if (id) {
     return <Navigate to={`/app/boards/${id}`} replace />;
   }

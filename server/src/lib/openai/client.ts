@@ -1,13 +1,8 @@
-import OpenAI from "openai";
-
-function getOpenAI(): OpenAI | null {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    return null;
-  }
-  return new OpenAI({ apiKey: key });
-}
-
-export function getOpenAIOrNull(): OpenAI | null {
-  return getOpenAI();
-}
+export {
+  resolveAiBackend,
+  isAiBackendConfigured,
+  getOpenAIOrNull,
+  aiServiceUnavailableDetail,
+  type AiBackend,
+} from "../ai/provider.js";
+export { chatModel, embeddingModel, getAiPublicMetadata, type AiPublicMetadata } from "../ai/models.js";

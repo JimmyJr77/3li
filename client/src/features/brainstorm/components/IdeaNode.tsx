@@ -1,117 +1,67 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { useEffect, useLayoutEffect, useState } from "react";
-import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
+import { useSearchParams } from "react-router-dom";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import type { IdeaFlowNode } from "@/features/brainstorm/types";
+import {
+  clearRoutedGlow,
+  useRoutedBrainstormGlow,
+} from "@/features/rapidRouter/routedHighlightStore";
+import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
+import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-
-function parseTagsInput(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-const statuses = ["idea", "validated", "executing"] as const;
-const priorities = ["low", "medium", "high"] as const;
 
 export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
-  const updateIdeaData = useBrainstormStore((s) => s.updateIdeaData);
-  const [tagsDraft, setTagsDraft] = useState(() => data.tags.join(", "));
-
-  useLayoutEffect(() => {
-    setTagsDraft(data.tags.join(", "));
-  }, [id]);
-
-  useEffect(() => {
-    const parsed = parseTagsInput(tagsDraft);
-    const t = setTimeout(() => {
-      updateIdeaData(id, { tags: parsed });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [tagsDraft, id, updateIdeaData]);
+  const { activeWorkspaceId } = useActiveWorkspace();
+  const [searchParams] = useSearchParams();
+  const sessionId = searchParams.get("session") ?? "";
+  const routedGlow = useRoutedBrainstormGlow(
+    id,
+    activeWorkspaceId ?? undefined,
+    sessionId || undefined,
+  );
 
   return (
     <div
       data-slot="card"
+      onPointerDownCapture={() => {
+        if (activeWorkspaceId && sessionId) {
+          clearRoutedGlow("brainstorm", id, activeWorkspaceId, sessionId);
+        }
+      }}
       className={cn(
-        "min-w-[220px] max-w-[280px] rounded-lg border bg-card p-3 shadow-sm",
+        "min-w-[220px] max-w-[280px] rounded-lg border-2 border-border bg-card p-3 shadow-sm",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+        routedGlow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_22px_rgba(234,179,8,0.45)]",
       )}
+      style={nodeChromeToStyle(data)}
     >
       <Handle type="target" position={Position.Top} className="!size-2.5 !bg-muted-foreground" />
-      <div className="space-y-2">
-        <div>
-          <Label htmlFor={`${id}-title`} className="text-xs text-muted-foreground">
-            Title
-          </Label>
-          <Input
-            id={`${id}-title`}
-            value={data.title}
-            onChange={(e) => updateIdeaData(id, { title: e.target.value })}
-            className="mt-0.5 h-8 text-sm font-medium"
-          />
-        </div>
-        <div>
-          <Label htmlFor={`${id}-desc`} className="text-xs text-muted-foreground">
-            Notes
-          </Label>
-          <textarea
-            id={`${id}-desc`}
-            value={data.description}
-            onChange={(e) => updateIdeaData(id, { description: e.target.value })}
-            rows={2}
-            className="border-input bg-background mt-0.5 w-full resize-none rounded-md border px-2 py-1.5 text-xs"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase text-muted-foreground">Status</span>
-            <select
-              value={data.status}
-              onChange={(e) =>
-                updateIdeaData(id, { status: e.target.value as (typeof statuses)[number] })
-              }
-              className="border-input bg-background h-7 rounded-md border px-1 text-xs"
-            >
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+      <NodeCaptionWrapper
+        captionText={data.captionText}
+        captionAlign={data.captionAlign}
+        captionPlacement={data.captionPlacement}
+      >
+        <div className="space-y-2 select-none">
+          <div>
+            <p className="text-[10px] uppercase text-muted-foreground">Title</p>
+            <p className="mt-0.5 text-sm font-medium leading-snug">{data.title}</p>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase text-muted-foreground">Priority</span>
-            <select
-              value={data.priority}
-              onChange={(e) =>
-                updateIdeaData(id, { priority: e.target.value as (typeof priorities)[number] })
-              }
-              className="border-input bg-background h-7 rounded-md border px-1 text-xs"
-            >
-              {priorities.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+          {data.description ? (
+            <div>
+              <p className="text-[10px] uppercase text-muted-foreground">Notes</p>
+              <p className="mt-0.5 whitespace-pre-wrap text-xs leading-snug text-foreground/90">{data.description}</p>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+            <span className="rounded border border-border/80 px-1.5 py-0.5">{data.status}</span>
+            <span className="rounded border border-border/80 px-1.5 py-0.5">{data.priority}</span>
           </div>
+          {data.tags.length > 0 ? (
+            <p className="text-[10px] leading-snug text-muted-foreground">Tags: {data.tags.join(", ")}</p>
+          ) : null}
         </div>
-        <div>
-          <Label htmlFor={`${id}-tags`} className="text-xs text-muted-foreground">
-            Tags (comma-separated)
-          </Label>
-          <Input
-            id={`${id}-tags`}
-            value={tagsDraft}
-            onChange={(e) => setTagsDraft(e.target.value)}
-            onBlur={() => updateIdeaData(id, { tags: parseTagsInput(tagsDraft) })}
-            className="mt-0.5 h-7 text-xs"
-          />
-        </div>
-      </div>
+      </NodeCaptionWrapper>
       <Handle type="source" position={Position.Bottom} className="!size-2.5 !bg-muted-foreground" />
     </div>
   );

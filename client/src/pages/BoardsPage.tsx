@@ -1,25 +1,30 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   createBoardFromTemplate,
   createCustomBoardTemplate,
-  createWorkspace,
+  createProjectSpace,
   deleteBoardTemplate,
   fetchArchivedBoards,
   fetchArchivedWorkspaces,
   fetchBoardTemplates,
   fetchWorkspaces,
   patchBoard,
+  patchProjectSpace,
   patchWorkspace,
-  reorderWorkspaces,
+  reorderProjectSpaces,
 } from "@/features/taskflow/api";
+import { brandMentionLabel } from "@/components/layout/WorkspaceBrandSwitcher";
+import { PMAgentSheet } from "@/features/agents/PMAgentSheet";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WORKSPACE_NAME_MAX_LENGTH } from "@/lib/workspaceConstants";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_CUSTOM_COLUMNS = ["Backlog", "In progress", "Done"];
@@ -27,7 +32,7 @@ const DEFAULT_CUSTOM_COLUMNS = ["Backlog", "In progress", "Done"];
 function parseBoardsDragPayload(raw: string): {
   kind?: string;
   templateId?: string;
-  workspaceId?: string;
+  projectSpaceId?: string;
   boardId?: string;
 } {
   try {
@@ -35,7 +40,7 @@ function parseBoardsDragPayload(raw: string): {
     return {
       kind: typeof v.kind === "string" ? v.kind : undefined,
       templateId: typeof v.templateId === "string" ? v.templateId : undefined,
-      workspaceId: typeof v.workspaceId === "string" ? v.workspaceId : undefined,
+      projectSpaceId: typeof v.projectSpaceId === "string" ? v.projectSpaceId : undefined,
       boardId: typeof v.boardId === "string" ? v.boardId : undefined,
     };
   } catch {
@@ -43,7 +48,7 @@ function parseBoardsDragPayload(raw: string): {
   }
 }
 
-function computeWorkspaceReorder(orderedIds: string[], draggedId: string, beforeId: string): string[] {
+function computeProjectSpaceReorder(orderedIds: string[], draggedId: string, beforeId: string): string[] {
   if (draggedId === beforeId) return orderedIds;
   const without = orderedIds.filter((id) => id !== draggedId);
   const insertBefore = without.indexOf(beforeId);
@@ -53,17 +58,18 @@ function computeWorkspaceReorder(orderedIds: string[], draggedId: string, before
 
 export function BoardsPage() {
   const queryClient = useQueryClient();
-  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
+  const [newProjectSpaceName, setNewProjectSpaceName] = useState("");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
   const [columnTitles, setColumnTitles] = useState<string[]>(() => [...DEFAULT_CUSTOM_COLUMNS]);
   const [templateFormError, setTemplateFormError] = useState<string | null>(null);
   const [draggingTemplateId, setDraggingTemplateId] = useState<string | null>(null);
-  const [draggingWorkspaceId, setDraggingWorkspaceId] = useState<string | null>(null);
+  const [draggingProjectSpaceId, setDraggingProjectSpaceId] = useState<string | null>(null);
   const [draggingBoardId, setDraggingBoardId] = useState<string | null>(null);
-  const [dropTargetWorkspaceId, setDropTargetWorkspaceId] = useState<string | null>(null);
-  const [workspaceReorderHoverId, setWorkspaceReorderHoverId] = useState<string | null>(null);
+  const [dropTargetProjectSpaceId, setDropTargetProjectSpaceId] = useState<string | null>(null);
+  const [projectSpaceReorderHoverId, setProjectSpaceReorderHoverId] = useState<string | null>(null);
   const [sideStripActive, setSideStripActive] = useState(false);
 
   const workspacesQuery = useQuery({
@@ -81,30 +87,41 @@ export function BoardsPage() {
     queryFn: fetchArchivedWorkspaces,
   });
 
-  const workspaces = workspacesQuery.data ?? [];
-
-  const archivedBoardQueries = useQueries({
-    queries: workspaces.map((ws) => ({
-      queryKey: ["archived-boards", ws.id] as const,
-      queryFn: () => fetchArchivedBoards(ws.id),
-      enabled: workspaces.length > 0,
-    })),
+  const archivedBoardsQuery = useQuery({
+    queryKey: ["archived-boards", activeWorkspace?.id] as const,
+    queryFn: () => fetchArchivedBoards(activeWorkspace!.id),
+    enabled: Boolean(activeWorkspace),
   });
 
-  const createWsMutation = useMutation({
-    mutationFn: (name: string) => createWorkspace(name),
+  const createProjectSpaceMutation = useMutation({
+    mutationFn: (name: string) => {
+      const t = name.trim();
+      if (t.length > WORKSPACE_NAME_MAX_LENGTH) {
+        throw new Error(`Name must be at most ${WORKSPACE_NAME_MAX_LENGTH} characters.`);
+      }
+      const ws = activeWorkspace;
+      if (!ws) {
+        throw new Error("No active brand workspace — pick a brand in Settings or the sidebar.");
+      }
+      return createProjectSpace(ws.id, t);
+    },
     onSuccess: () => {
-      setNewWorkspaceName("");
+      setNewProjectSpaceName("");
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
     },
   });
 
   const createFromTemplateMutation = useMutation({
-    mutationFn: ({ workspaceId, templateId }: { workspaceId: string; templateId: string }) =>
-      createBoardFromTemplate(workspaceId, { templateId }),
+    mutationFn: (args: { workspaceId: string; templateId: string; projectSpaceId: string }) =>
+      createBoardFromTemplate(args.workspaceId, {
+        templateId: args.templateId,
+        projectSpaceId: args.projectSpaceId,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
     },
@@ -137,13 +154,12 @@ export function BoardsPage() {
     },
   });
 
-  const archiveWorkspaceMutation = useMutation({
-    mutationFn: (id: string) => patchWorkspace(id, { archived: true }),
+  const archiveProjectSpaceMutation = useMutation({
+    mutationFn: (id: string) => patchProjectSpace(id, { archived: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
-      queryClient.invalidateQueries({ queryKey: ["archived-workspaces"] });
-      queryClient.invalidateQueries({ queryKey: ["archived-boards"] });
     },
   });
 
@@ -156,10 +172,12 @@ export function BoardsPage() {
     },
   });
 
-  const reorderWorkspacesMutation = useMutation({
-    mutationFn: reorderWorkspaces,
+  const reorderProjectSpacesMutation = useMutation({
+    mutationFn: ({ workspaceId, orderedIds }: { workspaceId: string; orderedIds: string[] }) =>
+      reorderProjectSpaces(workspaceId, orderedIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
     },
   });
 
@@ -188,27 +206,49 @@ export function BoardsPage() {
   });
 
   const templates = templatesQuery.data ?? [];
+  const projectSpaces = activeWorkspace?.projectSpaces ?? [];
+
+  const boardsIndexContext = useMemo(() => {
+    if (!activeWorkspace?.projectSpaces?.length) return "No project spaces in this workspace.";
+    const lines: string[] = [`Workspace: ${activeWorkspace.name}`];
+    for (const ps of activeWorkspace.projectSpaces) {
+      lines.push(`\n## ${ps.name}`);
+      for (const b of ps.boards) {
+        lines.push(`- ${b.name} (${b.id})`);
+      }
+    }
+    return lines.join("\n").slice(0, 14_000);
+  }, [activeWorkspace]);
 
   const draggedTemplateSummary = draggingTemplateId
     ? templates.find((x) => x.id === draggingTemplateId)
     : undefined;
   const showTemplateTrashStrip = Boolean(draggedTemplateSummary && !draggedTemplateSummary.isBuiltin);
-  const showWorkspaceArchiveStrip = Boolean(draggingWorkspaceId);
+  const showProjectSpaceArchiveStrip = Boolean(draggingProjectSpaceId);
   const showBoardArchiveStrip = Boolean(draggingBoardId);
-  const showArchiveStrip = showWorkspaceArchiveStrip || showBoardArchiveStrip;
+  const showArchiveStrip = showProjectSpaceArchiveStrip || showBoardArchiveStrip;
   const showSideStrip = showTemplateTrashStrip || showArchiveStrip;
 
   return (
     <div className="space-y-10">
-      <div>
-        <div className="flex items-center gap-2">
-          <LayoutGrid className="size-5 text-muted-foreground" aria-hidden />
-          <h1 className="text-2xl font-semibold tracking-tight">Project Boards</h1>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="size-5 text-muted-foreground" aria-hidden />
+            <h1 className="text-2xl font-semibold tracking-tight">Project Boards</h1>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Project spaces group project boards. Create a project board from a template, then open the main board view
+            to work.
+          </p>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Project spaces group project boards. Create a project board from a template, then open the main board view
-          to work.
-        </p>
+        {activeWorkspaceId ? (
+          <PMAgentSheet
+            workspaceId={activeWorkspaceId}
+            contextText={boardsIndexContext}
+            surfaceLabel="Project spaces and board index"
+          />
+        ) : null}
       </div>
 
       <section className="space-y-3">
@@ -363,12 +403,15 @@ export function BoardsPage() {
         )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {templates.map((t) => {
-            const canDrag = workspaces.length > 0;
+            const canDrag =
+              Boolean(activeWorkspace) &&
+              projectSpaces.length > 0 &&
+              !createFromTemplateMutation.isPending;
             const isDragging = draggingTemplateId === t.id;
             return (
               <Card
                 key={t.id}
-                draggable={canDrag && !createFromTemplateMutation.isPending}
+                draggable={canDrag}
                 onDragStart={(e) => {
                   if (!canDrag) {
                     e.preventDefault();
@@ -382,7 +425,7 @@ export function BoardsPage() {
                 }}
                 onDragEnd={() => {
                   setDraggingTemplateId(null);
-                  setDropTargetWorkspaceId(null);
+                  setDropTargetProjectSpaceId(null);
                   setSideStripActive(false);
                 }}
                 className={cn(
@@ -390,7 +433,13 @@ export function BoardsPage() {
                   isDragging && "boards-draggable-card--dragging",
                   !canDrag && "cursor-not-allowed opacity-80",
                 )}
-                title={canDrag ? "Drag onto a project space below" : "Create a project space first"}
+                title={
+                  canDrag
+                    ? "Drag onto a project space below"
+                    : activeWorkspace
+                      ? "Add a project space below first"
+                      : "Select a brand workspace first"
+                }
               >
                 <CardHeader className="pb-4 pt-4">
                   <CardTitle className="text-base">{t.name}</CardTitle>
@@ -404,7 +453,11 @@ export function BoardsPage() {
                         : "Custom · Any project space"}
                   </p>
                   {!canDrag ? (
-                    <p className="mt-2 text-xs text-muted-foreground">Create a project space to enable drag.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {activeWorkspace
+                        ? "Add a project space to enable drag."
+                        : "Select a brand in Settings or the sidebar."}
+                    </p>
                   ) : null}
                 </CardHeader>
               </Card>
@@ -415,32 +468,43 @@ export function BoardsPage() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Project Spaces</h2>
+          <h2 className="text-lg font-semibold">Project spaces</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Project board cards are thin—drag one to the narrow column to archive it. Drag a template here to add a
-            project board. Drag project spaces to reorder, or onto the column to archive a project space.
+            Each brand has one workspace; the cards below are <span className="font-medium text-foreground">project spaces</span>{" "}
+            inside that workspace. Drag a board chip to the narrow column to archive it. Drag a template onto a project
+            space to add a board. Drag project spaces to reorder, or onto the column to archive a project space.
           </p>
+          {activeWorkspace ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Active brand:{" "}
+              <span className="font-medium text-foreground">{brandMentionLabel(activeWorkspace)}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <Input
             placeholder="e.g. Client A"
-            value={newWorkspaceName}
-            onChange={(e) => setNewWorkspaceName(e.target.value)}
+            value={newProjectSpaceName}
+            maxLength={WORKSPACE_NAME_MAX_LENGTH}
+            onChange={(e) => setNewProjectSpaceName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && newWorkspaceName.trim()) {
-                createWsMutation.mutate(newWorkspaceName.trim());
+              if (e.key === "Enter" && newProjectSpaceName.trim()) {
+                createProjectSpaceMutation.mutate(newProjectSpaceName.trim());
               }
             }}
             className="w-full min-w-0 sm:max-w-xs"
             aria-label="New project space name"
+            disabled={!activeWorkspace}
           />
           <Button
             type="button"
             className="gap-1 shrink-0 self-end sm:self-auto"
             onClick={() =>
-              newWorkspaceName.trim() && createWsMutation.mutate(newWorkspaceName.trim())
+              newProjectSpaceName.trim() && createProjectSpaceMutation.mutate(newProjectSpaceName.trim())
             }
-            disabled={createWsMutation.isPending || !newWorkspaceName.trim()}
+            disabled={
+              createProjectSpaceMutation.isPending || !newProjectSpaceName.trim() || !activeWorkspace
+            }
           >
             <Plus className="size-4" />
             Add project space
@@ -449,13 +513,21 @@ export function BoardsPage() {
         {workspacesQuery.isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            Loading…
+            Loading project spaces…
           </div>
         )}
         {workspacesQuery.isError && (
-          <p className="text-sm text-destructive">Could not load project spaces.</p>
+          <p className="text-sm text-destructive">
+            Could not load project spaces for your brand. Check your connection and try again.
+          </p>
+        )}
+        {!workspacesQuery.isLoading && !activeWorkspace && !workspacesQuery.isError && (
+          <p className="text-sm text-muted-foreground">
+            Select a brand from the sidebar or Settings to see and manage project spaces for that brand&apos;s workspace.
+          </p>
         )}
 
+        {activeWorkspace ? (
         <div className="flex flex-col items-stretch gap-4 md:flex-row">
           {showSideStrip && (
             <div
@@ -463,7 +535,7 @@ export function BoardsPage() {
               aria-label={
                 showTemplateTrashStrip
                   ? "Drop to delete custom template"
-                  :                 showBoardArchiveStrip
+                  : showBoardArchiveStrip
                     ? "Drop to archive project board"
                     : "Drop to archive project space"
               }
@@ -502,19 +574,19 @@ export function BoardsPage() {
                   e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain");
                 const p = parseBoardsDragPayload(raw);
                 const boardIdToArchive = p.boardId ?? draggingBoardId ?? undefined;
-                const workspaceIdToArchive = p.workspaceId ?? draggingWorkspaceId ?? undefined;
+                const projectSpaceIdToArchive = p.projectSpaceId ?? draggingProjectSpaceId ?? undefined;
                 const templateIdToDelete = p.templateId ?? draggingTemplateId ?? undefined;
                 setDraggingTemplateId(null);
-                setDraggingWorkspaceId(null);
+                setDraggingProjectSpaceId(null);
                 setDraggingBoardId(null);
-                setDropTargetWorkspaceId(null);
-                setWorkspaceReorderHoverId(null);
+                setDropTargetProjectSpaceId(null);
+                setProjectSpaceReorderHoverId(null);
                 if (boardIdToArchive) {
                   archiveBoardMutation.mutate(boardIdToArchive);
                   return;
                 }
-                if (workspaceIdToArchive) {
-                  archiveWorkspaceMutation.mutate(workspaceIdToArchive);
+                if (projectSpaceIdToArchive) {
+                  archiveProjectSpaceMutation.mutate(projectSpaceIdToArchive);
                   return;
                 }
                 if (templateIdToDelete) {
@@ -534,69 +606,67 @@ export function BoardsPage() {
           )}
 
           <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.map((ws, wsIndex) => {
-            const archivedBoards = archivedBoardQueries[wsIndex]?.data ?? [];
-            const archivedLoading = archivedBoardQueries[wsIndex]?.isLoading;
+          {projectSpaces.map((ps) => {
             const draggedTemplate = draggingTemplateId
               ? templates.find((x) => x.id === draggingTemplateId)
               : undefined;
             const templateDropValid = Boolean(draggedTemplate);
-            const templateHighlighted = dropTargetWorkspaceId === ws.id && templateDropValid;
-            const workspaceReorderHighlighted = Boolean(
-              draggingWorkspaceId &&
-                draggingWorkspaceId !== ws.id &&
-                workspaceReorderHoverId === ws.id,
+            const templateHighlighted = dropTargetProjectSpaceId === ps.id && templateDropValid;
+            const projectSpaceReorderHighlighted = Boolean(
+              draggingProjectSpaceId &&
+                draggingProjectSpaceId !== ps.id &&
+                projectSpaceReorderHoverId === ps.id,
             );
-            const isHighlighted = templateHighlighted || workspaceReorderHighlighted;
-            const workspaceDragDisabled =
-              reorderWorkspacesMutation.isPending ||
-              archiveWorkspaceMutation.isPending ||
+            const isHighlighted = templateHighlighted || projectSpaceReorderHighlighted;
+            const projectSpaceDragDisabled =
+              reorderProjectSpacesMutation.isPending ||
+              archiveProjectSpaceMutation.isPending ||
               archiveBoardMutation.isPending ||
               createFromTemplateMutation.isPending;
-            const isWorkspaceDragging = draggingWorkspaceId === ws.id;
+            const isProjectSpaceDragging = draggingProjectSpaceId === ps.id;
 
             return (
               <Card
-                key={ws.id}
-                draggable={!workspaceDragDisabled}
+                key={ps.id}
+                draggable={!projectSpaceDragDisabled}
                 onDragStart={(e) => {
-                  if (workspaceDragDisabled) {
+                  if (projectSpaceDragDisabled) {
                     e.preventDefault();
                     return;
                   }
-                  setDraggingWorkspaceId(ws.id);
-                  const payload = JSON.stringify({ kind: "workspace", workspaceId: ws.id });
+                  setDraggingProjectSpaceId(ps.id);
+                  const payload = JSON.stringify({ kind: "project-space", projectSpaceId: ps.id });
                   e.dataTransfer.setData("application/json", payload);
                   e.dataTransfer.setData("text/plain", payload);
                   e.dataTransfer.effectAllowed = "move";
                 }}
                 onDragEnd={() => {
-                  setDraggingWorkspaceId(null);
-                  setWorkspaceReorderHoverId(null);
+                  setDraggingProjectSpaceId(null);
+                  setProjectSpaceReorderHoverId(null);
                   setSideStripActive(false);
                 }}
                 className={cn(
                   "min-w-0 select-none transition-[box-shadow,ring,opacity] duration-200",
-                  !workspaceDragDisabled && "cursor-grab active:cursor-grabbing",
-                  isWorkspaceDragging && "boards-draggable-card--dragging",
+                  !projectSpaceDragDisabled && "cursor-grab active:cursor-grabbing",
+                  isProjectSpaceDragging && "boards-draggable-card--dragging",
                   isHighlighted &&
                     "ring-primary shadow-lg ring-2 ring-offset-2 ring-offset-background",
                 )}
                 onDragOver={(e) => {
                   if (draggingBoardId) return;
-                  if (draggingWorkspaceId) {
-                    if (draggingWorkspaceId === ws.id) return;
+                  if (draggingProjectSpaceId) {
+                    if (draggingProjectSpaceId === ps.id) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "move";
-                    setWorkspaceReorderHoverId(ws.id);
-                    setDropTargetWorkspaceId(null);
+                    setProjectSpaceReorderHoverId(ps.id);
+                    setDropTargetProjectSpaceId(null);
                     return;
                   }
                   if (draggedTemplate) {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = "copy";
-                    setDropTargetWorkspaceId(ws.id);
-                    setWorkspaceReorderHoverId(null);
+                    setDropTargetProjectSpaceId(ps.id);
+                    setProjectSpaceReorderHoverId(null);
                   }
                 }}
                 onDragLeave={(e) => {
@@ -610,16 +680,16 @@ export function BoardsPage() {
                     y < rect.top - margin ||
                     y > rect.bottom + margin
                   ) {
-                    setDropTargetWorkspaceId((cur) => (cur === ws.id ? null : cur));
-                    setWorkspaceReorderHoverId((cur) => (cur === ws.id ? null : cur));
+                    setDropTargetProjectSpaceId((cur) => (cur === ps.id ? null : cur));
+                    setProjectSpaceReorderHoverId((cur) => (cur === ps.id ? null : cur));
                   }
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  setDropTargetWorkspaceId(null);
-                  setWorkspaceReorderHoverId(null);
+                  setDropTargetProjectSpaceId(null);
+                  setProjectSpaceReorderHoverId(null);
                   setDraggingTemplateId(null);
-                  setDraggingWorkspaceId(null);
+                  setDraggingProjectSpaceId(null);
                   setDraggingBoardId(null);
                   setSideStripActive(false);
                   const raw =
@@ -628,23 +698,26 @@ export function BoardsPage() {
 
                   if (p.boardId) return;
 
-                  if (p.workspaceId) {
-                    if (p.workspaceId === ws.id) return;
-                    const next = computeWorkspaceReorder(
-                      workspaces.map((w) => w.id),
-                      p.workspaceId,
-                      ws.id,
-                    );
-                    reorderWorkspacesMutation.mutate(next);
+                  if (p.projectSpaceId) {
+                    if (p.projectSpaceId === ps.id) return;
+                    const ids = projectSpaces.map((x) => x.id);
+                    if (!ids.includes(p.projectSpaceId)) return;
+                    if (!activeWorkspace) return;
+                    const next = computeProjectSpaceReorder(ids, p.projectSpaceId, ps.id);
+                    reorderProjectSpacesMutation.mutate({
+                      workspaceId: activeWorkspace.id,
+                      orderedIds: next,
+                    });
                     return;
                   }
 
-                  if (!p.templateId) return;
+                  if (!p.templateId || !activeWorkspace) return;
                   const dropped = templates.find((x) => x.id === p.templateId);
                   if (!dropped) return;
                   createFromTemplateMutation.mutate({
-                    workspaceId: ws.id,
+                    workspaceId: activeWorkspace.id,
                     templateId: p.templateId,
+                    projectSpaceId: ps.id,
                   });
                 }}
               >
@@ -652,23 +725,23 @@ export function BoardsPage() {
                   <div
                     className={cn(
                       "boards-draggable-card -mx-1 rounded-md px-1 pb-1",
-                      isWorkspaceDragging && "pointer-events-none",
+                      isProjectSpaceDragging && "pointer-events-none",
                     )}
                   >
-                    <CardTitle className="text-lg">{ws.name}</CardTitle>
+                    <CardTitle className="text-lg">{ps.name}</CardTitle>
                     <CardDescription>
-                      {ws.boards.length === 0
+                      {ps.boards.length === 0
                         ? "No project boards yet."
-                        : `${ws.boards.length} project board${ws.boards.length === 1 ? "" : "s"}`}
+                        : `${ps.boards.length} project board${ps.boards.length === 1 ? "" : "s"}`}
                     </CardDescription>
                   </div>
                   <ul className="mt-3 space-y-2">
-                    {ws.boards.map((b) => {
+                    {ps.boards.map((b) => {
                       const boardDragDisabled =
                         archiveBoardMutation.isPending || restoreBoardMutation.isPending;
                       const isBoardDragging = draggingBoardId === b.id;
                       return (
-                        <li className="flex min-h-9 items-stretch gap-1">
+                        <li key={b.id} className="flex min-h-9 items-stretch gap-1">
                           <div
                             draggable={!boardDragDisabled}
                             onDragStart={(e) => {
@@ -707,45 +780,55 @@ export function BoardsPage() {
                       );
                     })}
                   </ul>
-                  {archivedLoading && (
-                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                      Loading archived project boards…
-                    </div>
-                  )}
-                  {!archivedLoading && archivedBoards.length > 0 && (
-                    <div className="mt-4 border-t pt-3">
-                      <p className="mb-2 text-xs font-medium text-muted-foreground">Archived project boards</p>
-                      <ul className="space-y-2 text-sm">
-                        {archivedBoards.map((b) => (
-                          <li key={b.id} className="flex items-center justify-between gap-2">
-                            <span className="min-w-0 truncate text-muted-foreground">{b.name}</span>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              className="shrink-0 gap-1"
-                              disabled={restoreBoardMutation.isPending}
-                              onClick={() => restoreBoardMutation.mutate(b.id)}
-                            >
-                              <ArchiveRestore className="size-3.5" aria-hidden />
-                              Restore
-                            </Button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                 </CardHeader>
               </Card>
             );
           })}
           </div>
         </div>
+        ) : null}
+
+        {activeWorkspace ? (
+          <div className="mt-6 space-y-3">
+            {archivedBoardsQuery.isLoading && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                Loading archived project boards…
+              </div>
+            )}
+            {!archivedBoardsQuery.isLoading &&
+              (archivedBoardsQuery.data?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-dashed bg-muted/15 p-4">
+                  <p className="mb-2 text-sm font-medium">Archived project boards</p>
+                  <ul className="space-y-2 text-sm">
+                    {archivedBoardsQuery.data!.map((b) => (
+                      <li key={b.id} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-muted-foreground">{b.name}</span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="shrink-0 gap-1"
+                          disabled={restoreBoardMutation.isPending}
+                          onClick={() => restoreBoardMutation.mutate(b.id)}
+                        >
+                          <ArchiveRestore className="size-3.5" aria-hidden />
+                          Restore
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+          </div>
+        ) : null}
 
         {archivedWorkspacesQuery.data && archivedWorkspacesQuery.data.length > 0 && (
           <div className="mt-6 space-y-3 rounded-lg border border-dashed bg-muted/15 p-4">
-            <p className="text-sm font-medium">Archived project spaces</p>
+            <p className="text-sm font-medium">Archived brand workspaces</p>
+            <p className="text-xs text-muted-foreground">
+              Restoring brings the whole brand ecosystem back (one workspace per brand).
+            </p>
             <ul className="space-y-2 text-sm">
               {archivedWorkspacesQuery.data.map((w) => (
                 <li key={w.id} className="flex items-center justify-between gap-2">

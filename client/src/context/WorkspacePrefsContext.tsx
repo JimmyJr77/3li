@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { NoteToolbarItemId } from "@/features/notes/noteEditorToolbarConfig";
+import { NOTE_TOOLBAR_ORDER_SET } from "@/features/notes/noteEditorToolbarConfig";
 
 const STORAGE_KEY = "3li-workspace-prefs";
 
@@ -25,38 +27,74 @@ type PersistedV1 = {
   profile: WorkspaceProfile;
 };
 
-const defaultProfile: WorkspaceProfile = { displayName: "", email: "" };
-
-const defaults: PersistedV1 = {
-  v: 1,
-  sidebarBehavior: "overlay",
-  profile: defaultProfile,
+type PersistedV2 = {
+  v: 2;
+  sidebarBehavior: SidebarBehavior;
+  profile: WorkspaceProfile;
+  /** Toolbar buttons hidden in Notebooks (ids from `NOTE_TOOLBAR_ORDER`). */
+  notesToolbarHiddenIds: NoteToolbarItemId[];
 };
 
-function readPersisted(): PersistedV1 {
-  if (typeof window === "undefined") return defaults;
+const defaultProfile: WorkspaceProfile = { displayName: "", email: "" };
+
+const defaultsV2: PersistedV2 = {
+  v: 2,
+  sidebarBehavior: "overlay",
+  profile: defaultProfile,
+  notesToolbarHiddenIds: [],
+};
+
+function normalizeNotesToolbarHidden(raw: unknown): NoteToolbarItemId[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NoteToolbarItemId[] = [];
+  const seen = new Set<string>();
+  for (const x of raw) {
+    if (typeof x !== "string" || !NOTE_TOOLBAR_ORDER_SET.has(x) || seen.has(x)) continue;
+    seen.add(x);
+    out.push(x as NoteToolbarItemId);
+  }
+  return out;
+}
+
+function readPersisted(): PersistedV2 {
+  if (typeof window === "undefined") return defaultsV2;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as Partial<PersistedV1>;
-    if (parsed.v !== 1) return defaults;
+    if (!raw) return defaultsV2;
+    const parsed = JSON.parse(raw) as Partial<PersistedV2> & Partial<PersistedV1> & { v?: number };
+    if (parsed.v === 1) {
+      return {
+        v: 2,
+        sidebarBehavior:
+          parsed.sidebarBehavior === "pinned" || parsed.sidebarBehavior === "overlay"
+            ? parsed.sidebarBehavior
+            : defaultsV2.sidebarBehavior,
+        profile: {
+          displayName: typeof parsed.profile?.displayName === "string" ? parsed.profile.displayName : "",
+          email: typeof parsed.profile?.email === "string" ? parsed.profile.email : "",
+        },
+        notesToolbarHiddenIds: [],
+      };
+    }
+    if (parsed.v !== 2) return defaultsV2;
     return {
-      v: 1,
+      v: 2,
       sidebarBehavior:
         parsed.sidebarBehavior === "pinned" || parsed.sidebarBehavior === "overlay"
           ? parsed.sidebarBehavior
-          : defaults.sidebarBehavior,
+          : defaultsV2.sidebarBehavior,
       profile: {
         displayName: typeof parsed.profile?.displayName === "string" ? parsed.profile.displayName : "",
         email: typeof parsed.profile?.email === "string" ? parsed.profile.email : "",
       },
+      notesToolbarHiddenIds: normalizeNotesToolbarHidden(parsed.notesToolbarHiddenIds),
     };
   } catch {
-    return defaults;
+    return defaultsV2;
   }
 }
 
-function writePersisted(data: PersistedV1) {
+function writePersisted(data: PersistedV2) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -70,19 +108,25 @@ type WorkspacePrefsValue = {
   profile: WorkspaceProfile;
   setProfile: (p: WorkspaceProfile) => void;
   updateProfile: (partial: Partial<WorkspaceProfile>) => void;
+  notesToolbarHiddenIds: readonly NoteToolbarItemId[];
+  isNoteToolbarItemVisible: (id: NoteToolbarItemId) => boolean;
+  setNoteToolbarItemVisible: (id: NoteToolbarItemId, visible: boolean) => void;
+  showAllNoteToolbarItems: () => void;
 };
 
 const WorkspacePrefsContext = createContext<WorkspacePrefsValue | null>(null);
 
 export function WorkspacePrefsProvider({ children }: { children: ReactNode }) {
-  const [sidebarBehavior, setSidebarBehaviorState] = useState<SidebarBehavior>(
-    () => readPersisted().sidebarBehavior,
+  const initial = readPersisted();
+  const [sidebarBehavior, setSidebarBehaviorState] = useState<SidebarBehavior>(initial.sidebarBehavior);
+  const [profile, setProfileState] = useState<WorkspaceProfile>(initial.profile);
+  const [notesToolbarHiddenIds, setNotesToolbarHiddenIds] = useState<NoteToolbarItemId[]>(
+    () => [...initial.notesToolbarHiddenIds],
   );
-  const [profile, setProfileState] = useState<WorkspaceProfile>(() => readPersisted().profile);
 
   useEffect(() => {
-    writePersisted({ v: 1, sidebarBehavior, profile });
-  }, [sidebarBehavior, profile]);
+    writePersisted({ v: 2, sidebarBehavior, profile, notesToolbarHiddenIds });
+  }, [sidebarBehavior, profile, notesToolbarHiddenIds]);
 
   const setSidebarBehavior = useCallback((v: SidebarBehavior) => {
     setSidebarBehaviorState(v);
@@ -96,6 +140,25 @@ export function WorkspacePrefsProvider({ children }: { children: ReactNode }) {
     setProfileState((prev) => ({ ...prev, ...partial }));
   }, []);
 
+  const hiddenSet = useMemo(() => new Set(notesToolbarHiddenIds), [notesToolbarHiddenIds]);
+
+  const isNoteToolbarItemVisible = useCallback(
+    (id: NoteToolbarItemId) => !hiddenSet.has(id),
+    [hiddenSet],
+  );
+
+  const setNoteToolbarItemVisible = useCallback((id: NoteToolbarItemId, visible: boolean) => {
+    setNotesToolbarHiddenIds((prev) => {
+      if (visible) return prev.filter((x) => x !== id);
+      if (prev.includes(id)) return prev;
+      return [...prev, id];
+    });
+  }, []);
+
+  const showAllNoteToolbarItems = useCallback(() => {
+    setNotesToolbarHiddenIds([]);
+  }, []);
+
   const value = useMemo(
     () => ({
       sidebarBehavior,
@@ -103,8 +166,22 @@ export function WorkspacePrefsProvider({ children }: { children: ReactNode }) {
       profile,
       setProfile,
       updateProfile,
+      notesToolbarHiddenIds,
+      isNoteToolbarItemVisible,
+      setNoteToolbarItemVisible,
+      showAllNoteToolbarItems,
     }),
-    [sidebarBehavior, setSidebarBehavior, profile, setProfile, updateProfile],
+    [
+      sidebarBehavior,
+      setSidebarBehavior,
+      profile,
+      setProfile,
+      updateProfile,
+      notesToolbarHiddenIds,
+      isNoteToolbarItemVisible,
+      setNoteToolbarItemVisible,
+      showAllNoteToolbarItems,
+    ],
   );
 
   return <WorkspacePrefsContext.Provider value={value}>{children}</WorkspacePrefsContext.Provider>;

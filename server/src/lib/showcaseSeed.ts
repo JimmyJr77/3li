@@ -6,11 +6,11 @@ const SHOWCASE = "Showcase ·";
 export async function resetShowcaseDemoData() {
   const workspace = await prisma.workspace.findFirst({
     where: { archivedAt: null },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ brand: { position: "asc" } }, { createdAt: "asc" }],
   });
   if (!workspace) return;
   const board = await prisma.board.findFirst({
-    where: { workspaceId: workspace.id, archivedAt: null },
+    where: { projectSpace: { workspaceId: workspace.id }, archivedAt: null },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
   if (!board) return;
@@ -30,7 +30,9 @@ export async function resetShowcaseDemoData() {
     },
   });
   await ensureTaskflowShowcase(board.id);
-  const project = await prisma.project.findFirst();
+  const project = await prisma.project.findFirst({
+    where: { workspaceId: workspace.id },
+  });
   if (project) {
     await ensureBrainstormShowcaseForProject(project.id);
   }
@@ -304,9 +306,9 @@ const edge = (
 };
 
 /**
- * Populates the default brainstorm canvas when it has no nodes (new project/session).
+ * Seeds demo nodes on the oldest session with an empty canvas. Used by dev showcase reset only — not
+ * called when listing sessions for a workspace (new brands should start with a blank canvas).
  */
-/** Seeds the oldest session that still has an empty canvas (node/edge ids are scoped to sessionId). */
 export async function ensureBrainstormShowcaseForProject(projectId: string) {
   const sessions = await prisma.brainstormSession.findMany({
     where: { projectId },

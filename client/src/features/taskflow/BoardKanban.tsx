@@ -33,6 +33,11 @@ import {
   reorderBoardLists,
 } from "./api";
 import type { BoardDto, BoardListDto, TaskFlowTask } from "./types";
+import {
+  clearRoutedGlow,
+  useRoutedTaskGlow,
+} from "@/features/rapidRouter/routedHighlightStore";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { cn } from "@/lib/utils";
 
 const COL_PREFIX = "board-col:";
@@ -89,23 +94,38 @@ function TaskCardFace({
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
 }) {
+  const { activeWorkspaceId } = useActiveWorkspace();
+  const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const doneCount = task.checklist?.filter((c) => c.completed).length ?? 0;
   const checkTotal = task.checklist?.length ?? 0;
+  const glow = useRoutedTaskGlow(task.id, taskWs);
 
   return (
-    <div className="flex min-w-0 flex-1 gap-2">
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 gap-2 rounded-md",
+        glow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
+      )}
+    >
       <input
         type="checkbox"
         checked={task.completed}
         className="mt-0.5 size-4 shrink-0 rounded border"
         aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
         onClick={(e) => e.stopPropagation()}
-        onChange={() => onToggleComplete(task)}
+        onChange={() => {
+          if (taskWs) clearRoutedGlow("task", task.id, taskWs);
+          onToggleComplete(task);
+        }}
       />
       <button
         type="button"
         className="min-w-0 flex-1 text-left"
-        onClick={() => onOpen(task)}
+        onClick={() => {
+          if (taskWs) clearRoutedGlow("task", task.id, taskWs);
+          onOpen(task);
+        }}
       >
         <p
           className={cn(

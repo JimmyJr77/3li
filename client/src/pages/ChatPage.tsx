@@ -11,7 +11,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Link } from "react-router-dom";
 import { ChatChatsRail, ChatContextRail } from "@/features/chat/ChatWorkflowRails";
+import { getRapidRouterBrandSnippets } from "@/features/brand/brandKitContext";
 import { streamChatMessage } from "@/features/chat/streamChat";
 import type {
   ChatBootstrap,
@@ -20,6 +22,7 @@ import type {
   ChatThreadListItem,
   ConsultingMode,
 } from "@/features/chat/types";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,7 @@ type TaskRow = {
 };
 
 export function ChatPage() {
+  const { activeWorkspaceId } = useActiveWorkspace();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -94,13 +98,37 @@ export function ChatPage() {
   });
 
   useEffect(() => {
-    if (boot?.defaultProjectId && projectId === null) {
-      setProjectId(boot.defaultProjectId);
+    if (!boot) {
+      return;
     }
-    if (boot?.defaultWorkspaceId && workspaceId === null) {
+    const forWs =
+      activeWorkspaceId && boot.projectIdByWorkspaceId?.[activeWorkspaceId] ?
+        boot.projectIdByWorkspaceId[activeWorkspaceId]
+      : boot.defaultProjectId;
+    if (forWs && projectId === null) {
+      setProjectId(forWs);
+    }
+  }, [boot, projectId, activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!boot?.projectIdByWorkspaceId || !activeWorkspaceId) {
+      return;
+    }
+    const next = boot.projectIdByWorkspaceId[activeWorkspaceId];
+    if (next && next !== projectId) {
+      setProjectId(next);
+      setThreadId(null);
+    }
+  }, [activeWorkspaceId, boot?.projectIdByWorkspaceId, boot, projectId]);
+
+  useEffect(() => {
+    if (threadId != null) return;
+    if (activeWorkspaceId) {
+      setWorkspaceId(activeWorkspaceId);
+    } else if (boot?.defaultWorkspaceId && workspaceId === null) {
       setWorkspaceId(boot.defaultWorkspaceId);
     }
-  }, [boot, projectId, workspaceId]);
+  }, [boot, activeWorkspaceId, workspaceId, threadId]);
 
   const boardId = useMemo(() => {
     if (!boot) {
@@ -110,7 +138,7 @@ export function ChatPage() {
       return boot.defaultBoardId;
     }
     const ws = boot.workspaces.find((w) => w.id === workspaceId);
-    return ws?.boards[0]?.id ?? boot.defaultBoardId;
+    return ws?.projectSpaces?.[0]?.boards?.[0]?.id ?? boot.defaultBoardId;
   }, [boot, workspaceId]);
 
   const { data: threads = [], isLoading: threadsLoading } = useQuery({
@@ -300,6 +328,7 @@ export function ChatPage() {
           workspaceId,
           consultingMode: mode,
           message: input.trim(),
+          brandCenterContext: getRapidRouterBrandSnippets(12, 6000, workspaceId),
         },
         (ev) => {
           if (ev.type === "meta") {
@@ -439,10 +468,23 @@ export function ChatPage() {
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[100vw] flex-1 flex-col">
       <div className="mb-6 shrink-0">
-        <h1 className="text-3xl font-semibold tracking-tight">AI Consultant</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Consultant Agent</h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          Structured consulting conversations with document retrieval, tasks, and slide export. OpenAI runs
-          on the server.
+          Team and individual operating context from{" "}
+          <Link to="/app/settings" className="font-medium text-primary underline-offset-4 hover:underline">
+            Settings → Brands → Agent context
+          </Link>{" "}
+          is merged into each turn (team rules win on conflict). Structured consulting chat with retrieval, tasks, and
+          slide export; the model runs on the server (
+          {boot.ai?.backend === "ollama" ?
+            <>
+              local <span className="font-medium text-foreground">Ollama</span> ({boot.ai.chatModel})
+            </>
+          : boot.ai?.backend === "openai" ?
+            <>
+              <span className="font-medium text-foreground">OpenAI</span> ({boot.ai.chatModel})
+            </>
+          : "configure the API server"}).
         </p>
       </div>
 
@@ -477,7 +519,7 @@ export function ChatPage() {
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="workspace-desktop">Workspace (tasks)</Label>
+            <Label htmlFor="workspace-desktop">Brand workspace (tasks)</Label>
             <select
               id="workspace-desktop"
               className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
@@ -885,7 +927,7 @@ export function ChatPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="workspace-mobile">Workspace (tasks)</Label>
+              <Label htmlFor="workspace-mobile">Brand workspace (tasks)</Label>
               <select
                 id="workspace-mobile"
                 className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:outline-none"

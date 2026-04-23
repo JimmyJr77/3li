@@ -1,8 +1,10 @@
 import { api } from "@/lib/api/client";
 import type { AtlasNoteDto, NoteLinkSummaryDto, NoteTagDto, NotesBootstrapDto, NotesFolderDto } from "./types";
 
-export async function fetchNotesBootstrap(): Promise<NotesBootstrapDto> {
-  const { data } = await api.get<NotesBootstrapDto>("/api/notes-app/bootstrap");
+export async function fetchNotesBootstrap(workspaceId?: string | null): Promise<NotesBootstrapDto> {
+  const { data } = await api.get<NotesBootstrapDto>("/api/notes-app/bootstrap", {
+    params: workspaceId ? { workspaceId } : undefined,
+  });
   return data;
 }
 
@@ -24,7 +26,9 @@ export async function enrichQuickCapture(body: {
   folderId: string;
   title?: string;
   rawText: string;
+  /** Merged kit + Rapid Router from `getBrandContextForAI`. */
   brandCenterContext?: string;
+  brandRapidCaptureContext?: string;
 }): Promise<{ title: string; body: string }> {
   const { data } = await api.post<{ title: string; body: string }>("/api/notes-app/quick-capture/enrich", body);
   return data;
@@ -36,6 +40,7 @@ export async function createNote(body: {
   title?: string;
   contentJson?: unknown | null;
   previewText?: string | null;
+  routingSource?: string | null;
 }): Promise<AtlasNoteDto> {
   const { data } = await api.post<AtlasNoteDto>("/api/notes-app/notes", body);
   return data;
@@ -60,13 +65,19 @@ export async function patchNote(noteId: string, body: PatchNoteBody): Promise<At
   return data;
 }
 
+/** Mail Clerk agent: pick existing workspace tags from routing context + note body; merges onto the note. */
+export async function postNoteMailClerkAutotag(noteId: string): Promise<AtlasNoteDto> {
+  const { data } = await api.post<AtlasNoteDto>(`/api/notes-app/notes/${noteId}/mail-clerk-autotag`, {});
+  return data;
+}
+
 export async function deleteNote(noteId: string): Promise<void> {
   await api.delete(`/api/notes-app/notes/${noteId}`);
 }
 
 export async function createFolder(body: {
   workspaceId: string;
-  title: string;
+  title?: string;
   parentId?: string | null;
 }): Promise<NotesFolderDto> {
   const { data } = await api.post<NotesFolderDto>("/api/notes-app/folders", body);
@@ -120,6 +131,12 @@ export async function createWorkspaceTag(body: {
   return data;
 }
 
+export async function deleteWorkspaceTag(workspaceId: string, tagId: string): Promise<void> {
+  await api.delete(`/api/notes-app/tags/${encodeURIComponent(tagId)}`, {
+    params: { workspaceId },
+  });
+}
+
 export async function fetchBacklinks(noteId: string): Promise<NoteLinkSummaryDto[]> {
   const { data } = await api.get<NoteLinkSummaryDto[]>(`/api/notes-app/notes/${noteId}/backlinks`);
   return data;
@@ -130,15 +147,17 @@ export async function fetchForwardLinks(noteId: string): Promise<NoteLinkSummary
   return data;
 }
 
-export type NoteAiAction = "summarize" | "rewrite" | "suggestTags";
+export type NoteAiAction = "summarize" | "rewrite" | "suggestTags" | "notebookLinking";
 
 export async function postNoteAi(
   noteId: string,
   action: NoteAiAction,
+  opts?: { extraContext?: string },
 ): Promise<{ result?: string; tags?: string[] }> {
-  const { data } = await api.post<{ result?: string; tags?: string[] }>(`/api/notes-app/notes/${noteId}/ai`, {
-    action,
-  });
+  const body: { action: NoteAiAction; extraContext?: string } = { action };
+  const trimmed = opts?.extraContext?.trim();
+  if (trimmed) body.extraContext = trimmed.slice(0, 4000);
+  const { data } = await api.post<{ result?: string; tags?: string[] }>(`/api/notes-app/notes/${noteId}/ai`, body);
   return data;
 }
 

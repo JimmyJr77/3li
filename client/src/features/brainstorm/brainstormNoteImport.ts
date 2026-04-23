@@ -10,7 +10,7 @@ export type BrainstormNoteImportPayload = {
   sourceNoteId?: string;
 };
 
-/** Serialize the current note for Brainstorm Studio (sessionStorage). */
+/** Serialize the current note for Brainstorm import (sessionStorage). */
 export function stashNoteForBrainstormImport(note: {
   id: string;
   title: string | null;

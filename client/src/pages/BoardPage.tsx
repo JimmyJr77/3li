@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { PMAgentSheet, buildBoardContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { BoardKanban } from "@/features/taskflow/BoardKanban";
 import { BoardTable } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
@@ -47,6 +49,7 @@ const defaultBoardFilters = (): BoardFilterState => ({
 
 export function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>();
+  const { activeWorkspaceId } = useActiveWorkspace();
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("board");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -180,7 +183,7 @@ export function BoardPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              className="max-w-xl border-transparent px-1 text-2xl font-semibold tracking-tight shadow-none hover:border-input focus:border-input"
+              className="max-w-xl border border-neutral-200 bg-white px-2 py-1 text-2xl font-semibold tracking-tight text-neutral-950 shadow-sm hover:border-neutral-300 focus-visible:border-ring dark:border-neutral-300 dark:bg-white dark:text-neutral-950"
               aria-label="Board title"
             />
           </div>
@@ -220,6 +223,13 @@ export function BoardPage() {
           >
             Refresh
           </Button>
+          {activeWorkspaceId ? (
+            <PMAgentSheet
+              workspaceId={activeWorkspaceId}
+              contextText={buildBoardContextSnapshot(board)}
+              surfaceLabel="Project board snapshot"
+            />
+          ) : null}
           {boardArchived ? (
             <Button
               type="button"

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://3li.local/schemas/context-bundle.json",
+  "title": "ContextBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "agentId", "surfaceType", "surfacePayload"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Semver for this bundle shape.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "requestId": { "type": "string" },
+    "workspaceId": { "type": ["string", "null"] },
+    "projectId": { "type": "string" },
+    "threadId": { "type": ["string", "null"] },
+    "agentId": {
+      "type": "string",
+      "enum": [
+        "consultant",
+        "ai_consultant",
+        "brand_rep",
+        "red_team",
+        "mail_clerk",
+        "notebook_linking",
+        "project_manager"
+      ]
+    },
+    "surfaceType": {
+      "type": "string",
+      "enum": [
+        "chat",
+        "notes_refine",
+        "brainstorm",
+        "rapid_router",
+        "task_popup",
+        "calendar",
+        "boards",
+        "generic"
+      ]
+    },
+    "consultingMode": {
+      "type": "string",
+      "enum": ["strategy", "financial", "operations", "technical"]
+    },
+    "thinkingMode": {
+      "type": "string",
+      "enum": ["divergent", "convergent", "strategic", "execution"]
+    },
+    "brainstormAgentRole": {
+      "type": "string",
+      "enum": ["consultant", "red_team"],
+      "description": "Brainstorm Studio: AI Consultant vs Red Team overlay (see POST /api/ai/brainstorm)."
+    },
+    "teamContextRefs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Document or blob ids; resolved server-side."
+    },
+    "userContextRefs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "brandProfileRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional inline draft; normally loaded from Workspace by workspaceId."
+    },
+    "brandSupplement": {
+      "type": "string",
+      "maxLength": 8192
+    },
+    "rag": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "topK": { "type": "integer", "minimum": 1, "maximum": 32 }
+      }
+    },
+    "surfacePayload": {
+      "type": "object",
+      "description": "Surface-specific payload (message, note, canvas, tasks)."
+    }
+  }
+}

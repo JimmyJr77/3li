@@ -24,6 +24,10 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { BrowseItemOverflowMenu } from "./BrowseItemOverflowMenu";
 import { browseRowAccentSurface } from "./notebookRowAccent";
+import {
+  clearRoutedGlow,
+  useRoutedNoteGlow,
+} from "@/features/rapidRouter/routedHighlightStore";
 import type { AtlasNoteDto, NotesFolderDto } from "./types";
 
 function CollapsibleRail({
@@ -168,15 +172,78 @@ function SortableFolderRow({
   );
 }
 
+function BrowseNoteListRowStatic({
+  note,
+  active,
+  routingWorkspaceId,
+  setSelectedId,
+  onPatchNote,
+  onDeleteNote,
+}: {
+  note: AtlasNoteDto;
+  active: boolean;
+  routingWorkspaceId?: string | null;
+  setSelectedId: (id: string) => void;
+  onPatchNote: (noteId: string, body: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
+  onDeleteNote: (noteId: string) => void | Promise<void>;
+}) {
+  const nt = note.title || "Untitled";
+  const rowTint = browseRowAccentSurface(note.rowAccentColor ?? null);
+  const glow = useRoutedNoteGlow(note.id, routingWorkspaceId ?? undefined);
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-0.5 rounded-md",
+        glow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(234,179,8,0.45)]",
+      )}
+      style={rowTint}
+    >
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
+          setSelectedId(note.id);
+        }}
+        className={cn(
+          "min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
+          active && "bg-muted font-medium",
+        )}
+      >
+        {nt}
+      </button>
+      <BrowseItemOverflowMenu
+        kind="note"
+        initialTitle={nt}
+        initialAccent={note.rowAccentColor ?? null}
+        onApply={async (payload) => {
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
+          await onPatchNote(note.id, payload);
+        }}
+        onDelete={async () => {
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
+          await onDeleteNote(note.id);
+        }}
+        deleteConfirmation={`Delete note “${nt}”?`}
+      />
+    </div>
+  );
+}
+
 function SortableNoteRow({
   note,
   active,
+  routingWorkspaceId,
   onSelect,
   onPatch,
   onDelete,
 }: {
   note: AtlasNoteDto;
   active: boolean;
+  routingWorkspaceId?: string | null;
   onSelect: () => void;
   onPatch: (payload: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
@@ -185,6 +252,7 @@ function SortableNoteRow({
   const dndStyle = { transform: CSS.Transform.toString(transform), transition };
   const rowTint = browseRowAccentSurface(note.rowAccentColor ?? null);
   const title = note.title || "Untitled";
+  const routedGlow = useRoutedNoteGlow(note.id, routingWorkspaceId ?? undefined);
 
   return (
     <div
@@ -194,6 +262,8 @@ function SortableNoteRow({
         "flex w-full items-center gap-0.5 rounded-md",
         active && "bg-muted font-medium",
         isDragging && "opacity-60",
+        routedGlow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(234,179,8,0.45)]",
       )}
     >
       <button
@@ -211,6 +281,7 @@ function SortableNoteRow({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
           onSelect();
         }}
         className="min-w-0 flex-1 truncate rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/80"
@@ -221,8 +292,14 @@ function SortableNoteRow({
         kind="note"
         initialTitle={title}
         initialAccent={note.rowAccentColor ?? null}
-        onApply={onPatch}
-        onDelete={onDelete}
+        onApply={async (payload) => {
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
+          await onPatch(payload);
+        }}
+        onDelete={async () => {
+          if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
+          await onDelete();
+        }}
         deleteConfirmation={`Delete note “${title}”?`}
       />
     </div>
@@ -253,6 +330,7 @@ export function AtlasNotesBrowseColumns({
   onPatchNote,
   onDeleteNote,
   canReorderNotes,
+  routingWorkspaceId,
 }: {
   localMode: boolean;
   topFolders: NotesFolderDto[];
@@ -277,6 +355,8 @@ export function AtlasNotesBrowseColumns({
   onPatchNote: (noteId: string, body: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
   onDeleteNote: (noteId: string) => void | Promise<void>;
   canReorderNotes: boolean;
+  /** When set, Rapid Router–routed notes show a glow until opened or edited here. */
+  routingWorkspaceId?: string | null;
 }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(true);
@@ -468,6 +548,7 @@ export function AtlasNotesBrowseColumns({
                     key={n.id}
                     note={n}
                     active={resolvedSelectedId === n.id}
+                    routingWorkspaceId={routingWorkspaceId}
                     onSelect={() => {
                       setSelectedId(n.id);
                     }}
@@ -478,41 +559,17 @@ export function AtlasNotesBrowseColumns({
               </SortableContext>
             </DndContext>
           ) : (
-            displayList.map((n) => {
-              const nt = n.title || "Untitled";
-              const rowTint = browseRowAccentSurface(n.rowAccentColor ?? null);
-              return (
-                <div
-                  key={n.id}
-                  className="flex items-center gap-0.5 rounded-md"
-                  style={rowTint}
-                >
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setSelectedId(n.id);
-                    }}
-                    className={cn(
-                      "min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
-                      resolvedSelectedId === n.id && "bg-muted font-medium",
-                    )}
-                  >
-                    {nt}
-                  </button>
-                  <BrowseItemOverflowMenu
-                    kind="note"
-                    initialTitle={nt}
-                    initialAccent={n.rowAccentColor ?? null}
-                    onApply={(payload) => onPatchNote(n.id, payload)}
-                    onDelete={() => void onDeleteNote(n.id)}
-                    deleteConfirmation={`Delete note “${nt}”?`}
-                  />
-                </div>
-              );
-            })
+            displayList.map((n) => (
+              <BrowseNoteListRowStatic
+                key={n.id}
+                note={n}
+                active={resolvedSelectedId === n.id}
+                routingWorkspaceId={routingWorkspaceId}
+                setSelectedId={setSelectedId}
+                onPatchNote={onPatchNote}
+                onDeleteNote={onDeleteNote}
+              />
+            ))
           )}
         </div>
       </CollapsibleRail>

@@ -12,6 +12,9 @@ datasource db {
 model Project {
   id        String              @id @default(cuid())
   name      String              @default("Workspace")
+  /// Brainstorm + consulting chat + RAG scope: one project per brand workspace.
+  workspaceId String?           @unique
+  workspace   Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   sessions  BrainstormSession[]
   chatThreads ChatThread[]
   documents   ChatDocument[]
@@ -33,6 +36,10 @@ model IdeaNode {
   id          String            @id @default(cuid())
   sessionId   String
   session     BrainstormSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// "idea" | "shape" | "text" | "hierarchy" — idea rows use columns below; others use `payload` + title as label.
+  kind        String            @default("idea")
+  /// Type-specific fields (parentId, html, variant, etc.) for non-idea nodes.
+  payload     Json?
   positionX   Float
   positionY   Float
   title       String
@@ -51,26 +58,92 @@ model IdeaEdge {
   session   BrainstormSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sourceId  String
   targetId  String
+  /// "solid" | "solid_bold" | "dotted"
+  lineStyle String            @default("solid")
+  /// Optional caption shown on the link in the canvas.
+  label           String      @default("")
+  /// React Flow handle ids (e.g. out/in for tree, lateral-* for side links).
+  sourceHandle    String?
+  targetHandle    String?
 }
 
-// --- TaskFoundry: workspace → board → lists → tasks ---
+// --- TaskFoundry: brand → workspace (ecosystem) → project space → board → lists → tasks ---
 
+/// Client or engagement: one brand kit, one sidebar row in “My brands”.
+model Brand {
+  id           String      @id @default(cuid())
+  /// Canonical brand name (Settings, “My brands” list). Not the workspace chrome title — that is `Workspace.name`.
+  name         String      @default("Brand")
+  /// Company/brand identity kit for AI context (JSON). One kit per brand.
+  brandProfile Json?
+  /// Shared team methodology for LLM context; overrides user context on conflict (see context ladder).
+  teamContextInstructions String? @db.Text
+  /// Sort order among non-archived brands (sidebar / settings).
+  position     Int         @default(0)
+  archivedAt   DateTime?
+  workspaces   Workspace[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([archivedAt])
+}
+
+/// One ecosystem per brand (notes, notebooks, activity, etc.). Boards live under ProjectSpaces inside this row.
 model Workspace {
   id                   String                 @id @default(cuid())
+  /// Label for this ecosystem (e.g. shown in admin); brand display name comes from Brand Center kit.
   name                 String
-  /// Sort order among non-archived workspaces (Boards page drag reorder).
-  position             Int                    @default(0)
+  /// Individual operator preferences for LLM context (Consultant Agent); team instructions override when both apply.
+  userContextInstructions String? @db.Text
+  brandId              String                 @unique
+  brand                Brand                  @relation(fields: [brandId], references: [id], onDelete: Cascade)
   archivedAt           DateTime?
-  boards               Board[]
+  projectSpaces        ProjectSpace[]
   chatThreads          ChatThread[]
   notesFolders         NotesFolder[]
   notes                Note[]
   noteTags             NoteTag[]
   customBoardTemplates CustomBoardTemplate[]
+  brainstormProject    Project?
+  routingHolds         RoutingHold[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
   @@index([archivedAt])
+}
+
+/// Unresolved capture queued for later routing (holding pen / Mail Clerk handoff).
+model RoutingHold {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  body        String    @db.Text
+  meta        Json?
+  /// pending | routed | dismissed
+  status      String    @default("pending")
+  /// rapid_router | mail_clerk_plan | mailroom | manual
+  source      String    @default("manual")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+}
+
+/// Project space (delivery thread) within a brand workspace; project boards belong here.
+model ProjectSpace {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  position    Int       @default(0)
+  archivedAt  DateTime?
+  boards      Board[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, archivedAt])
 }
 
 /// User-defined board column layouts (global or legacy workspace-scoped), merged with built-in templates in the UI.
@@ -129,6 +202,8 @@ model Note {
   tags            NoteTag[]
   linksFrom       NoteLink[]     @relation("NoteLinkFrom")
   linksTo         NoteLink[]     @relation("NoteLinkTo")
+  /// Optional provenance when created from Rapid Router / Mailroom-style capture.
+  routingSource   String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -165,19 +240,19 @@ model NoteLink {
 }
 
 model Board {
-  id          String      @id @default(cuid())
-  workspaceId String
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name        String
-  position    Int         @default(0)
-  archivedAt  DateTime?
-  lists       BoardList[]
-  labels      Label[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id             String       @id @default(cuid())
+  projectSpaceId String
+  projectSpace   ProjectSpace @relation(fields: [projectSpaceId], references: [id], onDelete: Cascade)
+  name           String
+  position       Int          @default(0)
+  archivedAt     DateTime?
+  lists          BoardList[]
+  labels         Label[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  @@index([workspaceId])
-  @@index([workspaceId, archivedAt])
+  @@index([projectSpaceId])
+  @@index([projectSpaceId, archivedAt])
 }
 
 /// Trello-style column on a board
@@ -214,6 +289,8 @@ model Task {
   chatThreadId String?
   chatThread   ChatThread? @relation(fields: [chatThreadId], references: [id], onDelete: SetNull)
   sourceMessageId String?
+  /// Optional provenance: e.g. rapid_router, mailroom_plan (UI may show “from capture”).
+  routingSource   String?
   comments     Comment[]
   checklist    ChecklistItem[]
   labels       TaskLabel[]

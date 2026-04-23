@@ -162,41 +162,41 @@
 }
 
 /*
-  Rainbow Explosion — soft tinted page; each [data-slot="card"] cycles through light pastels
-  (per sibling group via :nth-child(… of …)).
+  Rainbow Explosion — saturated multi-hue page wash; each [data-slot="card"] cycles through
+  16 vivid tints + matching edge glow (per sibling group via :nth-child(… of …)).
 */
 .rainbow-explosion {
-    --background: oklch(0.965 0.04 275);
-    --foreground: oklch(0.29 0.065 275);
-    --card: oklch(0.96 0.035 268);
-    --card-foreground: oklch(0.29 0.065 275);
-    --popover: oklch(0.97 0.03 272);
-    --popover-foreground: oklch(0.29 0.065 275);
-    --primary: oklch(0.48 0.2 285);
-    --primary-foreground: oklch(0.99 0.02 285);
-    --secondary: oklch(0.9 0.07 275);
-    --secondary-foreground: oklch(0.32 0.09 285);
-    --muted: oklch(0.9 0.06 280);
-    --muted-foreground: oklch(0.45 0.08 275);
-    --accent: oklch(0.88 0.1 250);
-    --accent-foreground: oklch(0.3 0.09 260);
+    --background: oklch(0.955 0.075 285);
+    --foreground: oklch(0.26 0.08 285);
+    --card: oklch(0.94 0.055 268);
+    --card-foreground: oklch(0.26 0.08 285);
+    --popover: oklch(0.96 0.06 272);
+    --popover-foreground: oklch(0.26 0.08 285);
+    --primary: oklch(0.46 0.26 300);
+    --primary-foreground: oklch(0.99 0.03 300);
+    --secondary: oklch(0.88 0.11 275);
+    --secondary-foreground: oklch(0.28 0.12 285);
+    --muted: oklch(0.88 0.09 280);
+    --muted-foreground: oklch(0.4 0.1 275);
+    --accent: oklch(0.84 0.14 240);
+    --accent-foreground: oklch(0.26 0.11 260);
     --destructive: oklch(0.51 0.22 22);
-    --border: oklch(0.82 0.1 285);
-    --input: oklch(0.88 0.08 275);
-    --ring: oklch(0.55 0.18 285);
-    --chart-1: oklch(0.62 0.18 320);
-    --chart-2: oklch(0.65 0.16 200);
-    --chart-3: oklch(0.6 0.17 280);
-    --chart-4: oklch(0.72 0.14 78);
-    --chart-5: oklch(0.62 0.15 155);
-    --sidebar: oklch(0.94 0.055 280);
-    --sidebar-foreground: oklch(0.3 0.07 280);
-    --sidebar-primary: oklch(0.5 0.19 285);
-    --sidebar-primary-foreground: oklch(0.99 0.02 285);
-    --sidebar-accent: oklch(0.88 0.1 275);
-    --sidebar-accent-foreground: oklch(0.32 0.09 285);
-    --sidebar-border: oklch(0.82 0.1 285);
-    --sidebar-ring: oklch(0.55 0.18 285);
+    --border: oklch(0.78 0.14 285);
+    --input: oklch(0.85 0.11 275);
+    --ring: oklch(0.52 0.22 285);
+    --chart-1: oklch(0.62 0.22 330);
+    --chart-2: oklch(0.64 0.2 200);
+    --chart-3: oklch(0.58 0.22 280);
+    --chart-4: oklch(0.72 0.18 78);
+    --chart-5: oklch(0.62 0.2 155);
+    --sidebar: oklch(0.92 0.09 280);
+    --sidebar-foreground: oklch(0.28 0.1 280);
+    --sidebar-primary: oklch(0.48 0.24 285);
+    --sidebar-primary-foreground: oklch(0.99 0.03 285);
+    --sidebar-accent: oklch(0.84 0.14 275);
+    --sidebar-accent-foreground: oklch(0.28 0.12 285);
+    --sidebar-border: oklch(0.78 0.14 285);
+    --sidebar-ring: oklch(0.52 0.22 285);
 }
 
 @layer base {
@@ -226,54 +226,237 @@
   html.rainbow-explosion body {
     background-color: transparent;
     background-image:
-      radial-gradient(ellipse 120% 80% at 15% -10%, oklch(0.72 0.14 320 / 0.22), transparent 55%),
-      radial-gradient(ellipse 100% 70% at 95% 5%, oklch(0.7 0.12 200 / 0.2), transparent 50%),
-      linear-gradient(165deg, oklch(0.97 0.045 285), oklch(0.955 0.05 260));
+      radial-gradient(ellipse 140% 95% at 8% -18%, oklch(0.62 0.26 330 / 0.42), transparent 58%),
+      radial-gradient(ellipse 115% 80% at 102% 2%, oklch(0.65 0.24 200 / 0.38), transparent 54%),
+      radial-gradient(ellipse 100% 90% at -5% 88%, oklch(0.68 0.22 145 / 0.36), transparent 56%),
+      radial-gradient(ellipse 90% 70% at 98% 96%, oklch(0.7 0.23 55 / 0.34), transparent 55%),
+      radial-gradient(ellipse 75% 55% at 48% 42%, oklch(0.58 0.2 285 / 0.22), transparent 62%),
+      radial-gradient(ellipse 60% 45% at 72% 18%, oklch(0.64 0.21 25 / 0.26), transparent 58%),
+      linear-gradient(
+        152deg,
+        oklch(0.96 0.08 300),
+        oklch(0.94 0.1 55),
+        oklch(0.95 0.09 195),
+        oklch(0.93 0.08 268)
+      );
   }
 }
 
-/* Pastel card faces — cycle hues among card siblings */
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 1 of [data-slot="card"]) {
-    background-color: oklch(0.94 0.055 330) !important;
+/* Vivid card faces — 16-hue cycle + saturated rim / drop tint */
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 1 of [data-slot="card"]) {
+    background-color: oklch(0.9 0.14 355) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.55 0.2 355 / 0.45),
+      0 14px 32px -10px oklch(0.45 0.18 355 / 0.28) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 2 of [data-slot="card"]) {
-    background-color: oklch(0.945 0.05 25) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 2 of [data-slot="card"]) {
+    background-color: oklch(0.91 0.13 22) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.55 0.19 22 / 0.45),
+      0 14px 32px -10px oklch(0.48 0.17 22 / 0.28) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 3 of [data-slot="card"]) {
-    background-color: oklch(0.95 0.048 85) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 3 of [data-slot="card"]) {
+    background-color: oklch(0.92 0.12 45) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.58 0.17 45 / 0.42),
+      0 14px 32px -10px oklch(0.5 0.15 45 / 0.26) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 4 of [data-slot="card"]) {
-    background-color: oklch(0.94 0.052 145) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 4 of [data-slot="card"]) {
+    background-color: oklch(0.925 0.11 68) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.58 0.16 68 / 0.42),
+      0 14px 32px -10px oklch(0.52 0.14 68 / 0.26) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 5 of [data-slot="card"]) {
-    background-color: oklch(0.935 0.055 195) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 5 of [data-slot="card"]) {
+    background-color: oklch(0.935 0.1 92) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.62 0.14 92 / 0.4),
+      0 14px 32px -10px oklch(0.55 0.12 92 / 0.24) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 6 of [data-slot="card"]) {
-    background-color: oklch(0.945 0.05 230) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 6 of [data-slot="card"]) {
+    background-color: oklch(0.89 0.14 118) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.52 0.19 118 / 0.45),
+      0 14px 32px -10px oklch(0.42 0.17 118 / 0.28) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 7 of [data-slot="card"]) {
-    background-color: oklch(0.94 0.056 268) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 7 of [data-slot="card"]) {
+    background-color: oklch(0.89 0.14 142) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.52 0.19 142 / 0.45),
+      0 14px 32px -10px oklch(0.42 0.17 142 / 0.28) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 8 of [data-slot="card"]) {
-    background-color: oklch(0.942 0.054 305) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 8 of [data-slot="card"]) {
+    background-color: oklch(0.9 0.13 168) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.52 0.18 168 / 0.44),
+      0 14px 32px -10px oklch(0.42 0.16 168 / 0.27) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 9 of [data-slot="card"]) {
-    background-color: oklch(0.948 0.048 55) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 9 of [data-slot="card"]) {
+    background-color: oklch(0.9 0.13 195) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.52 0.19 195 / 0.44),
+      0 14px 32px -10px oklch(0.42 0.17 195 / 0.27) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 10 of [data-slot="card"]) {
-    background-color: oklch(0.938 0.056 175) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 10 of [data-slot="card"]) {
+    background-color: oklch(0.885 0.14 220) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.5 0.2 220 / 0.46),
+      0 14px 32px -10px oklch(0.4 0.18 220 / 0.29) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 11 of [data-slot="card"]) {
-    background-color: oklch(0.943 0.053 315) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 11 of [data-slot="card"]) {
+    background-color: oklch(0.885 0.15 245) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.48 0.21 245 / 0.46),
+      0 14px 32px -10px oklch(0.38 0.19 245 / 0.29) !important;
 }
-html.rainbow-explosion [data-slot="card"]:nth-child(12n + 12 of [data-slot="card"]) {
-    background-color: oklch(0.946 0.05 210) !important;
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 12 of [data-slot="card"]) {
+    background-color: oklch(0.89 0.15 270) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.48 0.22 270 / 0.46),
+      0 14px 32px -10px oklch(0.38 0.2 270 / 0.29) !important;
+}
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 13 of [data-slot="card"]) {
+    background-color: oklch(0.895 0.15 295) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.48 0.21 295 / 0.46),
+      0 14px 32px -10px oklch(0.38 0.19 295 / 0.29) !important;
+}
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 14 of [data-slot="card"]) {
+    background-color: oklch(0.9 0.14 318) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.52 0.2 318 / 0.45),
+      0 14px 32px -10px oklch(0.42 0.18 318 / 0.28) !important;
+}
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 15 of [data-slot="card"]) {
+    background-color: oklch(0.905 0.14 340) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.54 0.2 340 / 0.44),
+      0 14px 32px -10px oklch(0.44 0.18 340 / 0.27) !important;
+}
+html.rainbow-explosion [data-slot="card"]:nth-child(16n + 16 of [data-slot="card"]) {
+    background-color: oklch(0.9 0.13 12) !important;
+    box-shadow:
+      0 0 0 1px oklch(0.56 0.19 12 / 0.44),
+      0 14px 32px -10px oklch(0.46 0.17 12 / 0.27) !important;
 }
 
 /* Notebooks — TipTap (Vite + React) */
 .notebooks-editor .ProseMirror {
   outline: none;
   min-height: min(50vh, 480px);
+}
+
+/*
+ * Task lists (TipTap): TipTap’s node view does not always keep `data-type` on the <li>,
+ * so we key off `ul[data-type="taskList"]` / `.atlas-note-task-list` and direct `> li` children.
+ */
+.notebooks-editor .ProseMirror ul[data-type="taskList"],
+.notebooks-editor .ProseMirror ul.atlas-note-task-list,
+.public-note-content ul[data-type="taskList"],
+.public-note-content ul.atlas-note-task-list {
+  list-style: none !important;
+  padding-left: 0 !important;
+  margin: 0.5rem 0;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] ul[data-type="taskList"],
+.notebooks-editor .ProseMirror ul.atlas-note-task-list ul.atlas-note-task-list,
+.public-note-content ul[data-type="taskList"] ul[data-type="taskList"],
+.public-note-content ul.atlas-note-task-list ul.atlas-note-task-list {
+  margin: 0.25rem 0 0.25rem 0.75rem;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li,
+.public-note-content ul[data-type="taskList"] > li,
+.public-note-content ul.atlas-note-task-list > li {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: flex-start !important;
+  gap: 0.5rem !important;
+  margin: 0.25rem 0 !important;
+  list-style: none !important;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > label,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > label,
+.public-note-content ul[data-type="taskList"] > li > label,
+.public-note-content ul.atlas-note-task-list > li > label {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  display: inline-flex !important;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  align-items: flex-start !important;
+  cursor: pointer;
+}
+
+/* TipTap: empty span after the native checkbox — remove from layout */
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > label > span,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > label > span,
+.public-note-content ul[data-type="taskList"] > li > label > span,
+.public-note-content ul.atlas-note-task-list > li > label > span {
+  display: none !important;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"],
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > label > input[type="checkbox"],
+.public-note-content ul[data-type="taskList"] > li > label > input[type="checkbox"],
+.public-note-content ul.atlas-note-task-list > li > label > input[type="checkbox"] {
+  box-sizing: border-box !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  margin: 0.15rem 0 0 !important;
+  width: 1.125rem !important;
+  height: 1.125rem !important;
+  flex-shrink: 0 !important;
+  border-radius: 9999px !important;
+  border: 2px solid var(--border) !important;
+  background-color: var(--card) !important;
+  background-image: none !important;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"]:checked,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > label > input[type="checkbox"]:checked,
+.public-note-content ul[data-type="taskList"] > li > label > input[type="checkbox"]:checked,
+.public-note-content ul.atlas-note-task-list > li > label > input[type="checkbox"]:checked {
+  border-color: oklch(0.52 0.16 150) !important;
+  background-color: oklch(0.52 0.16 150) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.5 L7 11.5 L12.5 5'/%3E%3C/svg%3E") !important;
+  background-size: 0.65rem 0.65rem !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > label > input[type="checkbox"]:focus-visible,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > label > input[type="checkbox"]:focus-visible,
+.public-note-content ul[data-type="taskList"] > li > label > input[type="checkbox"]:focus-visible,
+.public-note-content ul.atlas-note-task-list > li > label > input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > div,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > div,
+.public-note-content ul[data-type="taskList"] > li > div,
+.public-note-content ul.atlas-note-task-list > li > div {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+}
+
+.notebooks-editor .ProseMirror ul[data-type="taskList"] > li > div > p:first-child,
+.notebooks-editor .ProseMirror ul.atlas-note-task-list > li > div > p:first-child,
+.public-note-content ul[data-type="taskList"] > li > div > p:first-child,
+.public-note-content ul.atlas-note-task-list > li > div > p:first-child {
+  margin-top: 0;
 }
 
 /* Public shared note (TipTap HTML) */

@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 import { ModeToggle } from "@/components/shared/ModeToggle";
+import { WorkspaceBrandSwitcher } from "@/components/layout/WorkspaceBrandSwitcher";
 import { WorkspaceNav, WorkspaceSidebarColumn } from "@/components/layout/WorkspaceSidebarColumn";
+import { ActiveWorkspaceProvider } from "@/context/ActiveWorkspaceContext";
+import { MailroomRoutingProvider, useMailroomRouting } from "@/context/MailroomRoutingContext";
+import { RoutingToastProvider } from "@/context/RoutingToastContext";
 import { NotesWorkspaceShortcutsProvider } from "@/features/notes/NotesWorkspaceShortcutsProvider";
+import { MailroomRoutingDialog } from "@/features/notes/MailroomRoutingDialog";
 import { WorkspacePrefsProvider, useWorkspacePrefs } from "@/context/WorkspacePrefsContext";
+import { BrandWorkspaceEntryDialog } from "@/components/layout/BrandWorkspaceEntryDialog";
 import { cn } from "@/lib/utils";
 
 function AppLayoutInner() {
   const { sidebarBehavior } = useWorkspacePrefs();
+  const { mailroomOpen, setMailroomOpen } = useMailroomRouting();
   const pinned = sidebarBehavior === "pinned";
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
 
@@ -24,9 +31,7 @@ function AppLayoutInner() {
     <div className="flex min-h-screen flex-col">
       <aside className="border-b bg-sidebar md:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-4">
-          <Link to="/app/dashboard" className="font-semibold tracking-tight">
-            3LI Workspace
-          </Link>
+          <WorkspaceBrandSwitcher className="text-sm" showDropdown />
           <div className="flex items-center gap-1">
             <ModeToggle />
           </div>
@@ -82,6 +87,8 @@ function AppLayoutInner() {
           </div>
         </div>
       </div>
+      <BrandWorkspaceEntryDialog />
+      <MailroomRoutingDialog open={mailroomOpen} onOpenChange={setMailroomOpen} />
     </div>
   );
 }
@@ -89,9 +96,15 @@ function AppLayoutInner() {
 export function AppLayout() {
   return (
     <WorkspacePrefsProvider>
-      <NotesWorkspaceShortcutsProvider>
-        <AppLayoutInner />
-      </NotesWorkspaceShortcutsProvider>
+      <ActiveWorkspaceProvider>
+        <NotesWorkspaceShortcutsProvider>
+          <MailroomRoutingProvider>
+            <RoutingToastProvider>
+              <AppLayoutInner />
+            </RoutingToastProvider>
+          </MailroomRoutingProvider>
+        </NotesWorkspaceShortcutsProvider>
+      </ActiveWorkspaceProvider>
     </WorkspacePrefsProvider>
   );
 }

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { getBrandCenterContextForQuickCapture } from "@/features/rapidRouter/brandCenterContext";
+import { getBrandContextForAI } from "@/features/brand/brandKitContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,14 +73,16 @@ export function QuickCaptureSheet({
   });
 
   const enrich = useMutation({
-    mutationFn: () =>
-      enrichQuickCapture({
+    mutationFn: async () => {
+      const brandCenterContext = await getBrandContextForAI(workspaceId, 12_000);
+      return enrichQuickCapture({
         workspaceId,
         folderId,
         title: title.trim(),
         rawText: body,
-        brandCenterContext: getBrandCenterContextForQuickCapture(),
-      }),
+        brandCenterContext,
+      });
+    },
     onSuccess: (data) => {
       setTitle(data.title);
       setBody(data.body);
@@ -104,9 +106,13 @@ export function QuickCaptureSheet({
         <SheetHeader>
           <SheetTitle>Quick capture</SheetTitle>
           <SheetDescription>
-            Jot a title and body. Saves into the current notebook. Use{" "}
-            <span className="font-medium text-foreground">Refine with AI</span> to tighten copy using this workspace,
-            the selected notebook, and your Brand Center snippets (stored on this device from Rapid Router).
+            Jot a title and body. Saves into the <span className="font-medium text-foreground">Quicknotes</span>{" "}
+            notebook. Use{" "}
+            <span className="font-medium text-foreground">Refine with AI</span> to tighten copy using your saved{" "}
+            <a href="/app/brand-center" className="font-medium text-foreground underline underline-offset-2">
+              Brand Center
+            </a>{" "}
+            kit for this workspace, plus optional quick snippets from Rapid Router on this device.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-2">

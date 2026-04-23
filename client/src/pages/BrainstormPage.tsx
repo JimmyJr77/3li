@@ -1,26 +1,48 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { fetchBrainstormSessionsList } from "@/features/brainstorm/api";
 import { BrainstormCanvas } from "@/features/brainstorm/components/BrainstormCanvas";
 import { BrainstormSessionBar } from "@/features/brainstorm/components/BrainstormSessionBar";
 import { BrainstormToolbar } from "@/features/brainstorm/components/BrainstormToolbar";
 import { BrainstormWorkspace } from "@/features/brainstorm/components/BrainstormWorkspace";
 import type { BrainstormSaveStatus } from "@/features/brainstorm/saveStatus";
+import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function BrainstormPage() {
+  const presentationMode = useBrainstormStore((s) => s.presentationMode);
+  const { activeWorkspaceId } = useActiveWorkspace();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [saveStatus, setSaveStatus] = useState<BrainstormSaveStatus>("idle");
 
   const listQuery = useQuery({
-    queryKey: ["brainstorm", "sessions-list"],
-    queryFn: fetchBrainstormSessionsList,
+    queryKey: ["brainstorm", "sessions-list", activeWorkspaceId ?? ""],
+    queryFn: () => fetchBrainstormSessionsList(activeWorkspaceId!),
+    enabled: Boolean(activeWorkspaceId),
     retry: 1,
   });
+
+  const prevWorkspaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    if (prevWorkspaceIdRef.current !== null && prevWorkspaceIdRef.current !== activeWorkspaceId) {
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          p.delete("session");
+          return p;
+        },
+        { replace: true },
+      );
+    }
+    prevWorkspaceIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId, setSearchParams]);
 
   const sessions = listQuery.data?.sessions ?? [];
   const sessionParam = searchParams.get("session");
@@ -54,13 +76,22 @@ export function BrainstormPage() {
 
   const listLoading = listQuery.isPending && !listQuery.data;
 
+  if (!activeWorkspaceId) {
+    return (
+      <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
+        <BrainstormToolbar saveStatus="idle" />
+        <p className="text-sm text-muted-foreground">Select a brand workspace in the sidebar to open Brainstorm.</p>
+      </div>
+    );
+  }
+
   if (listLoading) {
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
         <BrainstormToolbar saveStatus="idle" />
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
-          Loading sessions…
+          Loading studio boards…
         </div>
       </div>
     );
@@ -81,7 +112,7 @@ export function BrainstormPage() {
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
         <BrainstormToolbar saveStatus="idle" />
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm">
-          <p className="font-medium text-destructive">Could not load brainstorm sessions.</p>
+          <p className="font-medium text-destructive">Could not load studio boards.</p>
           <p className="mt-1 text-muted-foreground">
             The dev server proxies <code className="text-xs">/api/*</code> to the API on port 3001. A 500 here
             usually means PostgreSQL is not configured or the schema is not applied: copy{" "}
@@ -106,7 +137,7 @@ export function BrainstormPage() {
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
         <BrainstormToolbar saveStatus="idle" />
-        <p className="text-sm text-muted-foreground">No brainstorm sessions available. Try refreshing the page.</p>
+        <p className="text-sm text-muted-foreground">No studio boards available. Try refreshing the page.</p>
         <Button type="button" variant="outline" size="sm" onClick={() => listQuery.refetch()}>
           Refresh
         </Button>
@@ -115,15 +146,28 @@ export function BrainstormPage() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-6rem)] flex-1 flex-col gap-4">
-      <BrainstormToolbar saveStatus={saveStatus} />
-      <BrainstormSessionBar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSessionChange={setSessionInUrl}
-        onCreatedSession={setSessionInUrl}
-      />
-      <BrainstormWorkspace sessionId={activeSessionId} onSaveStatusChange={setSaveStatus}>
+    <div
+      className={cn(
+        "flex min-h-[calc(100vh-6rem)] flex-1 flex-col gap-4",
+        presentationMode && "min-h-0 gap-0",
+      )}
+    >
+      {!presentationMode ? <BrainstormToolbar saveStatus={saveStatus} /> : null}
+      <BrainstormWorkspace
+        key={`${activeWorkspaceId}:${activeSessionId}`}
+        workspaceId={activeWorkspaceId}
+        sessionId={activeSessionId}
+        onSaveStatusChange={setSaveStatus}
+        header={
+          <BrainstormSessionBar
+            workspaceId={activeWorkspaceId}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSessionChange={setSessionInUrl}
+            onCreatedSession={setSessionInUrl}
+          />
+        }
+      >
         <BrainstormCanvas />
       </BrainstormWorkspace>
     </div>

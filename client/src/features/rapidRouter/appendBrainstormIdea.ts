@@ -1,11 +1,10 @@
-import type { Edge } from "@xyflow/react";
 import {
   createBrainstormSession,
   fetchBrainstormSessionById,
   fetchBrainstormSessionsList,
   saveBrainstormCanvas,
 } from "@/features/brainstorm/api";
-import type { IdeaFlowNode } from "@/features/brainstorm/types";
+import type { BrainstormEdge, BrainstormFlowNode, IdeaFlowNode } from "@/features/brainstorm/types";
 import { defaultIdeaData } from "@/features/brainstorm/types";
 
 function splitTitleBody(text: string): { title: string; description: string } {
@@ -23,18 +22,22 @@ function splitTitleBody(text: string): { title: string; description: string } {
   };
 }
 
-/** Adds a new idea card to a brainstorm session (creates one if none exist). */
-export async function appendIdeaToBrainstorm(text: string, preferredSessionId?: string | null): Promise<void> {
+/** Adds a new idea card to a brainstorm session (creates one if none exist). Scoped to the active brand workspace. */
+export async function appendIdeaToBrainstorm(
+  text: string,
+  workspaceId: string,
+  preferredSessionId?: string | null,
+): Promise<{ sessionId: string; nodeId: string }> {
   let sessionId = preferredSessionId?.trim() || null;
   if (!sessionId) {
-    const list = await fetchBrainstormSessionsList();
+    const list = await fetchBrainstormSessionsList(workspaceId);
     sessionId = list.sessions[0]?.id ?? null;
   }
   if (!sessionId) {
-    const created = await createBrainstormSession("Main");
+    const created = await createBrainstormSession(workspaceId, "Main");
     sessionId = created.session.id;
   }
-  const session = await fetchBrainstormSessionById(sessionId);
+  const session = await fetchBrainstormSessionById(sessionId, workspaceId);
   const { title, description } = splitTitleBody(text);
   const maxX = session.nodes.reduce((m, n) => Math.max(m, n.position.x), 0);
   const newNode: IdeaFlowNode = {
@@ -48,19 +51,34 @@ export async function appendIdeaToBrainstorm(text: string, preferredSessionId?: 
       tags: ["rapid-router"],
     },
   };
-  const nodes: IdeaFlowNode[] = [
-    ...session.nodes.map((n) => ({
-      id: n.id,
-      type: "idea" as const,
-      position: n.position,
-      data: n.data,
-    })),
-    newNode,
-  ];
-  const edges: Edge[] = session.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
+  const nodes: BrainstormFlowNode[] = [...session.nodes, newNode];
+  const edges: BrainstormEdge[] = session.edges.map((e) => ({
+    ...e,
+    data: {
+      lineStyle: e.data?.lineStyle ?? "solid",
+      label: typeof e.data?.label === "string" ? e.data.label : "",
+    },
   }));
-  await saveBrainstormCanvas(sessionId, { nodes, edges });
+  await saveBrainstormCanvas(sessionId, workspaceId, { nodes, edges });
+  return { sessionId, nodeId: newNode.id };
+}
+
+/** Removes a single idea node added by Rapid Router (undo). */
+export async function removeBrainstormIdeaNode(
+  workspaceId: string,
+  sessionId: string,
+  nodeId: string,
+): Promise<void> {
+  const session = await fetchBrainstormSessionById(sessionId, workspaceId);
+  const nodes = session.nodes.filter((n) => n.id !== nodeId);
+  const edges = session.edges
+    .filter((e) => e.source !== nodeId && e.target !== nodeId)
+    .map((e) => ({
+      ...e,
+      data: {
+        lineStyle: e.data?.lineStyle ?? "solid",
+        label: typeof e.data?.label === "string" ? e.data.label : "",
+      },
+    }));
+  await saveBrainstormCanvas(sessionId, workspaceId, { nodes, edges });
 }

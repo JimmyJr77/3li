@@ -1,4 +1,4 @@
-# 3LI Brainstorm Studio — spec pointer
+# Brainstorm (studio boards) — spec pointer
 
 The canonical product narrative, phased roadmap, and data-model notes live under:
 

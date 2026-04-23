@@ -16,6 +16,8 @@ export type TaskFlowTask = {
   dueDate: string | null;
   startDate: string | null;
   ideaNodeId: string | null;
+  /** When set, task originated from Rapid Router / Mailroom-style capture. */
+  routingSource?: string | null;
   listId: string;
   ideaNode: { id: string; title: string } | null;
   labels: { label: LabelDto }[];
@@ -51,11 +53,39 @@ export type BoardDto = {
   labels: LabelDto[];
 };
 
-export type WorkspaceDto = {
+export type ProjectSpaceSummaryDto = {
   id: string;
   name: string;
-  position?: number;
+  position: number;
   boards: { id: string; name: string; position: number }[];
+};
+
+/** One ecosystem row per brand (notes, notebooks, …). Project spaces live in `projectSpaces`. */
+export type WorkspaceDto = {
+  id: string;
+  /** Workspace row label (Settings). Sidebar chrome prefers brand name / kit display name when set. */
+  name: string;
+  /** Parent brand; kit and sidebar label come from the brand. */
+  brandId: string;
+  /** Canonical brand name from Settings (lists, “My brands”, copy that refers to the brand). */
+  brandName: string;
+  /** Brand Center `identity.displayName` when set (kit / AI context). */
+  brandDisplayName?: string | null;
+  projectSpaces: ProjectSpaceSummaryDto[];
+};
+
+/** Brand with nested workspace and project spaces (settings / admin API). */
+export type BrandTreeDto = {
+  id: string;
+  /** Canonical brand name (editable in Settings). */
+  name: string;
+  position: number;
+  brandDisplayName?: string | null;
+  workspaces: {
+    id: string;
+    name: string;
+    projectSpaces: ProjectSpaceSummaryDto[];
+  }[];
 };
 
 export type BootstrapDto = {

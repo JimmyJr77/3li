@@ -1,12 +1,28 @@
 export type ConsultingMode = "strategy" | "financial" | "operations" | "technical";
 
+export type AiBackendMetadata = {
+  backend: "openai" | "ollama";
+  chatModel: string;
+  embeddingModel: string;
+};
+
 export type ChatBootstrap = {
+  /** Which LLM stack the API uses (Ollama locally, OpenAI when deployed). */
+  ai?: AiBackendMetadata;
   defaultProjectId: string;
+  /** Consulting chat + RAG project id per brand workspace (same as brainstorm scope). */
+  projectIdByWorkspaceId?: Record<string, string>;
   projects: { id: string; name: string }[];
   workspaces: {
     id: string;
     name: string;
-    boards: { id: string; name: string; position: number }[];
+    brandName: string;
+    projectSpaces: {
+      id: string;
+      name: string;
+      position: number;
+      boards: { id: string; name: string; position: number }[];
+    }[];
   }[];
   defaultWorkspaceId: string;
   defaultBoardId: string;

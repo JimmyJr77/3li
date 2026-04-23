@@ -1,4 +1,5 @@
 import { prisma } from "./db.js";
+import { defaultWorkspaceTitleFromBrandName } from "./workspaceLimits.js";
 import { ensureTaskflowShowcase } from "./showcaseSeed.js";
 
 const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
@@ -25,17 +26,28 @@ export async function ensureBoardLists(boardId: string) {
   }
 }
 
-export async function ensureDefaultWorkspaceBoard() {
-  let workspace = await prisma.workspace.findFirst({
-    where: { archivedAt: null },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+/** Ensures the default project space + main board for a specific brand workspace. */
+export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, archivedAt: null },
+    include: { brand: true },
   });
   if (!workspace) {
-    workspace = await prisma.workspace.create({ data: { name: "My Project", position: 0 } });
+    throw new Error("Workspace not found");
+  }
+
+  let projectSpace = await prisma.projectSpace.findFirst({
+    where: { workspaceId: workspace.id, archivedAt: null },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
+  if (!projectSpace) {
+    projectSpace = await prisma.projectSpace.create({
+      data: { workspaceId: workspace.id, name: "Primary project space", position: 0 },
+    });
   }
 
   const existingBoard = await prisma.board.findFirst({
-    where: { workspaceId: workspace.id, archivedAt: null },
+    where: { projectSpaceId: projectSpace.id, archivedAt: null },
     orderBy: { position: "asc" },
   });
 
@@ -43,7 +55,7 @@ export async function ensureDefaultWorkspaceBoard() {
   if (!existingBoard) {
     board = await prisma.board.create({
       data: {
-        workspaceId: workspace.id,
+        projectSpaceId: projectSpace.id,
         name: "Main project board",
         position: 0,
       },
@@ -71,6 +83,21 @@ export async function ensureDefaultWorkspaceBoard() {
   await ensureTaskflowShowcase(board.id);
 
   return { workspace, board };
+}
+
+export async function ensureDefaultWorkspaceBoard() {
+  let workspace = await prisma.workspace.findFirst({
+    where: { archivedAt: null },
+    orderBy: [{ brand: { position: "asc" } }, { createdAt: "asc" }],
+  });
+  if (!workspace) {
+    const brand = await prisma.brand.create({ data: { position: 0, name: "Brand" } });
+    workspace = await prisma.workspace.create({
+      data: { name: defaultWorkspaceTitleFromBrandName("Brand"), brandId: brand.id },
+    });
+  }
+
+  return ensureDefaultBoardForWorkspace(workspace.id);
 }
 
 export async function getBacklogListId(boardId: string) {

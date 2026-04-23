@@ -6,18 +6,29 @@ import {
   defaultConsultingMode,
   parseConsultingMode,
 } from "../openai/chatMode.js";
+import { formatBrandProfileForPrompt } from "../brandProfileFormat.js";
+import { loadBrandProfileJsonForWorkspaceId } from "../brandProfileFromWorkspace.js";
 import { buildRagContextBlock, systemPromptForConsultingMode } from "../openai/chatPrompts.js";
 import { embedQuery } from "../rag/embeddings.js";
 import { searchProjectChunks } from "../rag/searchChunks.js";
+import { ensureBrainstormProjectForWorkspace } from "../brainstormProject.js";
+import { ensureDefaultWorkspaceBoard } from "../taskDefaults.js";
+import { formatTeamUserBlocksForPrompt, loadContextInstructionsForWorkspace } from "../contextInstructions.js";
 
 export type CitationPayload = { ref: number; chunkId: string; filename: string };
 
-export async function getOrCreateDefaultProject() {
-  let project = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
-  if (!project) {
-    project = await prisma.project.create({ data: { name: "Workspace" } });
+/** Resolves the consulting-chat / RAG `Project` for a brand workspace (one per workspace). */
+export async function getOrCreateProjectForWorkspace(workspaceId: string | null | undefined) {
+  if (workspaceId) {
+    return ensureBrainstormProjectForWorkspace(workspaceId);
   }
-  return project;
+  const { workspace } = await ensureDefaultWorkspaceBoard();
+  return ensureBrainstormProjectForWorkspace(workspace.id);
+}
+
+export async function getOrCreateDefaultProject() {
+  const { workspace } = await ensureDefaultWorkspaceBoard();
+  return ensureBrainstormProjectForWorkspace(workspace.id);
 }
 
 export type PrepareTurnBody = {
@@ -26,6 +37,8 @@ export type PrepareTurnBody = {
   workspaceId?: string | null;
   consultingMode?: unknown;
   message?: string;
+  /** Device Rapid Router snippets etc., merged after DB workspace kit. */
+  brandCenterContext?: string | null;
 };
 
 export async function prepareConsultingTurn(
@@ -43,8 +56,6 @@ export async function prepareConsultingTurn(
     throw new Error("message is required");
   }
 
-  const projectId = body.projectId ?? (await getOrCreateDefaultProject()).id;
-
   let thread =
     body.threadId ?
       await prisma.chatThread.findUnique({ where: { id: body.threadId } })
@@ -53,6 +64,11 @@ export async function prepareConsultingTurn(
   if (body.threadId && !thread) {
     throw new Error("THREAD_NOT_FOUND");
   }
+
+  const projectId =
+    body.projectId ??
+    thread?.projectId ??
+    (await getOrCreateProjectForWorkspace(body.workspaceId ?? thread?.workspaceId)).id;
 
   const modeFromRequest = parseConsultingMode(body.consultingMode);
 
@@ -139,7 +155,41 @@ export async function prepareConsultingTurn(
     console.warn("RAG retrieval skipped:", e);
   }
 
-  const systemContent = `${systemPromptForConsultingMode(mode)}\n\n${ragBlock}`.trim();
+  let brandBlock = "";
+  if (thread.workspaceId) {
+    try {
+      const kit = await loadBrandProfileJsonForWorkspaceId(thread.workspaceId);
+      brandBlock = formatBrandProfileForPrompt(kit);
+    } catch (e) {
+      console.warn("Brand profile load skipped:", e);
+    }
+  }
+
+  let brandSupplement = (body.brandCenterContext ?? "").trim();
+  if (brandSupplement.length > 8000) {
+    brandSupplement = `${brandSupplement.slice(0, 8000)}\n…(truncated)`;
+  }
+  const brandMerged = [brandBlock, brandSupplement ? `Brand quick captures (this device):\n${brandSupplement}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const { team: teamRaw, user: userRaw } = await loadContextInstructionsForWorkspace(thread.workspaceId);
+  const { teamBlock, userBlock } = formatTeamUserBlocksForPrompt(teamRaw, userRaw);
+
+  const consultantAgentDirective =
+    "You are the Consultant Agent: follow team methodology before individual preferences when both are present; if the user asks for something that conflicts with team rules, say so explicitly.";
+
+  const systemContent = [
+    systemPromptForConsultingMode(mode),
+    consultantAgentDirective,
+    teamBlock,
+    userBlock,
+    ragBlock,
+    brandMerged,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
 
   const historyMessages: ChatCompletionMessageParam[] = prior.map((m) => ({
     role: m.role === "assistant" ? "assistant" : "user",

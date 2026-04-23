@@ -6,6 +6,8 @@ export type StreamRequest = {
   workspaceId?: string | null;
   consultingMode?: string;
   message: string;
+  /** Rapid Router brand snippets (device); server merges with saved workspace kit. */
+  brandCenterContext?: string;
 };
 
 export async function streamChatMessage(

@@ -12,6 +12,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { HomePage } from "@/pages/HomePage";
 import { RapidRouterPage } from "@/pages/RapidRouterPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { BrandCenterPage } from "@/pages/BrandCenterPage";
 import { ModulePlaceholderPage } from "@/pages/ModulePlaceholderPage";
 import { MyTasksPage } from "@/pages/MyTasksPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
@@ -21,7 +22,7 @@ import { ServicesPage } from "@/pages/ServicesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SolutionsPage } from "@/pages/SolutionsPage";
 import { TasksPage } from "@/pages/TasksPage";
-import { BookOpen, Goal, Zap } from "lucide-react";
+import { BookOpen, Zap } from "lucide-react";
 
 function BoardsSection() {
   return <Outlet />;
@@ -72,16 +73,8 @@ const router = createBrowserRouter([
           />
         ),
       },
-      {
-        path: "goals",
-        element: (
-          <ModulePlaceholderPage
-            title="Goals"
-            description="OKRs and goal alignment across boards — coming next."
-            icon={Goal}
-          />
-        ),
-      },
+      { path: "goals", element: <Navigate to="/app/brand-center" replace /> },
+      { path: "brand-center", element: <BrandCenterPage /> },
       {
         path: "automations",
         element: (

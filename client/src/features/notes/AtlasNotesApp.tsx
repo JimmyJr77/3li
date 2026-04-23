@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, FileText, Lightbulb, Loader2, Zap } from "lucide-react";
+import { AlertTriangle, FileText, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { stashNoteForBrainstormImport } from "@/features/brainstorm/brainstormNoteImport";
+import { useSearchParams } from "react-router-dom";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { RedTeamPanel } from "@/features/agents/RedTeamPanel";
+import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
 import type { AtlasNoteDto } from "./types";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   createFolder,
@@ -21,7 +22,6 @@ import {
 } from "./api";
 import { AtlasNotesBrowseColumns } from "./AtlasNotesBrowseColumns";
 import { applyLocalContentPatch, LOCAL_WORKSPACE_ID, useLocalNotesStore } from "./localNotesStore";
-import { NoteAIActions } from "./NoteAIActions";
 import { NoteEditor } from "./NoteEditor";
 import { NoteLinksPanel } from "./NoteLinksPanel";
 import { NotePublishingBar } from "./NotePublishingBar";
@@ -32,11 +32,12 @@ import { useNotesWorkspaceShortcuts } from "./NotesWorkspaceShortcutsProvider";
 
 export function AtlasNotesApp() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activeWorkspaceId, isLoading: workspacesLoading } = useActiveWorkspace();
   const { data: bootstrapData, isLoading: bootstrapLoading, isError: bootstrapError } = useQuery({
-    queryKey: ["notes-app", "bootstrap"],
-    queryFn: fetchNotesBootstrap,
+    queryKey: ["notes-app", "bootstrap", activeWorkspaceId ?? "default"],
+    queryFn: () => fetchNotesBootstrap(activeWorkspaceId ?? undefined),
+    enabled: !workspacesLoading,
     retry: false,
   });
 
@@ -56,6 +57,7 @@ export function AtlasNotesApp() {
   const reorderFoldersStore = useLocalNotesStore((s) => s.reorderFolders);
   const reorderNotesInFolderStore = useLocalNotesStore((s) => s.reorderNotesInFolder);
   const createTagLocal = useLocalNotesStore((s) => s.createTag);
+  const deleteTagLocal = useLocalNotesStore((s) => s.deleteTag);
   const getForwardLinks = useLocalNotesStore((s) => s.getForwardLinks);
   const getBacklinks = useLocalNotesStore((s) => s.getBacklinks);
 
@@ -86,7 +88,7 @@ export function AtlasNotesApp() {
   const [universalSearch, setUniversalSearch] = useState(false);
   const beforeUniversalRef = useRef<{ folderFilter: string | "all"; selectedId: string | null } | null>(null);
   const urlNoteApplied = useRef(false);
-  const { setActiveNotesFolderId, openQuickCapture } = useNotesWorkspaceShortcuts();
+  const { setActiveNotesFolderId } = useNotesWorkspaceShortcuts();
 
   const notesQuery = useQuery({
     queryKey: ["notes-app", "notes", workspaceId, folderFilter],
@@ -218,13 +220,17 @@ export function AtlasNotesApp() {
 
   const createMut = useMutation({
     mutationFn: async () => {
+      const folderId =
+        folderFilter === "all"
+          ? localMode
+            ? localDefaultFolderId!
+            : bootstrapData!.defaultFolderId!
+          : folderFilter;
       if (localMode) {
-        const folderId = folderFilter === "all" ? localDefaultFolderId : folderFilter;
-        return createNoteLocal(folderId, "Untitled");
+        return createNoteLocal(folderId);
       }
       if (!workspaceId || !bootstrapData) throw new Error("No workspace");
-      const folderId = folderFilter === "all" ? bootstrapData.defaultFolderId : folderFilter;
-      return createNote({ workspaceId, folderId, title: "Untitled" });
+      return createNote({ workspaceId, folderId });
     },
     onSuccess: (note) => {
       if (!localMode) void qc.invalidateQueries({ queryKey: ["notes-app"] });
@@ -234,9 +240,9 @@ export function AtlasNotesApp() {
 
   const newFolderMut = useMutation({
     mutationFn: () => {
-      if (localMode) return Promise.resolve(createFolderLocal("New notebook"));
+      if (localMode) return Promise.resolve(createFolderLocal());
       if (!workspaceId) throw new Error("No workspace");
-      return createFolder({ workspaceId, title: "New notebook" });
+      return createFolder({ workspaceId });
     },
     onSuccess: () => {
       if (!localMode) invalidateAll();
@@ -342,22 +348,6 @@ export function AtlasNotesApp() {
         </div>
       ) : null}
 
-      <div className="flex min-w-0 shrink-0 items-center justify-between gap-4">
-        <p className="min-w-0 text-left text-[0.65rem] leading-tight text-muted-foreground">
-          Quick capture: ⌘⇧C · Command palette: ⌘K
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="shrink-0 gap-1.5"
-          onClick={() => openQuickCapture()}
-        >
-          <Zap className="size-3.5" aria-hidden />
-          Quick capture
-        </Button>
-      </div>
-
       <div className="flex min-h-[min(68vh,700px)] flex-1 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex min-w-0 shrink-0 items-stretch">
         <AtlasNotesBrowseColumns
@@ -377,6 +367,7 @@ export function AtlasNotesApp() {
           onNewNote={() => createMut.mutate()}
           onNewFolder={() => newFolderMut.mutate()}
           newFolderPending={newFolderMut.isPending}
+          routingWorkspaceId={localMode ? undefined : workspaceId ?? undefined}
           onReorderFolders={async (ids) => {
             if (localMode) {
               reorderFoldersStore(ids);
@@ -494,23 +485,7 @@ export function AtlasNotesApp() {
                     }
                   }}
                 />
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                    title="Add this note as an idea card on the Brainstorm Studio board"
-                    onClick={() => {
-                      stashNoteForBrainstormImport(selected);
-                      void qc.invalidateQueries({ queryKey: ["brainstorm"] });
-                      navigate("/app/brainstorm");
-                    }}
-                  >
-                    <Lightbulb className="size-3.5" />
-                    Brainstorm Studio
-                  </Button>
-                </div>
+                <RoutingSourceBadge source={selected.routingSource} className="shrink-0" />
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col">
@@ -530,16 +505,20 @@ export function AtlasNotesApp() {
                 />
               </div>
 
-              <div className="mt-4 shrink-0">
-                <NoteLinksPanel
-                  noteId={selected.id}
-                  onOpenNote={(id) => setSelectedId(id)}
-                  forwardLinksOverride={forwardOverride}
-                  backLinksOverride={backOverride}
-                />
-              </div>
-
-              <div className="mt-4 border-t border-border pt-4">
+              {workspaceId ? (
+                <div className="mt-4 shrink-0 border-t border-border pt-4">
+                  <RedTeamPanel
+                    workspaceId={workspaceId}
+                    contextHint={`${selected.title}\n\n${selected.previewText ?? ""}`.slice(0, 8000)}
+                    noteAi={{
+                      note: selected,
+                      offline: localMode,
+                      onUpdated: () => void qc.invalidateQueries({ queryKey: ["notes-app"] }),
+                    }}
+                  />
+                </div>
+              ) : null}
+              <div className="mt-4 shrink-0 border-t border-border pt-4">
                 <NoteTagsRow
                   note={selected}
                   workspaceId={workspaceId}
@@ -550,29 +529,37 @@ export function AtlasNotesApp() {
                       ? async (body) => createTagLocal(body.name, body.color)
                       : undefined
                   }
+                  deleteTagFn={localMode ? async (tagId) => Promise.resolve(deleteTagLocal(tagId)) : undefined}
+                  mailClerkAutotagUnavailable={localMode}
                 />
               </div>
-              <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-2">
-                <NotePublishingBar
-                  key={selected.id}
-                  note={selected}
-                  offline={localMode}
-                  onUpdated={() => void qc.invalidateQueries({ queryKey: ["notes-app"] })}
-                />
-                <NoteAIActions
-                  note={selected}
-                  workspaceId={workspaceId}
-                  offline={localMode}
-                  onUpdated={() => void qc.invalidateQueries({ queryKey: ["notes-app"] })}
+              <div className="mt-4 shrink-0 border-t border-border pt-4">
+                <NoteLinksPanel
+                  noteId={selected.id}
+                  onOpenNote={(id) => setSelectedId(id)}
+                  forwardLinksOverride={forwardOverride}
+                  backLinksOverride={backOverride}
                 />
               </div>
-              <div className="mt-4 border-t border-border pt-4">
-                <NotesPortabilityPanel
-                  localMode={localMode}
-                  selected={selected}
-                  exportableNotes={exportableNotes}
-                  onImportPayloads={importPayloads}
-                />
+              <div className="mt-4 shrink-0 border-t border-border pt-4">
+                <div className="rounded-lg border border-border bg-muted/15 p-4">
+                  <NotePublishingBar
+                    key={selected.id}
+                    embedded
+                    note={selected}
+                    offline={localMode}
+                    onUpdated={() => void qc.invalidateQueries({ queryKey: ["notes-app"] })}
+                  />
+                  <div className="mt-4 border-t border-border pt-4">
+                    <NotesPortabilityPanel
+                      embedded
+                      localMode={localMode}
+                      selected={selected}
+                      exportableNotes={exportableNotes}
+                      onImportPayloads={importPayloads}
+                    />
+                  </div>
+                </div>
               </div>
             </>
           ) : (

@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, ListTodo, Loader2, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchAllTasks, fetchBootstrap, patchTask } from "@/features/taskflow/api";
+import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { fetchAllTasks, fetchBoard, patchTask } from "@/features/taskflow/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,14 +18,16 @@ export function MyTasksPage() {
   const [sort, setSort] = useState("dueDate:asc");
   const [archivedOnly, setArchivedOnly] = useState(false);
 
-  const bootstrapQuery = useQuery({
-    queryKey: ["bootstrap"],
-    queryFn: fetchBootstrap,
-  });
+  const { activeWorkspace, activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
+  const defaultBoardId = activeWorkspace?.projectSpaces?.[0]?.boards?.[0]?.id ?? null;
 
-  const workspaceId = bootstrapQuery.data?.workspace?.id;
-  const boardLabels = bootstrapQuery.data?.board?.labels ?? [];
-  const defaultBoardId = bootstrapQuery.data?.board?.id;
+  const boardQuery = useQuery({
+    queryKey: ["board", defaultBoardId],
+    queryFn: () => fetchBoard(defaultBoardId!),
+    enabled: Boolean(defaultBoardId),
+  });
+  const boardLabels = boardQuery.data?.labels ?? [];
+  const workspaceId = activeWorkspaceId;
 
   const params = useMemo(
     () => ({
@@ -41,12 +45,16 @@ export function MyTasksPage() {
   const tasksQuery = useQuery({
     queryKey: ["tasks", "flat", params],
     queryFn: () => fetchAllTasks(params),
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && !wsLoading,
   });
 
   const tasks = tasksQuery.data ?? [];
-  const loading =
-    bootstrapQuery.isLoading || (Boolean(workspaceId) && tasksQuery.isLoading);
+  const loading = wsLoading || (Boolean(workspaceId) && tasksQuery.isLoading);
+
+  const tasksPmContext = useMemo(
+    () => buildTasksContextSnapshot("Filtered task list (My tasks)", tasks),
+    [tasks],
+  );
 
   const restoreTaskMutation = useMutation({
     mutationFn: (taskId: string) => patchTask(taskId, { archived: false }),
@@ -63,9 +71,16 @@ export function MyTasksPage() {
           <ListTodo className="size-5 text-muted-foreground" aria-hidden />
           <h1 className="text-2xl font-semibold tracking-tight">My tasks</h1>
         </div>
+        {workspaceId ? (
+          <PMAgentSheet
+            workspaceId={workspaceId}
+            contextText={tasksPmContext}
+            surfaceLabel="Current filtered task list"
+          />
+        ) : null}
       </div>
       <p className="max-w-2xl text-sm text-muted-foreground">
-        Filter and sort everything in your workspace. Open the{" "}
+        Filter and sort tasks in the active brand workspace. Open the{" "}
         <Link
           to={defaultBoardId ? `/app/boards/${defaultBoardId}` : "/app/boards"}
           className="font-medium text-primary underline-offset-4 hover:underline"
@@ -189,7 +204,7 @@ export function MyTasksPage() {
           <li className="px-4 py-8 text-center text-sm text-muted-foreground">
             No tasks match. Add cards on a board or convert ideas from{" "}
             <Link to="/app/brainstorm" className="font-medium text-primary underline-offset-4 hover:underline">
-              Brainstorm Studio
+              Brainstorm
             </Link>
             .
           </li>

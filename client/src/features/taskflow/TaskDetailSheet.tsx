@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore } from "lucide-react";
 import { useEffect, useState } from "react";
+import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
 import {
   Sheet,
   SheetContent,
@@ -112,7 +113,7 @@ export function TaskDetailSheet({
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-lg">
         <SheetHeader className="border-b pb-4">
           <SheetTitle>Task</SheetTitle>
-          <SheetDescription>Details, checklist, comments, and activity.</SheetDescription>
+          <SheetDescription>Details, checklist, comments, and Activity Tracker entries.</SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-4 p-4">
@@ -133,6 +134,11 @@ export function TaskDetailSheet({
             />
             <span>Mark complete</span>
           </label>
+          {task.routingSource ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <RoutingSourceBadge source={task.routingSource} />
+            </div>
+          ) : null}
           <div className="space-y-2">
             <FieldLabel>Title</FieldLabel>
             <Input
@@ -331,7 +337,7 @@ export function TaskDetailSheet({
           <Separator />
 
           <div className="space-y-2">
-            <FieldLabel>Activity</FieldLabel>
+            <FieldLabel>Activity Tracker</FieldLabel>
             <ul className="max-h-36 space-y-1 overflow-y-auto text-xs text-muted-foreground">
               {(task.activities ?? []).map((a) => (
                 <li key={a.id}>

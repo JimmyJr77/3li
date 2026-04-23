@@ -2,12 +2,18 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../lib/db.js";
-import { getOpenAIOrNull } from "../lib/openai/client.js";
+import {
+  aiServiceUnavailableDetail,
+  chatModel,
+  getAiPublicMetadata,
+  getOpenAIOrNull,
+} from "../lib/openai/client.js";
 import { defaultConsultingMode, parseConsultingMode } from "../lib/openai/chatMode.js";
 import { chunkText } from "../lib/rag/chunkText.js";
 import { embedQuery, embedTexts } from "../lib/rag/embeddings.js";
 import { extractTextFromBuffer } from "../lib/rag/extractText.js";
 import { searchProjectChunks } from "../lib/rag/searchChunks.js";
+import { ensureBrainstormProjectForWorkspace } from "../lib/brainstormProject.js";
 import { ensureDefaultWorkspaceBoard } from "../lib/taskDefaults.js";
 import { getOrCreateDefaultProject, prepareConsultingTurn } from "../lib/chat/prepareTurn.js";
 import { buildPptxBuffer, slugifyFilename } from "../lib/export/pptxDeck.js";
@@ -25,19 +31,37 @@ function sseWrite(res: import("express").Response, obj: object) {
 
 router.get("/bootstrap", async (_req, res) => {
   try {
-    const project = await getOrCreateDefaultProject();
-    const projects = await prisma.project.findMany({ orderBy: { createdAt: "asc" } });
     const workspaces = await prisma.workspace.findMany({
       orderBy: { createdAt: "asc" },
       include: {
-        boards: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true } },
+        brand: { select: { name: true } },
+        projectSpaces: {
+          orderBy: { position: "asc" },
+          include: {
+            boards: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true } },
+          },
+        },
       },
     });
+    const projectIdByWorkspaceId: Record<string, string> = {};
+    for (const w of workspaces) {
+      const p = await ensureBrainstormProjectForWorkspace(w.id);
+      projectIdByWorkspaceId[w.id] = p.id;
+    }
+    const projects = await prisma.project.findMany({ orderBy: { createdAt: "asc" } });
     const { workspace, board } = await ensureDefaultWorkspaceBoard();
+    const defaultProject = await ensureBrainstormProjectForWorkspace(workspace.id);
     res.json({
-      defaultProjectId: project.id,
+      ai: getAiPublicMetadata(),
+      defaultProjectId: defaultProject.id,
+      projectIdByWorkspaceId,
       projects,
-      workspaces,
+      workspaces: workspaces.map((w) => ({
+        id: w.id,
+        name: w.name,
+        brandName: w.brand.name,
+        projectSpaces: w.projectSpaces,
+      })),
       defaultWorkspaceId: workspace.id,
       defaultBoardId: board.id,
     });
@@ -84,7 +108,14 @@ router.post("/threads", async (req, res) => {
       workspaceId?: string | null;
       consultingMode?: unknown;
     };
-    const projectId = body.projectId ?? (await getOrCreateDefaultProject()).id;
+    let projectId = body.projectId;
+    if (!projectId) {
+      if (body.workspaceId) {
+        projectId = (await ensureBrainstormProjectForWorkspace(body.workspaceId)).id;
+      } else {
+        projectId = (await getOrCreateDefaultProject()).id;
+      }
+    }
     const mode = parseConsultingMode(body.consultingMode) ?? defaultConsultingMode();
     const thread = await prisma.chatThread.create({
       data: {
@@ -183,7 +214,7 @@ router.post("/search", async (req, res) => {
   try {
     const openai = getOpenAIOrNull();
     if (!openai) {
-      res.status(503).json({ error: "AI service unavailable", detail: "OPENAI_API_KEY is not configured" });
+      res.status(503).json({ error: "AI service unavailable", detail: aiServiceUnavailableDetail() });
       return;
     }
     const { projectId, query, topK } = req.body as {
@@ -209,7 +240,7 @@ router.post("/documents", upload.single("file"), async (req, res) => {
   try {
     const openai = getOpenAIOrNull();
     if (!openai) {
-      res.status(503).json({ error: "AI service unavailable", detail: "OPENAI_API_KEY is not configured" });
+      res.status(503).json({ error: "AI service unavailable", detail: aiServiceUnavailableDetail() });
       return;
     }
     const projectId =
@@ -303,7 +334,7 @@ router.post("/stream", async (req, res) => {
   if (!openai) {
     res.status(503).json({
       error: "AI service unavailable",
-      detail: "OPENAI_API_KEY is not configured",
+      detail: aiServiceUnavailableDetail(),
     });
     return;
   }
@@ -351,7 +382,7 @@ router.post("/stream", async (req, res) => {
   let full = "";
   try {
     const stream = await openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: chatModel("primary"),
       messages: openaiMessages,
       stream: true,
     });
@@ -547,7 +578,7 @@ router.post("/documents/ingest-local", async (req, res) => {
   if (!openai) {
     res.status(503).json({
       error: "AI service unavailable",
-      detail: "OPENAI_API_KEY is not configured",
+      detail: aiServiceUnavailableDetail(),
     });
     return;
   }

@@ -1,8 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Sparkles, Tags, Wand2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link2, Loader2, Sparkles, Wand2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { createWorkspaceTag, patchNote, postNoteAi } from "./api";
+import { fetchNotesBootstrap, patchNote, postNoteAi } from "./api";
 import { extractPreviewFromDoc } from "./extractPreview";
 import { plainTextToTipTapDoc } from "./noteUtils";
 import type { AtlasNoteDto } from "./types";
@@ -12,19 +12,32 @@ export function NoteAIActions({
   workspaceId,
   onUpdated,
   offline,
+  embedded,
+  extraContext,
 }: {
   note: AtlasNoteDto;
   workspaceId: string;
   onUpdated: () => void;
   /** When true (browser-only storage), AI actions are unavailable */
   offline?: boolean;
+  /** Omit outer card and section title when nested (e.g. Agents panel tab) */
+  embedded?: boolean;
+  /** Optional instructions appended to each AI request (e.g. from Agents panel context box) */
+  extraContext?: string;
 }) {
   const qc = useQueryClient();
+  const { data: notesBootstrap } = useQuery({
+    queryKey: ["notes-app", "bootstrap", workspaceId],
+    queryFn: () => fetchNotesBootstrap(workspaceId),
+  });
   const [output, setOutput] = useState<string | null>(null);
   const [lastKind, setLastKind] = useState<"summarize" | "rewrite" | null>(null);
 
+  const aiOpts = () =>
+    extraContext?.trim() ? { extraContext: extraContext.trim().slice(0, 4000) } : undefined;
+
   const summarize = useMutation({
-    mutationFn: () => postNoteAi(note.id, "summarize"),
+    mutationFn: () => postNoteAi(note.id, "summarize", aiOpts()),
     onSuccess: (d) => {
       setLastKind("summarize");
       setOutput(d.result ?? "");
@@ -32,43 +45,18 @@ export function NoteAIActions({
   });
 
   const rewrite = useMutation({
-    mutationFn: () => postNoteAi(note.id, "rewrite"),
+    mutationFn: () => postNoteAi(note.id, "rewrite", aiOpts()),
     onSuccess: (d) => {
       setLastKind("rewrite");
       setOutput(d.result ?? "");
     },
   });
 
-  const suggestTags = useMutation({
-    mutationFn: async () => {
-      const { tags = [] } = await postNoteAi(note.id, "suggestTags");
-      if (!tags.length) {
-        return { mode: "empty" as const };
-      }
-      const existing = new Map(note.tags.map((t) => [t.name.toLowerCase(), t.id]));
-      const ids = new Set(note.tags.map((t) => t.id));
-      for (const name of tags) {
-        const key = name.toLowerCase();
-        let id = existing.get(key);
-        if (!id) {
-          const t = await createWorkspaceTag({ workspaceId, name });
-          id = t.id;
-          existing.set(key, id);
-        }
-        ids.add(id);
-      }
-      await patchNote(note.id, { tagIds: [...ids] });
-      return { mode: "applied" as const };
-    },
-    onSuccess: (res) => {
+  const notebookLinking = useMutation({
+    mutationFn: () => postNoteAi(note.id, "notebookLinking", aiOpts()),
+    onSuccess: (d) => {
       setLastKind(null);
-      if (res?.mode === "empty") {
-        setOutput("No tag suggestions returned.");
-        return;
-      }
-      setOutput("Suggested tags were applied to this note.");
-      void qc.invalidateQueries({ queryKey: ["notes-app"] });
-      onUpdated();
+      setOutput(d.result ?? "");
     },
   });
 
@@ -88,19 +76,22 @@ export function NoteAIActions({
   });
 
   if (offline) {
-    return (
+    return embedded ? (
+      <p className="text-xs text-muted-foreground">
+        AI tools need the Notebooks API. Edit notes locally, then sync when the server is available.
+      </p>
+    ) : (
       <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/15 p-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI</div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI tools</div>
         <p className="text-xs text-muted-foreground">
-          AI actions need the Notebooks API. Edit notes locally, then sync when the server is available.
+          AI tools need the Notebooks API. Edit notes locally, then sync when the server is available.
         </p>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/15 p-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI</div>
+  const inner = (
+    <>
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -129,11 +120,15 @@ export function NoteAIActions({
           size="sm"
           variant="secondary"
           className="gap-1.5"
-          disabled={suggestTags.isPending}
-          onClick={() => suggestTags.mutate()}
+          disabled={notebookLinking.isPending}
+          onClick={() => notebookLinking.mutate()}
         >
-          {suggestTags.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Tags className="size-3.5" />}
-          Suggest tags
+          {notebookLinking.isPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Link2 className="size-3.5" />
+          )}
+          Linking ideas
         </Button>
         {lastKind === "rewrite" && output ? (
           <Button
@@ -152,10 +147,33 @@ export function NoteAIActions({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Requires <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> on the API. After <strong>Rewrite</strong>,
-          use <strong>Apply rewrite</strong> to replace the note body.
+          {notesBootstrap?.ai?.backend === "ollama" ?
+            <>
+              Uses local <code className="rounded bg-muted px-1">Ollama</code> ({notesBootstrap.ai.chatModel}). After{" "}
+              <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
+            </>
+          : notesBootstrap?.ai?.backend === "openai" ?
+            <>
+              Requires <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> on the API. After{" "}
+              <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
+            </>
+          : <>
+              Connect the API server with AI enabled (Ollama for local dev, OpenAI when deployed). After{" "}
+              <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
+            </>}
         </p>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex flex-col gap-3">{inner}</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/15 p-3">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">AI tools</div>
+      {inner}
     </div>
   );
 }
