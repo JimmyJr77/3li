@@ -152,13 +152,18 @@ export function NoteAIActions({
               Uses local <code className="rounded bg-muted px-1">Ollama</code> ({notesBootstrap.ai.chatModel}). After{" "}
               <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
             </>
+          : notesBootstrap?.ai?.backend === "groq" ?
+            <>
+              Uses <code className="rounded bg-muted px-1">Groq</code> ({notesBootstrap.ai.chatModel}) on the server.
+              After <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
+            </>
           : notesBootstrap?.ai?.backend === "openai" ?
             <>
               Requires <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> on the API. After{" "}
               <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
             </>
           : <>
-              Connect the API server with AI enabled (Ollama for local dev, OpenAI when deployed). After{" "}
+              Connect the API server with AI enabled (Ollama locally, Groq on Vercel, or OpenAI). After{" "}
               <strong>Rewrite</strong>, use <strong>Apply rewrite</strong> to replace the note body.
             </>}
         </p>

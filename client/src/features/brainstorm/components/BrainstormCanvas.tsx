@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   Background,
   Controls,
@@ -19,6 +26,7 @@ import { ImageNode } from "@/features/brainstorm/components/ImageNode";
 import { ShapeNode } from "@/features/brainstorm/components/ShapeNode";
 import { TableNode } from "@/features/brainstorm/components/TableNode";
 import { TextNode } from "@/features/brainstorm/components/TextNode";
+import { ContainerNode } from "@/features/brainstorm/components/ContainerNode";
 import { readImageFileAsDataUrl } from "@/features/brainstorm/readImageDataUrl";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import type { BrainstormEdge, BrainstormFlowNode } from "@/features/brainstorm/types";
@@ -31,6 +39,7 @@ const nodeTypes: NodeTypes = {
   hierarchy: HierarchyNode,
   image: ImageNode,
   table: TableNode,
+  container: ContainerNode,
 };
 
 function BrainstormCanvasInner() {
@@ -46,6 +55,7 @@ function BrainstormCanvasInner() {
   const clearNodeSelection = useBrainstormStore((s) => s.clearNodeSelection);
   const setShapePickerOpen = useBrainstormStore((s) => s.setShapePickerOpen);
   const selectSingleNode = useBrainstormStore((s) => s.selectSingleNode);
+  const reparentAfterNodeDrag = useBrainstormStore((s) => s.reparentAfterNodeDrag);
 
   const styledEdges = useMemo(
     () =>
@@ -121,6 +131,15 @@ function BrainstormCanvasInner() {
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
+  const onNodeDragStop = useCallback(
+    (_e: ReactMouseEvent, dragged: BrainstormFlowNode | BrainstormFlowNode[]) => {
+      const list = Array.isArray(dragged) ? dragged : [dragged];
+      const ids = list.map((n) => n.id).filter(Boolean);
+      if (ids.length > 0) reparentAfterNodeDrag(ids);
+    },
+    [reparentAfterNodeDrag],
+  );
+
   const onDrop = useCallback(
     async (e: DragEvent) => {
       e.preventDefault();
@@ -149,7 +168,7 @@ function BrainstormCanvasInner() {
   return (
     <div className="relative h-full w-full min-h-0">
     <ReactFlow<BrainstormFlowNode, BrainstormEdge>
-      className="h-full w-full bg-background"
+      className="h-full w-full bg-background [&_.react-flow__node]:overflow-visible"
       nodes={nodes}
       edges={styledEdges}
       onInit={(instance) => {
@@ -163,6 +182,7 @@ function BrainstormCanvasInner() {
       onPaneClick={onPaneClick}
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}
+      onNodeDragStop={onNodeDragStop}
       onDragOver={onDragOver}
       onDrop={onDrop}
       deleteKeyCode={["Backspace", "Delete"]}

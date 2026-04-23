@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
 import { prepareConsultingTurn } from "../lib/chat/prepareTurn.js";
 import { prisma } from "../lib/db.js";
 import {
@@ -26,6 +27,14 @@ router.post("/brainstorm", async (req, res) => {
         detail: aiServiceUnavailableDetail(),
       });
       return;
+    }
+    const body = req.body as { workspaceId?: string | null };
+    if (body.workspaceId && typeof body.workspaceId === "string") {
+      const ok = await assertWorkspaceAccess(req.appUser!, body.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
     }
     const { result } = await executeBrainstormCompletion(req.body);
     res.json({ result });
@@ -74,6 +83,14 @@ router.post("/agent", async (req, res) => {
       agentRole?: unknown;
       surfacePayload?: { contextText?: string };
     };
+
+    if (body.workspaceId && typeof body.workspaceId === "string") {
+      const ok = await assertWorkspaceAccess(req.appUser!, body.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    }
 
     const surface = body.surfaceType ?? "brainstorm";
 
@@ -395,7 +412,7 @@ router.post("/chat", async (req, res) => {
       return;
     }
 
-    const prep = await prepareConsultingTurn(openai, { ...body, message: message.trim() });
+    const prep = await prepareConsultingTurn(req.appUser!, { ...body, message: message.trim() });
     const completion = await openai.chat.completions.create({
       model: chatModel("primary"),
       messages: prep.openaiMessages,
@@ -438,6 +455,10 @@ router.post("/chat", async (req, res) => {
     }
     if (msg === "message is required") {
       res.status(400).json({ error: "prompt or message is required" });
+      return;
+    }
+    if (msg === "WORKSPACE_FORBIDDEN") {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     if (msg === "MESSAGE_STATE_INVALID") {

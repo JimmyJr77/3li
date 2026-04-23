@@ -1,4 +1,6 @@
 import { prisma } from "./db.js";
+import type { AppUserPrincipal } from "./auth/workspaceScope.js";
+import { workspaceWhereForAppUser } from "./auth/workspaceScope.js";
 import { defaultWorkspaceTitleFromBrandName } from "./workspaceLimits.js";
 import { ensureTaskflowShowcase } from "./showcaseSeed.js";
 
@@ -85,15 +87,44 @@ export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
   return { workspace, board };
 }
 
-export async function ensureDefaultWorkspaceBoard() {
+/** First accessible workspace for this account, or a new owned brand + workspace + default board. */
+export async function ensurePersonalWorkspaceBoard(user: AppUserPrincipal) {
   let workspace = await prisma.workspace.findFirst({
-    where: { archivedAt: null },
+    where: {
+      archivedAt: null,
+      brand: { archivedAt: null, ownerUserId: user.id },
+    },
     orderBy: [{ brand: { position: "asc" } }, { createdAt: "asc" }],
+    include: { brand: true },
   });
+
+  if (!workspace && user.role === "admin") {
+    workspace = await prisma.workspace.findFirst({
+      where: workspaceWhereForAppUser(user),
+      orderBy: [{ brand: { position: "asc" } }, { createdAt: "asc" }],
+      include: { brand: true },
+    });
+  }
+
   if (!workspace) {
-    const brand = await prisma.brand.create({ data: { position: 0, name: "Brand" } });
+    const maxPos = await prisma.brand.aggregate({
+      where: { archivedAt: null },
+      _max: { position: true },
+    });
+    const position = (maxPos._max.position ?? -1) + 1;
+    const userRow = await prisma.appUser.findUnique({ where: { id: user.id } });
+    const rawLabel =
+      userRow?.displayName?.trim() ||
+      (userRow?.username
+        ? `${userRow.username.slice(0, 1).toUpperCase()}${userRow.username.slice(1)}`
+        : "Workspace");
+    const brandName = rawLabel.slice(0, 80);
+    const brand = await prisma.brand.create({
+      data: { position, name: brandName, ownerUserId: user.id },
+    });
     workspace = await prisma.workspace.create({
-      data: { name: defaultWorkspaceTitleFromBrandName("Brand"), brandId: brand.id },
+      data: { name: defaultWorkspaceTitleFromBrandName(brand.name), brandId: brand.id },
+      include: { brand: true },
     });
   }
 

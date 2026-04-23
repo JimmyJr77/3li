@@ -1,5 +1,4 @@
 import { createBrowserRouter, Navigate, Outlet, RouterProvider } from "react-router-dom";
-import { AppLayout } from "@/components/layout/AppLayout";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { BoardPage } from "@/pages/BoardPage";
 import { BoardsPage } from "@/pages/BoardsPage";
@@ -11,7 +10,9 @@ import { ContactPage } from "@/pages/ContactPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { HomePage } from "@/pages/HomePage";
 import { RapidRouterPage } from "@/pages/RapidRouterPage";
+import { RequireAuthAppLayout } from "@/components/auth/RequireAuthAppLayout";
 import { LoginPage } from "@/pages/LoginPage";
+import { RegisterPage } from "@/pages/RegisterPage";
 import { BrandCenterPage } from "@/pages/BrandCenterPage";
 import { ModulePlaceholderPage } from "@/pages/ModulePlaceholderPage";
 import { MyTasksPage } from "@/pages/MyTasksPage";
@@ -38,12 +39,13 @@ const router = createBrowserRouter([
       { path: "solutions", element: <SolutionsPage /> },
       { path: "contact", element: <ContactPage /> },
       { path: "login", element: <LoginPage /> },
+      { path: "register", element: <RegisterPage /> },
       { path: "n/:publicSlug", element: <PublicNotePage /> },
     ],
   },
   {
     path: "/app",
-    element: <AppLayout />,
+    element: <RequireAuthAppLayout />,
     children: [
       { index: true, element: <Navigate to="/app/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },

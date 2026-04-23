@@ -5,8 +5,18 @@ import {
   DEFAULT_TEMPLATE_LABELS,
   type BoardTemplateList,
 } from "../lib/boardTemplates.js";
+import {
+  assertBoardAccess,
+  assertBrandAccess,
+  assertProjectSpaceAccess,
+  assertTaskAccess,
+  assertWorkspaceAccess,
+  brandWhereForAppUser,
+  listAccessibleWorkspaceIds,
+  workspaceWhereForAppUser,
+} from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
-import { ensureDefaultWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
+import { ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
 import { parseBrandProfileForSave } from "../lib/brandProfileSchema.js";
 import { brandDisplayNameFromProfileJson } from "../lib/brandDisplayName.js";
@@ -15,6 +25,76 @@ import { boardJsonForApi, taskJsonForApi } from "../lib/boardForApi.js";
 import { buildRoutingIndexPayload } from "../lib/routingIndexForWorkspace.js";
 
 const router = Router();
+
+router.param("workspaceId", async (req, res, next, workspaceId) => {
+  try {
+    const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Workspace access check failed" });
+  }
+});
+
+router.param("boardId", async (req, res, next, boardId) => {
+  try {
+    const ok = await assertBoardAccess(req.appUser!, boardId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Board access check failed" });
+  }
+});
+
+router.param("taskId", async (req, res, next, taskId) => {
+  try {
+    const ok = await assertTaskAccess(req.appUser!, taskId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Task access check failed" });
+  }
+});
+
+router.param("brandId", async (req, res, next, brandId) => {
+  try {
+    const ok = await assertBrandAccess(req.appUser!, brandId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Brand access check failed" });
+  }
+});
+
+router.param("projectSpaceId", async (req, res, next, projectSpaceId) => {
+  try {
+    const ok = await assertProjectSpaceAccess(req.appUser!, projectSpaceId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Project space access check failed" });
+  }
+});
 
 const boardProjectSpaceRef = { select: { workspaceId: true } } as const;
 
@@ -141,9 +221,9 @@ async function logActivity(taskId: string, action: string, detail = "") {
   await prisma.activity.create({ data: { taskId, action, detail } });
 }
 
-router.get("/bootstrap", async (_req, res) => {
+router.get("/bootstrap", async (req, res) => {
   try {
-    const { workspace, board } = await ensureDefaultWorkspaceBoard();
+    const { workspace, board } = await ensurePersonalWorkspaceBoard(req.appUser!);
     const fullBoard = await prisma.board.findUnique({
       where: { id: board.id },
       include: boardIncludeBootstrap,
@@ -163,10 +243,10 @@ router.get("/bootstrap", async (_req, res) => {
   }
 });
 
-router.get("/workspaces", async (_req, res) => {
+router.get("/workspaces", async (req, res) => {
   try {
     const workspaces = await prisma.workspace.findMany({
-      where: { archivedAt: null, brand: { archivedAt: null } },
+      where: workspaceWhereForAppUser(req.appUser!),
       orderBy: [{ brand: { position: "asc" } }, { createdAt: "asc" }],
       select: {
         id: true,
@@ -527,10 +607,14 @@ router.put("/workspaces/:workspaceId/brand-profile", async (req, res) => {
   }
 });
 
-router.get("/workspaces/archived", async (_req, res) => {
+router.get("/workspaces/archived", async (req, res) => {
   try {
+    const user = req.appUser!;
     const workspaces = await prisma.workspace.findMany({
-      where: { archivedAt: { not: null } },
+      where: {
+        archivedAt: { not: null },
+        ...(user.role === "admin" ? {} : { brand: { ownerUserId: user.id } }),
+      },
       orderBy: { archivedAt: "desc" },
       select: { id: true, name: true, archivedAt: true },
     });
@@ -596,6 +680,7 @@ function parseTaskListSort(sortRaw: string | undefined): Prisma.TaskOrderByWithR
 /** Flat tasks — filters: workspace, board, search, label, priority, completed, chat thread, sort */
 router.get("/tasks", async (req, res) => {
   try {
+    const user = req.appUser!;
     const workspaceId = typeof req.query.workspaceId === "string" ? req.query.workspaceId : undefined;
     const boardId = typeof req.query.boardId === "string" ? req.query.boardId : undefined;
     const chatThreadId = typeof req.query.chatThreadId === "string" ? req.query.chatThreadId : undefined;
@@ -617,10 +702,31 @@ router.get("/tasks", async (req, res) => {
     }
 
     if (boardId) {
+      const okBoard = await assertBoardAccess(user, boardId);
+      if (!okBoard) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
       andFilters.push({ list: { is: { boardId } } });
     } else if (workspaceId) {
+      const okWs = await assertWorkspaceAccess(user, workspaceId);
+      if (!okWs) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
       andFilters.push({
         list: { is: { board: { is: { projectSpace: { is: { workspaceId } } } } } },
+      });
+    } else {
+      const ids = await listAccessibleWorkspaceIds(user);
+      if (ids.length === 0) {
+        res.json([]);
+        return;
+      }
+      andFilters.push({
+        OR: ids.map((id) => ({
+          list: { is: { board: { is: { projectSpace: { is: { workspaceId: id } } } } } },
+        })),
       });
     }
     if (chatThreadId) {
@@ -689,8 +795,9 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
   }
 });
 
-router.get("/board-templates", async (_req, res) => {
+router.get("/board-templates", async (req, res) => {
   try {
+    const accessible = await listAccessibleWorkspaceIds(req.appUser!);
     const builtins = BOARD_TEMPLATES.map((t) => ({
       id: t.id,
       name: t.name,
@@ -704,7 +811,9 @@ router.get("/board-templates", async (_req, res) => {
       orderBy: { createdAt: "desc" },
       include: { workspace: { select: { name: true } } },
     });
-    const customSummaries = customs.map((c) => {
+    const customSummaries = customs
+      .filter((c) => !c.workspaceId || accessible.includes(c.workspaceId))
+      .map((c) => {
       const lists = parseTemplateListsPayload(c.lists);
       return {
         id: c.id,
@@ -768,6 +877,16 @@ router.delete("/board-templates/:templateId", async (req, res) => {
     const row = await prisma.customBoardTemplate.findUnique({ where: { id: templateId } });
     if (!row) {
       res.status(404).json({ error: "Template not found" });
+      return;
+    }
+    if (row.workspaceId) {
+      const ok = await assertWorkspaceAccess(req.appUser!, row.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (req.appUser!.role !== "admin") {
+      res.status(403).json({ error: "Only an administrator can delete global templates" });
       return;
     }
     await prisma.customBoardTemplate.delete({ where: { id: templateId } });
@@ -995,10 +1114,10 @@ router.post("/workspaces/:workspaceId/project-spaces/reorder", async (req, res) 
 });
 
 /** List brands with nested project spaces and boards (settings / admin). */
-router.get("/brands", async (_req, res) => {
+router.get("/brands", async (req, res) => {
   try {
     const brands = await prisma.brand.findMany({
-      where: { archivedAt: null },
+      where: brandWhereForAppUser(req.appUser!),
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
@@ -1068,6 +1187,7 @@ router.post("/brands", async (req, res) => {
       data: {
         position,
         name: parsed.name,
+        ownerUserId: req.appUser!.id,
         workspaces: {
           create: {
             name: workspaceTitle,

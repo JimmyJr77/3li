@@ -1,7 +1,11 @@
-import type OpenAI from "openai";
 import { embeddingModel } from "../ai/models.js";
+import { getEmbeddingsOpenAIOrNull } from "../ai/provider.js";
 
-export async function embedTexts(openai: OpenAI, texts: string[]): Promise<number[][]> {
+export async function embedTexts(texts: string[]): Promise<number[][]> {
+  const openai = getEmbeddingsOpenAIOrNull();
+  if (!openai) {
+    throw new Error("EMBEDDINGS_UNAVAILABLE");
+  }
   const out: number[][] = [];
   const batchSize = 64;
   const model = embeddingModel();
@@ -19,7 +23,7 @@ export async function embedTexts(openai: OpenAI, texts: string[]): Promise<numbe
   return out;
 }
 
-export async function embedQuery(openai: OpenAI, text: string): Promise<number[]> {
-  const [vec] = await embedTexts(openai, [text]);
+export async function embedQuery(text: string): Promise<number[]> {
+  const [vec] = await embedTexts([text]);
   return vec;
 }

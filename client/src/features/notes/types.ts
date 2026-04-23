@@ -50,7 +50,7 @@ export type AtlasNoteDto = {
 export type NotesBootstrapDto = {
   /** Which LLM stack the API uses (Ollama locally, OpenAI when deployed). */
   ai?: {
-    backend: "openai" | "ollama";
+    backend: "openai" | "ollama" | "groq";
     chatModel: string;
     embeddingModel: string;
   };

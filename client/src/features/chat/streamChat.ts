@@ -1,3 +1,4 @@
+import { resolveApiUrl } from "@/lib/api/client";
 import type { StreamEvent } from "./types";
 
 export type StreamRequest = {
@@ -15,9 +16,10 @@ export async function streamChatMessage(
   onEvent: (e: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch("/api/chat/stream", {
+  const res = await fetch(resolveApiUrl("/api/chat/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
     signal,
   });

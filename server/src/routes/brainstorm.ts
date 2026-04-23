@@ -10,20 +10,27 @@ import {
   type CanvasNodeIncoming,
 } from "../lib/brainstormCanvasMapper.js";
 import { ensureBrainstormProjectForWorkspace } from "../lib/brainstormProject.js";
-import { ensureDefaultBoardForWorkspace, ensureDefaultWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
+import { assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
+import { ensureDefaultBoardForWorkspace, ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
 import { aiServiceUnavailableDetail, isAiBackendConfigured } from "../lib/openai/client.js";
 import { CONVERT_PLAN_SYSTEM } from "../lib/openai/brainstormPrompts.js";
 import { runBrainstormWithSystem } from "../lib/openai/orchestrator.js";
 
 const router = Router();
 
-function requireWorkspaceId(req: Request, res: Response): string | null {
+async function requireWorkspaceId(req: Request, res: Response): Promise<string | null> {
   const q = req.query.workspaceId;
   if (typeof q !== "string" || !q.trim()) {
     res.status(400).json({ error: "workspaceId is required" });
     return null;
   }
-  return q.trim();
+  const workspaceId = q.trim();
+  const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+  if (!ok) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return workspaceId;
 }
 
 function brainstorm500(res: Response, route: string, publicMessage: string, err: unknown) {
@@ -40,12 +47,17 @@ function brainstorm500(res: Response, route: string, publicMessage: string, err:
 }
 
 async function getOrCreateDefaultSession(req: Request) {
+  const user = req.appUser!;
   const q = req.query.workspaceId;
   let workspaceId: string;
   if (typeof q === "string" && q.trim()) {
     workspaceId = q.trim();
+    const ok = await assertWorkspaceAccess(user, workspaceId);
+    if (!ok) {
+      throw new Error("WORKSPACE_FORBIDDEN");
+    }
   } else {
-    const { workspace } = await ensureDefaultWorkspaceBoard();
+    const { workspace } = await ensurePersonalWorkspaceBoard(user);
     workspaceId = workspace.id;
   }
   const project = await ensureBrainstormProjectForWorkspace(workspaceId);
@@ -164,7 +176,7 @@ async function putCanvas(
 
 router.get("/sessions", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -219,6 +231,11 @@ router.post("/sessions", async (req, res) => {
       res.status(400).json({ error: "workspaceId is required" });
       return;
     }
+    const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     const project = await ensureBrainstormProjectForWorkspace(workspaceId);
     const title =
       typeof body.title === "string" && body.title.trim().length > 0 ? body.title.trim() : "New session";
@@ -238,7 +255,7 @@ router.post("/sessions", async (req, res) => {
 
 router.get("/sessions/:id", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -259,7 +276,7 @@ router.get("/sessions/:id", async (req, res) => {
 
 router.patch("/sessions/:id", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -295,7 +312,7 @@ router.patch("/sessions/:id", async (req, res) => {
 
 router.delete("/sessions/:id", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -325,7 +342,7 @@ router.delete("/sessions/:id", async (req, res) => {
 
 router.put("/sessions/:id/canvas", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -356,13 +373,17 @@ router.get("/session", async (req, res) => {
     }
     res.json(buildSessionPayload(project, full));
   } catch (err) {
+    if (err instanceof Error && err.message === "WORKSPACE_FORBIDDEN") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     brainstorm500(res, "GET /session (legacy)", "Failed to load brainstorm session", err);
   }
 });
 
 router.put("/session/:id/canvas", async (req, res) => {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }
@@ -380,7 +401,7 @@ router.put("/session/:id/canvas", async (req, res) => {
 
 async function handleConvertPlan(req: Request, res: Response, sessionId: string) {
   try {
-    const workspaceId = requireWorkspaceId(req, res);
+    const workspaceId = await requireWorkspaceId(req, res);
     if (!workspaceId) {
       return;
     }

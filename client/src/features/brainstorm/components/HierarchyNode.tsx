@@ -1,19 +1,21 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { HierarchyFlowNode } from "@/features/brainstorm/types";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
+import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
 export function HierarchyNode({ data, selected }: NodeProps<HierarchyFlowNode>) {
-  const display = (data.captionText ?? "").trim() || data.label || "Branch";
+  const cap = nodeCaptionPropsFromData(data);
+  const outsideVisible =
+    (data.outsideCaptionText ?? "").trim() || (data.label ?? "").trim() || "Branch";
 
   return (
     <div
       className={cn(
-        "min-w-[140px] rounded-md border-2 border-border bg-card px-2 py-2 shadow-sm",
+        "flex min-w-[140px] flex-col gap-2",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
       )}
-      style={nodeChromeToStyle(data)}
     >
       <Handle type="target" position={Position.Top} id="in" className="!size-2.5 !bg-muted-foreground" />
       <Handle
@@ -44,12 +46,11 @@ export function HierarchyNode({ data, selected }: NodeProps<HierarchyFlowNode>) 
         className="nodrag nopan !size-2.5 !bg-muted-foreground"
         style={{ top: "70%" }}
       />
-      <NodeCaptionWrapper
-        captionText={display}
-        captionAlign={data.captionAlign}
-        captionPlacement={data.captionPlacement}
-      >
-        <div className="min-h-[6px] w-full min-w-[120px] rounded-sm bg-muted/25" aria-hidden />
+      <NodeCaptionWrapper {...cap} outsideCaptionText={outsideVisible} className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className="relative w-full min-w-[120px] min-h-[72px] shrink-0 rounded-md border-2 border-border bg-card shadow-sm"
+          style={nodeChromeToStyle(data)}
+        />
       </NodeCaptionWrapper>
       <Handle type="source" position={Position.Bottom} id="out" className="!size-2.5 !bg-muted-foreground" />
     </div>

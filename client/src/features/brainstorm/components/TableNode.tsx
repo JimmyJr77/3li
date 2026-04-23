@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import type { TableFlowNode } from "@/features/brainstorm/types";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
+import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
@@ -206,7 +207,10 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
     data.rows,
     data.captionText,
     data.captionAlign,
-    data.captionPlacement,
+    data.captionVerticalAlign,
+    data.outsideCaptionText,
+    data.outsideCaptionAlign,
+    data.outsideCaptionPlacement,
     colWidths,
     rowHeights,
     selected,
@@ -250,11 +254,9 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
       <div
         ref={rootRef}
         className={cn(
-          "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden border-2 border-border bg-card shadow-sm",
-          "rounded-lg",
+          "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
         )}
-        style={nodeChromeToStyle(data)}
       >
         <Handle type="target" position={Position.Top} id="in" className="!size-2.5 !bg-muted-foreground" />
         <Handle
@@ -287,12 +289,16 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
         />
 
         <NodeCaptionWrapper
-          captionText={data.captionText}
-          captionAlign={data.captionAlign}
-          captionPlacement={data.captionPlacement}
+          {...nodeCaptionPropsFromData(data)}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <div className="relative min-h-0 flex-1 overflow-auto p-1">
+          <div
+            className={cn(
+              "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border-2 border-border bg-card shadow-sm",
+            )}
+            style={nodeChromeToStyle(data)}
+          >
+            <div className="relative min-h-0 flex-1 overflow-auto p-1">
             <div
               ref={gridRef}
               className="grid h-full min-h-[96px] w-full border border-border text-xs"
@@ -344,6 +350,7 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
                 ))}
               </div>
             ) : null}
+            </div>
           </div>
         </NodeCaptionWrapper>
 

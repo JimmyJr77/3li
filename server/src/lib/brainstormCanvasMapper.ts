@@ -93,7 +93,19 @@ function payloadTextBlock(p: Record<string, unknown>): Record<string, unknown> {
   if (p.captionAlign === "left" || p.captionAlign === "center" || p.captionAlign === "right") {
     o.captionAlign = p.captionAlign;
   }
-  if (p.captionPlacement === "above" || p.captionPlacement === "middle" || p.captionPlacement === "below") {
+  if (p.captionVerticalAlign === "top" || p.captionVerticalAlign === "middle" || p.captionVerticalAlign === "bottom") {
+    o.captionVerticalAlign = p.captionVerticalAlign;
+  }
+  if (typeof p.outsideCaptionText === "string") o.outsideCaptionText = p.outsideCaptionText;
+  if (p.outsideCaptionAlign === "left" || p.outsideCaptionAlign === "center" || p.outsideCaptionAlign === "right") {
+    o.outsideCaptionAlign = p.outsideCaptionAlign;
+  }
+  if (p.outsideCaptionPlacement === "above" || p.outsideCaptionPlacement === "below") {
+    o.outsideCaptionPlacement = p.outsideCaptionPlacement;
+  }
+  if (p.captionPlacement === "middle") {
+    o.captionPlacement = "inside";
+  } else if (p.captionPlacement === "above" || p.captionPlacement === "inside" || p.captionPlacement === "below") {
     o.captionPlacement = p.captionPlacement;
   }
   return o;
@@ -105,7 +117,19 @@ function recordTextBlock(d: Record<string, unknown>): Record<string, unknown> {
   if (d.captionAlign === "left" || d.captionAlign === "center" || d.captionAlign === "right") {
     o.captionAlign = d.captionAlign;
   }
-  if (d.captionPlacement === "above" || d.captionPlacement === "middle" || d.captionPlacement === "below") {
+  if (d.captionVerticalAlign === "top" || d.captionVerticalAlign === "middle" || d.captionVerticalAlign === "bottom") {
+    o.captionVerticalAlign = d.captionVerticalAlign;
+  }
+  if (typeof d.outsideCaptionText === "string") o.outsideCaptionText = d.outsideCaptionText;
+  if (d.outsideCaptionAlign === "left" || d.outsideCaptionAlign === "center" || d.outsideCaptionAlign === "right") {
+    o.outsideCaptionAlign = d.outsideCaptionAlign;
+  }
+  if (d.outsideCaptionPlacement === "above" || d.outsideCaptionPlacement === "below") {
+    o.outsideCaptionPlacement = d.outsideCaptionPlacement;
+  }
+  if (d.captionPlacement === "middle") {
+    o.captionPlacement = "inside";
+  } else if (d.captionPlacement === "above" || d.captionPlacement === "inside" || d.captionPlacement === "below") {
     o.captionPlacement = d.captionPlacement;
   }
   return o;
@@ -253,6 +277,23 @@ export function dbNodeToCanvasNode(n: {
     };
   }
 
+  if (kind === "container") {
+    const contextNotes = typeof p.contextNotes === "string" ? p.contextNotes : "";
+    return {
+      id: n.id,
+      type: "container",
+      position: { x: n.positionX, y: n.positionY },
+      ...(parentId ? { parentId, extent: "parent" as const } : {}),
+      ...(width !== undefined ? { width } : {}),
+      ...(height !== undefined ? { height } : {}),
+      data: {
+        contextNotes,
+        ...payloadChrome(p),
+        ...payloadTextBlock(p),
+      },
+    };
+  }
+
   if (kind === "text") {
     const html = typeof p.html === "string" ? p.html : n.description || "";
     return {
@@ -329,7 +370,8 @@ export function canvasNodeToDbRow(n: CanvasNodeIncoming): {
     kindRaw === "text" ||
     kindRaw === "hierarchy" ||
     kindRaw === "image" ||
-    kindRaw === "table"
+    kindRaw === "table" ||
+    kindRaw === "container"
       ? kindRaw
       : "idea";
 
@@ -429,6 +471,38 @@ export function canvasNodeToDbRow(n: CanvasNodeIncoming): {
       positionY: n.position.y,
       title,
       description: (stencilLibrary !== "basic" ? plainTitle : htmlPlain).slice(0, 5000),
+      tags: [],
+      status: "idea",
+      priority: "medium",
+    };
+  }
+
+  if (kind === "container") {
+    const caption = typeof (d as { captionText?: unknown }).captionText === "string" ? (d as { captionText: string }).captionText.trim() : "";
+    const contextNotes =
+      typeof (d as { contextNotes?: unknown }).contextNotes === "string" ? (d as { contextNotes: string }).contextNotes : "";
+    const containerPayload: Record<string, unknown> = {
+      contextNotes,
+      ...recordChrome(d as Record<string, unknown>),
+      ...recordTextBlock(d as Record<string, unknown>),
+    };
+    if (n.parentId) {
+      containerPayload.parentId = n.parentId;
+    }
+    if (typeof n.width === "number") {
+      containerPayload.width = n.width;
+    }
+    if (typeof n.height === "number") {
+      containerPayload.height = n.height;
+    }
+    return {
+      id: n.id,
+      kind: "container",
+      payload: containerPayload as Prisma.InputJsonValue,
+      positionX: n.position.x,
+      positionY: n.position.y,
+      title: caption.slice(0, 200) || "Container",
+      description: contextNotes.slice(0, 5000),
       tags: [],
       status: "idea",
       priority: "medium",

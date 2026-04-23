@@ -16,6 +16,8 @@ export function approxNodeSize(n: BrainstormFlowNode): { w: number; h: number } 
       return { w: typeof n.width === "number" ? n.width : 240, h: typeof n.height === "number" ? n.height : 180 };
     case "table":
       return { w: typeof n.width === "number" ? n.width : 360, h: typeof n.height === "number" ? n.height : 220 };
+    case "container":
+      return { w: typeof n.width === "number" ? n.width : 400, h: typeof n.height === "number" ? n.height : 280 };
     default:
       return { w: 200, h: 120 };
   }
@@ -42,6 +44,9 @@ export function sortParentBeforeChildren(nodes: BrainstormFlowNode[]): Brainstor
     if (!byParent.has(p)) byParent.set(p, []);
     byParent.get(p)!.push(n);
   }
+  for (const k of byParent.keys()) {
+    byParent.set(k, sortSiblingsForCanvas(byParent.get(k) ?? []));
+  }
   const out: BrainstormFlowNode[] = [];
   function visit(parentKey: string) {
     for (const n of byParent.get(parentKey) ?? []) {
@@ -54,18 +59,28 @@ export function sortParentBeforeChildren(nodes: BrainstormFlowNode[]): Brainstor
 }
 
 const TYPE_ORDER: Record<BrainstormFlowNode["type"], number> = {
-  idea: 0,
-  shape: 1,
-  table: 2,
-  text: 3,
-  image: 4,
-  hierarchy: 5,
+  container: 0,
+  idea: 1,
+  shape: 2,
+  table: 3,
+  text: 4,
+  image: 5,
+  hierarchy: 6,
 };
 
 export function sortNodesByTypeThenId(a: BrainstormFlowNode, b: BrainstormFlowNode): number {
   const td = TYPE_ORDER[a.type] - TYPE_ORDER[b.type];
   if (td !== 0) return td;
   return a.id.localeCompare(b.id);
+}
+
+/** Containers render behind other siblings; stable order within each band. */
+function sortSiblingsForCanvas(siblings: BrainstormFlowNode[]): BrainstormFlowNode[] {
+  const containers = siblings.filter((n) => n.type === "container");
+  const rest = siblings.filter((n) => n.type !== "container");
+  const contSorted = [...containers].sort((a, b) => a.id.localeCompare(b.id));
+  const restSorted = [...rest].sort(sortNodesByTypeThenId);
+  return [...contSorted, ...restSorted];
 }
 
 export function ancestorDepth(nodes: BrainstormFlowNode[], id: string): number {
@@ -85,23 +100,25 @@ function stripParent(node: BrainstormFlowNode, position: { x: number; y: number 
   return draft as BrainstormFlowNode;
 }
 
-/** Remove a shape frame and keep children (reparent to the shape's parent, or root). */
-export function ungroupShape(nodes: BrainstormFlowNode[], shapeId: string): BrainstormFlowNode[] {
-  const shape = nodes.find((n) => n.id === shapeId && n.type === "shape");
-  if (!shape) return nodes;
-  const children = nodes.filter((n) => n.parentId === shapeId);
-  const others = nodes.filter((n) => n.id !== shapeId && n.parentId !== shapeId);
+/** Remove a shape or container frame and keep children (reparent to the frame's parent, or root). */
+export function ungroupShape(nodes: BrainstormFlowNode[], frameId: string): BrainstormFlowNode[] {
+  const frame = nodes.find(
+    (n) => n.id === frameId && (n.type === "shape" || n.type === "container"),
+  );
+  if (!frame) return nodes;
+  const children = nodes.filter((n) => n.parentId === frameId);
+  const others = nodes.filter((n) => n.id !== frameId && n.parentId !== frameId);
   if (children.length === 0) {
-    return nodes.filter((n) => n.id !== shapeId);
+    return nodes.filter((n) => n.id !== frameId);
   }
-  const parentOfShape = shape.parentId;
-  const parentAbs = parentOfShape ? absolutePosition(nodes, parentOfShape) : { x: 0, y: 0 };
+  const parentOfFrame = frame.parentId;
+  const parentAbs = parentOfFrame ? absolutePosition(nodes, parentOfFrame) : { x: 0, y: 0 };
   const newChildren = children.map((child) => {
     const cAbs = absolutePosition(nodes, child.id);
-    if (parentOfShape) {
+    if (parentOfFrame) {
       return {
         ...child,
-        parentId: parentOfShape,
+        parentId: parentOfFrame,
         extent: "parent" as const,
         position: { x: cAbs.x - parentAbs.x, y: cAbs.y - parentAbs.y },
       } as BrainstormFlowNode;
@@ -327,7 +344,114 @@ export function applyZReorderToNodes(
     }
   }
   if (!changed) return null;
-  return flattenFromByParent(clone);
+  return sortParentBeforeChildren(flattenFromByParent(clone));
+}
+
+/** Flow-space axis-aligned rect for hit-testing (uses measured width/height when set). */
+export function nodeFlowRect(
+  nodes: BrainstormFlowNode[],
+  id: string,
+): { x: number; y: number; w: number; h: number } {
+  const n = nodes.find((x) => x.id === id);
+  if (!n) return { x: 0, y: 0, w: 200, h: 120 };
+  const { x, y } = absolutePosition(nodes, id);
+  const { w: aw, h: ah } = approxNodeSize(n);
+  const w = typeof n.width === "number" ? n.width : aw;
+  const h = typeof n.height === "number" ? n.height : ah;
+  return { x, y, w, h };
+}
+
+function rectContainsPoint(
+  r: { x: number; y: number; w: number; h: number },
+  px: number,
+  py: number,
+): boolean {
+  return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+}
+
+/** True if `queryId` is `rootId` or a descendant of `rootId` in the parent tree. */
+export function isInSubtree(nodes: BrainstormFlowNode[], rootId: string, queryId: string): boolean {
+  if (queryId === rootId) return true;
+  let cur: BrainstormFlowNode | undefined = nodes.find((x) => x.id === queryId);
+  while (cur?.parentId) {
+    const pid = cur.parentId;
+    if (pid === rootId) return true;
+    cur = nodes.find((x) => x.id === pid);
+  }
+  return false;
+}
+
+/** Deepest container whose bounds contain the given absolute flow point (excluding invalid targets). */
+export function findDeepestContainerAtAbsPoint(
+  nodes: BrainstormFlowNode[],
+  absX: number,
+  absY: number,
+  draggedNodeId: string,
+): BrainstormFlowNode | null {
+  const candidates = nodes.filter(
+    (n) =>
+      n.type === "container" &&
+      n.id !== draggedNodeId &&
+      !isInSubtree(nodes, draggedNodeId, n.id) &&
+      rectContainsPoint(nodeFlowRect(nodes, n.id), absX, absY),
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => ancestorDepth(nodes, b.id) - ancestorDepth(nodes, a.id));
+  return candidates[0] ?? null;
+}
+
+/** Reparent a node to a new parent (or root); positions stay fixed in flow space. */
+export function setNodeParent(
+  nodes: BrainstormFlowNode[],
+  nodeId: string,
+  newParentId: string | undefined,
+): BrainstormFlowNode[] {
+  const n = nodes.find((x) => x.id === nodeId);
+  if (!n) return nodes;
+  const abs = absolutePosition(nodes, nodeId);
+  if (newParentId) {
+    const pAbs = absolutePosition(nodes, newParentId);
+    const next: BrainstormFlowNode = {
+      ...n,
+      parentId: newParentId,
+      extent: "parent" as const,
+      position: { x: abs.x - pAbs.x, y: abs.y - pAbs.y },
+    } as BrainstormFlowNode;
+    return nodes.map((x) => (x.id === nodeId ? next : x));
+  }
+  const stripped = stripParent(n, abs);
+  return nodes.map((x) => (x.id === nodeId ? stripped : x));
+}
+
+/** After a drag, snap non-container nodes into/out of containers by overlap. */
+export function reparentFloatingNodesAfterDrag(
+  nodes: BrainstormFlowNode[],
+  draggedIds: string[],
+): BrainstormFlowNode[] {
+  const ordered = [...new Set(draggedIds)].sort((a, b) => ancestorDepth(nodes, b) - ancestorDepth(nodes, a));
+  let next = nodes;
+  for (const id of ordered) {
+    const node = next.find((x) => x.id === id);
+    if (!node || node.type === "container") continue;
+    const r = nodeFlowRect(next, id);
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    const target = findDeepestContainerAtAbsPoint(next, cx, cy, id);
+    const targetId = target?.id;
+    const curParent = node.parentId;
+    const curParentNode = curParent ? next.find((x) => x.id === curParent) : undefined;
+
+    if (targetId === curParent) continue;
+
+    if (targetId) {
+      next = setNodeParent(next, id, targetId);
+      continue;
+    }
+    if (curParentNode?.type === "container") {
+      next = setNodeParent(next, id, undefined);
+    }
+  }
+  return sortParentBeforeChildren(next);
 }
 
 export function zReorderWouldChange(

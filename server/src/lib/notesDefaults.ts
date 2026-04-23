@@ -1,5 +1,6 @@
+import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { prisma } from "./db.js";
-import { ensureDefaultWorkspaceBoard } from "./taskDefaults.js";
+import { ensurePersonalWorkspaceBoard } from "./taskDefaults.js";
 
 /** Ensures the first workspace has a default top-level notes folder for Notebooks. */
 export async function ensureDefaultNotesFolder(workspaceId: string) {
@@ -44,9 +45,9 @@ export async function ensureQuicknotesFolder(workspaceId: string) {
   });
 }
 
-/** Workspace + default folder; reuses TaskFoundry bootstrap so a workspace always exists. */
-export async function ensureNotesBootstrap() {
-  const { workspace } = await ensureDefaultWorkspaceBoard();
+/** Workspace + default folder for the signed-in account. */
+export async function ensureNotesBootstrap(user: AppUserPrincipal) {
+  const { workspace } = await ensurePersonalWorkspaceBoard(user);
   const defaultFolder = await ensureDefaultNotesFolder(workspace.id);
   await ensureQuicknotesFolder(workspace.id);
   return { workspace, defaultFolder };

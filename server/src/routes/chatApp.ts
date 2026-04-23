@@ -5,7 +5,9 @@ import { prisma } from "../lib/db.js";
 import {
   aiServiceUnavailableDetail,
   chatModel,
+  embeddingsServiceUnavailableDetail,
   getAiPublicMetadata,
+  getEmbeddingsOpenAIOrNull,
   getOpenAIOrNull,
 } from "../lib/openai/client.js";
 import { defaultConsultingMode, parseConsultingMode } from "../lib/openai/chatMode.js";
@@ -13,8 +15,9 @@ import { chunkText } from "../lib/rag/chunkText.js";
 import { embedQuery, embedTexts } from "../lib/rag/embeddings.js";
 import { extractTextFromBuffer } from "../lib/rag/extractText.js";
 import { searchProjectChunks } from "../lib/rag/searchChunks.js";
+import { assertProjectAccess, assertWorkspaceAccess, workspaceWhereForAppUser } from "../lib/auth/workspaceScope.js";
 import { ensureBrainstormProjectForWorkspace } from "../lib/brainstormProject.js";
-import { ensureDefaultWorkspaceBoard } from "../lib/taskDefaults.js";
+import { ensurePersonalWorkspaceBoard } from "../lib/taskDefaults.js";
 import { getOrCreateDefaultProject, prepareConsultingTurn } from "../lib/chat/prepareTurn.js";
 import { buildPptxBuffer, slugifyFilename } from "../lib/export/pptxDeck.js";
 import { ingestLocalPath } from "../lib/rag/ingestLocalFolder.js";
@@ -29,9 +32,11 @@ function sseWrite(res: import("express").Response, obj: object) {
   res.write(`data: ${JSON.stringify(obj)}\n\n`);
 }
 
-router.get("/bootstrap", async (_req, res) => {
+router.get("/bootstrap", async (req, res) => {
   try {
+    const user = req.appUser!;
     const workspaces = await prisma.workspace.findMany({
+      where: workspaceWhereForAppUser(user),
       orderBy: { createdAt: "asc" },
       include: {
         brand: { select: { name: true } },
@@ -48,8 +53,15 @@ router.get("/bootstrap", async (_req, res) => {
       const p = await ensureBrainstormProjectForWorkspace(w.id);
       projectIdByWorkspaceId[w.id] = p.id;
     }
-    const projects = await prisma.project.findMany({ orderBy: { createdAt: "asc" } });
-    const { workspace, board } = await ensureDefaultWorkspaceBoard();
+    const wsIds = workspaces.map((w) => w.id);
+    const projects =
+      wsIds.length === 0 ?
+        []
+      : await prisma.project.findMany({
+          where: { workspaceId: { in: wsIds } },
+          orderBy: { createdAt: "asc" },
+        });
+    const { workspace, board } = await ensurePersonalWorkspaceBoard(user);
     const defaultProject = await ensureBrainstormProjectForWorkspace(workspace.id);
     res.json({
       ai: getAiPublicMetadata(),
@@ -71,9 +83,20 @@ router.get("/bootstrap", async (_req, res) => {
   }
 });
 
-router.get("/projects", async (_req, res) => {
+router.get("/projects", async (req, res) => {
   try {
-    const projects = await prisma.project.findMany({ orderBy: { createdAt: "asc" } });
+    const workspaces = await prisma.workspace.findMany({
+      where: workspaceWhereForAppUser(req.appUser!),
+      select: { id: true },
+    });
+    const wsIds = workspaces.map((w) => w.id);
+    const projects =
+      wsIds.length === 0 ?
+        []
+      : await prisma.project.findMany({
+          where: { workspaceId: { in: wsIds } },
+          orderBy: { createdAt: "asc" },
+        });
     res.json(projects);
   } catch {
     res.status(500).json({ error: "Failed to list projects" });
@@ -85,6 +108,11 @@ router.get("/threads", async (req, res) => {
     const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
     if (!projectId) {
       res.status(400).json({ error: "projectId is required" });
+      return;
+    }
+    const ok = await assertProjectAccess(req.appUser!, projectId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     const threads = await prisma.chatThread.findMany({
@@ -111,9 +139,27 @@ router.post("/threads", async (req, res) => {
     let projectId = body.projectId;
     if (!projectId) {
       if (body.workspaceId) {
+        const ok = await assertWorkspaceAccess(req.appUser!, body.workspaceId);
+        if (!ok) {
+          res.status(403).json({ error: "Forbidden" });
+          return;
+        }
         projectId = (await ensureBrainstormProjectForWorkspace(body.workspaceId)).id;
       } else {
-        projectId = (await getOrCreateDefaultProject()).id;
+        projectId = (await getOrCreateDefaultProject(req.appUser!)).id;
+      }
+    } else {
+      const ok = await assertProjectAccess(req.appUser!, projectId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    }
+    if (typeof body.workspaceId === "string" && body.workspaceId.trim()) {
+      const ok = await assertWorkspaceAccess(req.appUser!, body.workspaceId.trim());
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
       }
     }
     const mode = parseConsultingMode(body.consultingMode) ?? defaultConsultingMode();
@@ -146,6 +192,11 @@ router.get("/threads/:threadId", async (req, res) => {
       res.status(404).json({ error: "Thread not found" });
       return;
     }
+    const ok = await assertProjectAccess(req.appUser!, thread.projectId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     res.json(thread);
   } catch {
     res.status(500).json({ error: "Failed to load thread" });
@@ -154,11 +205,27 @@ router.get("/threads/:threadId", async (req, res) => {
 
 router.patch("/threads/:threadId", async (req, res) => {
   try {
+    const existing = await prisma.chatThread.findUnique({ where: { id: req.params.threadId } });
+    if (!existing) {
+      res.status(404).json({ error: "Thread not found" });
+      return;
+    }
+    if (!(await assertProjectAccess(req.appUser!, existing.projectId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     const { title, consultingMode, workspaceId } = req.body as {
       title?: string;
       consultingMode?: unknown;
       workspaceId?: string | null;
     };
+    if (workspaceId !== undefined && workspaceId) {
+      const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    }
     const mode = parseConsultingMode(consultingMode);
     const thread = await prisma.chatThread.update({
       where: { id: req.params.threadId },
@@ -176,6 +243,15 @@ router.patch("/threads/:threadId", async (req, res) => {
 
 router.delete("/threads/:threadId", async (req, res) => {
   try {
+    const existing = await prisma.chatThread.findUnique({ where: { id: req.params.threadId } });
+    if (!existing) {
+      res.status(404).end();
+      return;
+    }
+    if (!(await assertProjectAccess(req.appUser!, existing.projectId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     await prisma.chatThread.delete({ where: { id: req.params.threadId } });
     res.status(204).end();
   } catch {
@@ -188,6 +264,10 @@ router.get("/documents", async (req, res) => {
     const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
     if (!projectId) {
       res.status(400).json({ error: "projectId is required" });
+      return;
+    }
+    if (!(await assertProjectAccess(req.appUser!, projectId))) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     const docs = await prisma.chatDocument.findMany({
@@ -212,9 +292,11 @@ router.get("/documents", async (req, res) => {
 
 router.post("/search", async (req, res) => {
   try {
-    const openai = getOpenAIOrNull();
-    if (!openai) {
-      res.status(503).json({ error: "AI service unavailable", detail: aiServiceUnavailableDetail() });
+    if (!getEmbeddingsOpenAIOrNull()) {
+      res.status(503).json({
+        error: "Embeddings unavailable",
+        detail: embeddingsServiceUnavailableDetail(),
+      });
       return;
     }
     const { projectId, query, topK } = req.body as {
@@ -226,8 +308,12 @@ router.post("/search", async (req, res) => {
       res.status(400).json({ error: "projectId and query are required" });
       return;
     }
+    if (!(await assertProjectAccess(req.appUser!, projectId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     const k = typeof topK === "number" && topK > 0 && topK <= 24 ? topK : 8;
-    const qEmb = await embedQuery(openai, query.trim());
+    const qEmb = await embedQuery(query.trim());
     const hits = await searchProjectChunks(projectId, qEmb, k);
     res.json({ hits });
   } catch (e) {
@@ -238,9 +324,11 @@ router.post("/search", async (req, res) => {
 
 router.post("/documents", upload.single("file"), async (req, res) => {
   try {
-    const openai = getOpenAIOrNull();
-    if (!openai) {
-      res.status(503).json({ error: "AI service unavailable", detail: aiServiceUnavailableDetail() });
+    if (!getEmbeddingsOpenAIOrNull()) {
+      res.status(503).json({
+        error: "Embeddings unavailable",
+        detail: embeddingsServiceUnavailableDetail(),
+      });
       return;
     }
     const projectId =
@@ -249,6 +337,10 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       typeof req.body.threadId === "string" && req.body.threadId ? req.body.threadId : undefined;
     if (!projectId) {
       res.status(400).json({ error: "projectId is required" });
+      return;
+    }
+    if (!(await assertProjectAccess(req.appUser!, projectId))) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     const file = req.file;
@@ -280,7 +372,7 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       return;
     }
 
-    const embeddings = await embedTexts(openai, pieces);
+    const embeddings = await embedTexts(pieces);
 
     const doc = await prisma.$transaction(async (tx) => {
       const d = await tx.chatDocument.create({
@@ -322,6 +414,18 @@ router.post("/documents", upload.single("file"), async (req, res) => {
 
 router.delete("/documents/:documentId", async (req, res) => {
   try {
+    const row = await prisma.chatDocument.findUnique({
+      where: { id: req.params.documentId },
+      select: { projectId: true },
+    });
+    if (!row) {
+      res.status(404).end();
+      return;
+    }
+    if (!(await assertProjectAccess(req.appUser!, row.projectId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     await prisma.chatDocument.delete({ where: { id: req.params.documentId } });
     res.status(204).end();
   } catch {
@@ -341,9 +445,13 @@ router.post("/stream", async (req, res) => {
 
   let prep: Awaited<ReturnType<typeof prepareConsultingTurn>>;
   try {
-    prep = await prepareConsultingTurn(openai, req.body);
+    prep = await prepareConsultingTurn(req.appUser!, req.body);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
+    if (msg === "WORKSPACE_FORBIDDEN") {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
     if (msg === "THREAD_NOT_FOUND") {
       res.status(404).json({ error: "Thread not found" });
       return;
@@ -531,6 +639,10 @@ router.post("/export/pptx", async (req, res) => {
         res.status(404).json({ error: "Thread not found" });
         return;
       }
+      if (!(await assertProjectAccess(req.appUser!, thread.projectId))) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
       deckTitle = body.title?.trim() || thread.title;
       const targetMsg =
         body.messageId ?
@@ -574,11 +686,10 @@ router.post("/documents/ingest-local", async (req, res) => {
     });
     return;
   }
-  const openai = getOpenAIOrNull();
-  if (!openai) {
+  if (!getEmbeddingsOpenAIOrNull()) {
     res.status(503).json({
-      error: "AI service unavailable",
-      detail: aiServiceUnavailableDetail(),
+      error: "Embeddings unavailable",
+      detail: embeddingsServiceUnavailableDetail(),
     });
     return;
   }
@@ -587,11 +698,14 @@ router.post("/documents/ingest-local", async (req, res) => {
     res.status(400).json({ error: "projectId and relativePath are required" });
     return;
   }
+  if (!(await assertProjectAccess(req.appUser!, body.projectId))) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const rawMax = Number(process.env.LOCAL_INGEST_MAX_FILES ?? "40");
   const maxFiles = Number.isFinite(rawMax) && rawMax > 0 ? Math.min(rawMax, 200) : 40;
   try {
     const result = await ingestLocalPath({
-      openai,
       projectId: body.projectId,
       threadId: body.threadId,
       relativePath: body.relativePath,

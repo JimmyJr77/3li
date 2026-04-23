@@ -29,14 +29,18 @@ export function BrainstormCanvasContextMenu({ open, x, y, onClose }: BrainstormC
 
   const canUngroup = useMemo(() => {
     for (const n of nodes) {
-      if (n.type === "shape" && n.selected && nodes.some((c) => c.parentId === n.id)) {
+      if (
+        (n.type === "shape" || n.type === "container") &&
+        n.selected &&
+        nodes.some((c) => c.parentId === n.id)
+      ) {
         return true;
       }
     }
     for (const n of selected) {
       if (n.parentId) {
         const p = nodes.find((x) => x.id === n.parentId);
-        if (p?.type === "shape") return true;
+        if (p?.type === "shape" || p?.type === "container") return true;
       }
     }
     return false;

@@ -23,7 +23,7 @@ import type {
   ConsultingMode,
 } from "@/features/chat/types";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
-import { api } from "@/lib/api/client";
+import { api, resolveApiUrl } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -280,7 +280,11 @@ export function ChatPage() {
       if (threadId) {
         fd.append("threadId", threadId);
       }
-      const res = await fetch("/api/chat/documents", { method: "POST", body: fd });
+      const res = await fetch(resolveApiUrl("/api/chat/documents"), {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(err?.error ?? "Upload failed");
@@ -385,9 +389,10 @@ export function ChatPage() {
     setExportingDeck(true);
     setFeedbackMessage(null);
     try {
-      const res = await fetch("/api/chat/export/pptx", {
+      const res = await fetch(resolveApiUrl("/api/chat/export/pptx"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           threadId,
           messageId: lastCompletedAssistantId ?? lastAssistantMessageIdFromThread,
@@ -422,9 +427,10 @@ export function ChatPage() {
     setLocalIngestBusy(true);
     setFeedbackMessage(null);
     try {
-      const res = await fetch("/api/chat/documents/ingest-local", {
+      const res = await fetch(resolveApiUrl("/api/chat/documents/ingest-local"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           projectId,
           threadId: threadId ?? undefined,
@@ -479,6 +485,11 @@ export function ChatPage() {
           {boot.ai?.backend === "ollama" ?
             <>
               local <span className="font-medium text-foreground">Ollama</span> ({boot.ai.chatModel})
+            </>
+          : boot.ai?.backend === "groq" ?
+            <>
+              <span className="font-medium text-foreground">Groq</span> ({boot.ai.chatModel}); document search uses
+              OpenAI embeddings when configured
             </>
           : boot.ai?.backend === "openai" ?
             <>

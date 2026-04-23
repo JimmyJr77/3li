@@ -1,64 +1,101 @@
-import type { ReactNode } from "react";
-import type { CaptionAlignOption, CaptionPlacementOption } from "@/features/brainstorm/types";
+import type { CSSProperties, ReactNode } from "react";
+import type {
+  CaptionAlignOption,
+  CaptionVerticalOption,
+  OutsideCaptionPlacementOption,
+} from "@/features/brainstorm/types";
 import { cn } from "@/lib/utils";
 
-type Props = {
-  captionText?: string;
-  captionAlign?: CaptionAlignOption;
-  captionPlacement?: CaptionPlacementOption;
+export type NodeCaptionWrapperProps = {
+  insideCaptionText?: string;
+  insideCaptionAlign?: CaptionAlignOption;
+  insideCaptionVerticalAlign?: CaptionVerticalOption;
+  /** Appearance text color (inside artifact only). */
+  insideCaptionColor?: string;
+  outsideCaptionText?: string;
+  outsideCaptionAlign?: CaptionAlignOption;
+  outsideCaptionPlacement?: OutsideCaptionPlacementOption;
   children: ReactNode;
   className?: string;
 };
 
-/** Renders optional caption around content; pointer-events none so the node stays easy to drag. */
+function justifyClass(align: CaptionAlignOption): string {
+  if (align === "right") return "justify-end";
+  if (align === "center") return "justify-center";
+  return "justify-start";
+}
+
+function itemsClass(vertical: CaptionVerticalOption): string {
+  if (vertical === "bottom") return "items-end";
+  if (vertical === "top") return "items-start";
+  return "items-center";
+}
+
+/**
+ * Inside text overlays the artifact; outside text is absolutely positioned with margin offset
+ * so it does not participate in flex sizing of the artifact.
+ */
+const defaultOutsideLabelColor: CSSProperties = { color: "var(--foreground)" };
+
 export function NodeCaptionWrapper({
-  captionText,
-  captionAlign,
-  captionPlacement,
+  insideCaptionText,
+  insideCaptionAlign = "left",
+  insideCaptionVerticalAlign = "middle",
+  insideCaptionColor,
+  outsideCaptionText,
+  outsideCaptionAlign = "center",
+  outsideCaptionPlacement = "below",
   children,
   className,
-}: Props) {
-  const align = captionAlign ?? "left";
-  const place = captionPlacement ?? "below";
-  const t = captionText?.trim();
-  const caption = t ? (
+}: NodeCaptionWrapperProps) {
+  const insideTrim = insideCaptionText?.trim();
+  const outsideTrim = outsideCaptionText?.trim();
+
+  const insideOverlay = insideTrim ? (
     <div
-      className="pointer-events-none max-w-full select-none whitespace-pre-wrap break-words text-xs leading-snug text-foreground"
-      style={{ textAlign: align }}
+      className={cn(
+        "pointer-events-none absolute inset-0 z-[1] flex p-3",
+        itemsClass(insideCaptionVerticalAlign),
+        justifyClass(insideCaptionAlign),
+      )}
     >
-      {captionText}
+      <div
+        className={cn(
+          "max-h-[88%] max-w-full overflow-hidden whitespace-pre-wrap break-words text-xs leading-snug",
+          !insideCaptionColor?.trim() && "text-foreground",
+        )}
+        style={{
+          textAlign: insideCaptionAlign,
+          ...(insideCaptionColor?.trim() ? { color: insideCaptionColor.trim() } : {}),
+        }}
+      >
+        {insideCaptionText}
+      </div>
     </div>
   ) : null;
 
-  if (place === "above") {
-    return (
-      <div className={cn("flex min-h-0 min-w-0 flex-col gap-1", className)}>
-        {caption}
-        {children}
+  const outsideBlock = outsideTrim ? (
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-x-0 z-[2] flex px-0.5",
+        outsideCaptionPlacement === "above" ? "bottom-full mb-2" : "top-full mt-2",
+        justifyClass(outsideCaptionAlign),
+      )}
+    >
+      <div
+        className="max-w-full whitespace-pre-wrap break-words text-xs leading-snug"
+        style={{ textAlign: outsideCaptionAlign, ...defaultOutsideLabelColor }}
+      >
+        {outsideCaptionText}
       </div>
-    );
-  }
-  if (place === "below") {
-    return (
-      <div className={cn("flex min-h-0 min-w-0 flex-col gap-1", className)}>
-        {children}
-        {caption}
-      </div>
-    );
-  }
+    </div>
+  ) : null;
+
   return (
     <div className={cn("relative min-h-0 min-w-0", className)}>
       {children}
-      {caption ? (
-        <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-2">
-          <div
-            className="max-h-[90%] max-w-[95%] overflow-hidden rounded-md bg-card/90 px-2 py-1 text-xs leading-snug text-foreground shadow-sm"
-            style={{ textAlign: align }}
-          >
-            {captionText}
-          </div>
-        </div>
-      ) : null}
+      {insideOverlay}
+      {outsideBlock}
     </div>
   );
 }

@@ -1,10 +1,11 @@
-import { resolveAiBackend } from "./provider.js";
+import { resolveAiBackend, type AiBackend } from "./provider.js";
 
 export type ChatModelKind = "primary" | "mini" | "jsonQuick";
 
 /** Chat completion model for the active backend (override with env vars). */
 export function chatModel(kind: ChatModelKind): string {
-  if (resolveAiBackend() === "ollama") {
+  const b = resolveAiBackend();
+  if (b === "ollama") {
     const single = process.env.OLLAMA_CHAT_MODEL?.trim();
     if (single) {
       return single;
@@ -17,6 +18,15 @@ export function chatModel(kind: ChatModelKind): string {
     }
     return "llama3.2";
   }
+  if (b === "groq") {
+    if (kind === "mini") {
+      return process.env.GROQ_CHAT_MODEL_MINI?.trim() || "llama-3.1-8b-instant";
+    }
+    if (kind === "jsonQuick") {
+      return process.env.GROQ_CHAT_MODEL_JSON?.trim() || "llama-3.1-8b-instant";
+    }
+    return process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
+  }
   if (kind === "mini") {
     return process.env.OPENAI_CHAT_MODEL_MINI?.trim() || "gpt-4.1-mini";
   }
@@ -26,7 +36,7 @@ export function chatModel(kind: ChatModelKind): string {
   return process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4.1";
 }
 
-/** Embedding model for the active backend. */
+/** Embedding model id for the active embeddings client (see `getEmbeddingsOpenAIOrNull`). */
 export function embeddingModel(): string {
   if (resolveAiBackend() === "ollama") {
     return process.env.OLLAMA_EMBEDDING_MODEL?.trim() || "nomic-embed-text";
@@ -35,7 +45,7 @@ export function embeddingModel(): string {
 }
 
 export type AiPublicMetadata = {
-  backend: "openai" | "ollama";
+  backend: AiBackend;
   chatModel: string;
   embeddingModel: string;
 };

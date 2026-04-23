@@ -56,8 +56,8 @@ export function BrainstormAIPanel({ sessionId, workspaceId }: BrainstormAIPanelP
   );
   const canvasSummary = useMemo(() => buildCanvasSummary(nodes), [nodes]);
   const selectedSummary = useMemo(
-    () => buildSelectedNodeSummary(selectedNode),
-    [selectedNode],
+    () => buildSelectedNodeSummary(selectedNode, nodes),
+    [selectedNode, nodes],
   );
 
   const aiMutation = useMutation({

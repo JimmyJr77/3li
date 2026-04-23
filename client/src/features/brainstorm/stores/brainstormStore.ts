@@ -12,7 +12,7 @@ import type {
   BrainstormEdgeData,
   BrainstormFlowNode,
   CaptionAlignOption,
-  CaptionPlacementOption,
+  ContainerFlowNode,
   HierarchyFlowNode,
   IdeaFlowNode,
   IdeaNodeDataPatch,
@@ -24,6 +24,7 @@ import type {
   TextFlowNode,
 } from "@/features/brainstorm/types";
 import {
+  defaultContainerData,
   defaultHierarchyData,
   defaultIdeaData,
   defaultImageData,
@@ -32,15 +33,19 @@ import {
   defaultTextData,
   isBasicShapeVariant,
   isIdeaNode,
+  type ContainerNodeData,
+  type HierarchyNodeData,
   type IdeaNodeData,
   type ImageNodeData,
   type TableNodeData,
 } from "@/features/brainstorm/types";
 import {
+  absolutePosition,
   ancestorDepth,
   applyZReorderToNodes,
   groupSelectionIntoShape,
   organizeNodesVerticalByType,
+  reparentFloatingNodesAfterDrag,
   sortParentBeforeChildren,
   ungroupShape,
   type ZReorderOp,
@@ -75,6 +80,7 @@ function mergeShapeNodeData(partial?: Partial<ShapeNodeData>): ShapeNodeData {
     }
     merged.html = plainTextToStudioHtml(merged.captionText ?? "");
   }
+  migrateFlowNodeCaptions(merged as unknown as Record<string, unknown>);
   return merged;
 }
 
@@ -82,8 +88,32 @@ function alignDefault(v: unknown, fallback: CaptionAlignOption): CaptionAlignOpt
   return v === "center" || v === "right" ? v : fallback;
 }
 
-function placementDefault(v: unknown, fallback: CaptionPlacementOption): CaptionPlacementOption {
-  return v === "above" || v === "middle" ? v : fallback;
+/** Migrate legacy `captionPlacement` + single `captionText` into inside vs outside caption fields. */
+export function migrateFlowNodeCaptions(d: Record<string, unknown>): void {
+  if (d.captionVerticalAlign !== "top" && d.captionVerticalAlign !== "middle" && d.captionVerticalAlign !== "bottom") {
+    d.captionVerticalAlign = "middle";
+  }
+  if (d.outsideCaptionAlign !== "left" && d.outsideCaptionAlign !== "center" && d.outsideCaptionAlign !== "right") {
+    d.outsideCaptionAlign = "center";
+  }
+  if (d.outsideCaptionPlacement !== "above" && d.outsideCaptionPlacement !== "below") {
+    d.outsideCaptionPlacement = "below";
+  }
+
+  if (typeof d.outsideCaptionText !== "string") {
+    const legacyPlace = d.captionPlacement;
+    const rawText = typeof d.captionText === "string" ? d.captionText : "";
+    if (legacyPlace === "above" || legacyPlace === "below") {
+      d.outsideCaptionText = rawText;
+      d.outsideCaptionPlacement = legacyPlace;
+      d.outsideCaptionAlign = "center";
+      d.captionText = "";
+    } else {
+      d.outsideCaptionText = "";
+    }
+  }
+
+  delete d.captionPlacement;
 }
 
 /** Normalize persisted / API nodes so sidebar captions and plain text bodies stay in sync. */
@@ -97,64 +127,85 @@ export function normalizeBrainstormNode(n: BrainstormFlowNode): BrainstormFlowNo
       const lab = String(merged.label ?? "").trim();
       if (!cap && lab) merged.captionText = merged.label;
       if (!lab && cap) merged.label = merged.captionText ?? "";
-      merged.captionAlign = alignDefault(merged.captionAlign, "left");
-      merged.captionPlacement = placementDefault(merged.captionPlacement, "below");
-      return { ...n, data: merged };
+      const rec = { ...merged } as unknown as Record<string, unknown>;
+      migrateFlowNodeCaptions(rec);
+      rec.captionAlign = alignDefault(rec.captionAlign, "left");
+      return { ...n, data: rec as HierarchyNodeData };
     }
     case "text": {
-      const d = { ...n.data };
-      if (!String(d.captionText ?? "").trim() && typeof d.html === "string") {
-        const plain = stripHtmlToPlain(d.html);
-        if (plain) d.captionText = plain;
+      const d = { ...n.data } as Record<string, unknown>;
+      migrateFlowNodeCaptions(d);
+      const inside = String(d.captionText ?? "").trim();
+      const outside = String(d.outsideCaptionText ?? "").trim();
+      if (!inside && outside) {
+        d.html = plainTextToStudioHtml(outside);
+      } else {
+        if (!inside && typeof d.html === "string") {
+          const plain = stripHtmlToPlain(d.html);
+          if (plain) d.captionText = plain;
+        }
+        d.html = plainTextToStudioHtml(String(d.captionText ?? ""));
       }
-      d.html = plainTextToStudioHtml(String(d.captionText ?? ""));
       d.captionAlign = alignDefault(d.captionAlign, "left");
-      d.captionPlacement = placementDefault(d.captionPlacement, "below");
-      return { ...n, data: d };
+      return { ...n, data: d as TextFlowNode["data"] };
     }
     case "idea": {
-      const d = { ...n.data } as IdeaNodeData;
+      const d = { ...n.data } as unknown as Record<string, unknown>;
+      migrateFlowNodeCaptions(d);
       if (typeof d.captionText !== "string") d.captionText = "";
       d.captionAlign = alignDefault(d.captionAlign, "left");
-      d.captionPlacement = placementDefault(d.captionPlacement, "below");
-      return { ...n, data: d };
+      return { ...n, data: d as IdeaNodeData };
     }
     case "image": {
-      const d = { ...n.data } as ImageNodeData;
+      const d = { ...n.data } as unknown as Record<string, unknown>;
+      migrateFlowNodeCaptions(d);
       if (typeof d.captionText !== "string") d.captionText = "";
       d.captionAlign = alignDefault(d.captionAlign, "left");
-      d.captionPlacement = placementDefault(d.captionPlacement, "below");
-      return { ...n, data: d };
+      return { ...n, data: d as ImageNodeData };
     }
     case "table": {
-      const d = { ...n.data } as TableNodeData;
+      const d = { ...n.data } as unknown as Record<string, unknown>;
+      migrateFlowNodeCaptions(d);
       if (typeof d.captionText !== "string") d.captionText = "";
       d.captionAlign = alignDefault(d.captionAlign, "left");
-      d.captionPlacement = placementDefault(d.captionPlacement, "below");
-      return { ...n, data: d };
+      return { ...n, data: d as TableNodeData };
+    }
+    case "container": {
+      const d = { ...n.data } as unknown as Record<string, unknown>;
+      migrateFlowNodeCaptions(d);
+      if (typeof d.captionText !== "string") d.captionText = "";
+      if (typeof d.contextNotes !== "string") d.contextNotes = "";
+      d.captionAlign = alignDefault(d.captionAlign, "left");
+      return { ...n, data: d as ContainerNodeData };
     }
     default:
       return n;
   }
 }
 
-/** After removals, drop nested nodes whose parent is gone and prune edges that reference missing nodes. */
+function reparentOrphansAfterParentRemoval(
+  prev: BrainstormFlowNode[],
+  next: BrainstormFlowNode[],
+): BrainstormFlowNode[] {
+  const idSet = new Set(next.map((n) => n.id));
+  return next.map((n) => {
+    if (!n.parentId || idSet.has(n.parentId)) return n;
+    const abs = absolutePosition(prev, n.id);
+    const draft = { ...n, position: abs } as Record<string, unknown>;
+    delete draft.parentId;
+    delete draft.extent;
+    return draft as BrainstormFlowNode;
+  });
+}
+
+/** After removals, reparent nodes whose parent vanished; prune edges that reference missing nodes. */
 function computeNextGraph(
   prevNodes: BrainstormFlowNode[],
   prevEdges: BrainstormEdge[],
   changes: NodeChange<BrainstormFlowNode>[],
 ): { nodes: BrainstormFlowNode[]; edges: BrainstormEdge[] } {
   let next = applyNodeChanges(changes, prevNodes);
-  let prunedOrphans = true;
-  while (prunedOrphans) {
-    prunedOrphans = false;
-    const ids = new Set(next.map((n) => n.id));
-    const orphan = next.find((n) => n.parentId && !ids.has(n.parentId));
-    if (orphan) {
-      next = next.filter((n) => n.id !== orphan.id);
-      prunedOrphans = true;
-    }
-  }
+  next = reparentOrphansAfterParentRemoval(prevNodes, next);
   const ids = new Set(next.map((n) => n.id));
   const edges = prevEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
   return { nodes: sortParentBeforeChildren(next), edges };
@@ -215,6 +266,7 @@ type BrainstormState = {
     height?: number;
   }) => void;
   addTableNode: (position?: { x: number; y: number }) => void;
+  addContainerNode: (position?: { x: number; y: number }) => void;
   addTextNode: (opts?: { position?: { x: number; y: number }; parentId?: string }) => void;
   addTextFromToolbar: () => void;
   addHierarchyNode: (position?: { x: number; y: number }) => void;
@@ -238,6 +290,7 @@ type BrainstormState = {
   deleteSelectedNodes: () => void;
   duplicateSelectedNode: () => void;
   reorderSelectedZIndex: (op: ZReorderOp) => void;
+  reparentAfterNodeDrag: (draggedNodeIds: string[]) => void;
 };
 
 function nextPresentationFlags(
@@ -340,6 +393,12 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     if (next) set({ nodes: next });
   },
 
+  reparentAfterNodeDrag: (draggedNodeIds) => {
+    if (draggedNodeIds.length === 0) return;
+    const next = reparentFloatingNodesAfterDrag(get().nodes, draggedNodeIds);
+    set({ nodes: next });
+  },
+
   onEdgesChange: (changes) => {
     set({
       edges: applyEdgeChanges(changes, get().edges),
@@ -423,6 +482,21 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     set({ nodes: [...get().nodes, node] });
   },
 
+  addContainerNode: (position) => {
+    const id = crypto.randomUUID();
+    const node: ContainerFlowNode = {
+      id,
+      type: "container",
+      position: position ?? { x: 72 + Math.random() * 40, y: 72 + Math.random() * 40 },
+      width: 420,
+      height: 300,
+      data: defaultContainerData(),
+      selected: true,
+    };
+    const others = get().nodes.map((n) => ({ ...n, selected: false }));
+    set({ nodes: sortParentBeforeChildren([...others, node]) });
+  },
+
   addTextNode: (opts) => {
     const id = crypto.randomUUID();
     const pos = opts?.position ?? { x: 140 + Math.random() * 40, y: 120 + Math.random() * 40 };
@@ -431,8 +505,9 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       id,
       type: "text",
       position: pos,
-      ...(parentId ? { parentId, extent: "parent" as const, width: 200, height: 120 } : {}),
-      /* Root text nodes: omit width/height so React Flow measures the DOM (toolbar on/off changes height). */
+      ...(parentId
+        ? { parentId, extent: "parent" as const, width: 200, height: 120 }
+        : { width: 220, height: 108 }),
       data: defaultTextData(),
     };
     set({ nodes: [...get().nodes, node] });
@@ -440,7 +515,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
 
   addTextFromToolbar: () => {
     const sel = get().nodes.find((n) => n.selected);
-    const parentId = sel?.type === "shape" ? sel.id : undefined;
+    const parentId = sel?.type === "shape" || sel?.type === "container" ? sel.id : undefined;
     get().addTextNode({
       parentId,
       position: parentId ? { x: 20, y: 52 } : undefined,
@@ -469,7 +544,8 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       data: {
         ...defaultHierarchyData(),
         label: "New branch",
-        captionText: "New branch",
+        outsideCaptionText: "New branch",
+        captionText: "",
       },
     };
     const edgeId = crypto.randomUUID();
@@ -566,14 +642,18 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     let nodes = get().nodes;
     const toDissolve = new Set<string>();
     for (const n of nodes) {
-      if (n.type === "shape" && n.selected && nodes.some((c) => c.parentId === n.id)) {
+      if (
+        (n.type === "shape" || n.type === "container") &&
+        n.selected &&
+        nodes.some((c) => c.parentId === n.id)
+      ) {
         toDissolve.add(n.id);
       }
     }
     for (const n of nodes) {
       if (n.selected && n.parentId) {
         const p = nodes.find((x) => x.id === n.parentId);
-        if (p?.type === "shape") toDissolve.add(n.parentId);
+        if (p?.type === "shape" || p?.type === "container") toDissolve.add(n.parentId);
       }
     }
     if (toDissolve.size === 0) return;

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
@@ -13,6 +14,7 @@ import {
 import { ModeToggle } from "@/components/shared/ModeToggle";
 import { AgentContextSettingsCard } from "@/components/settings/AgentContextSettingsCard";
 import { BrandsSettingsCardParts } from "@/components/settings/BrandProjectSettingsSection";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +26,7 @@ import {
   type WorkspacePageSettingsId,
 } from "@/config/workspacePageSettings";
 import { useWorkspacePrefs, type SidebarBehavior } from "@/context/WorkspacePrefsContext";
+import { fetchMe, logout } from "@/features/auth/api";
 import { cn } from "@/lib/utils";
 
 type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout";
@@ -134,8 +137,18 @@ function SidebarOptionCard({
 
 export function SettingsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const { profile, updateProfile, sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
   const [category, setCategory] = useState<SettingsCategoryId>("profile");
+  const { data: authUser } = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
+  const logoutMut = useMutation({
+    mutationFn: logout,
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      navigate("/login");
+    },
+  });
 
   useEffect(() => {
     const raw = (location.state as { settingsCategory?: unknown } | null)?.settingsCategory;
@@ -184,7 +197,7 @@ export function SettingsPage() {
                     Your profile
                   </CardTitle>
                   <CardDescription>
-                    Shown in the workspace where your name appears. Stored on this device only (demo sign-in).
+                    Local display preferences below. Your account username is managed on the server when you sign in.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -219,6 +232,32 @@ export function SettingsPage() {
                       </div>
                     </div>
                   </div>
+                  {authUser ? (
+                    <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                      <div>
+                        <p className="text-sm font-medium">Account</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Signed in as{" "}
+                          <span className="font-medium text-foreground">{authUser.username}</span>
+                          {authUser.displayName ? ` (${authUser.displayName})` : null}
+                          {authUser.role === "admin" ? (
+                            <span className="ml-2 text-xs uppercase tracking-wide text-muted-foreground">
+                              Admin
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={logoutMut.isPending}
+                        onClick={() => logoutMut.mutate()}
+                      >
+                        {logoutMut.isPending ? "Signing out…" : "Sign out"}
+                      </Button>
+                    </div>
+                  ) : null}
                 </CardContent>
               </>
             )}

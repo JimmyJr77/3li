@@ -1,7 +1,7 @@
 export type ConsultingMode = "strategy" | "financial" | "operations" | "technical";
 
 export type AiBackendMetadata = {
-  backend: "openai" | "ollama";
+  backend: "openai" | "ollama" | "groq";
   chatModel: string;
   embeddingModel: string;
 };

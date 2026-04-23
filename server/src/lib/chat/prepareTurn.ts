@@ -1,6 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { prisma } from "../db.js";
-import type { OpenAI } from "openai";
 import {
   type ConsultingMode,
   defaultConsultingMode,
@@ -11,23 +10,32 @@ import { loadBrandProfileJsonForWorkspaceId } from "../brandProfileFromWorkspace
 import { buildRagContextBlock, systemPromptForConsultingMode } from "../openai/chatPrompts.js";
 import { embedQuery } from "../rag/embeddings.js";
 import { searchProjectChunks } from "../rag/searchChunks.js";
+import type { AppUserPrincipal } from "../auth/workspaceScope.js";
+import { assertWorkspaceAccess } from "../auth/workspaceScope.js";
 import { ensureBrainstormProjectForWorkspace } from "../brainstormProject.js";
-import { ensureDefaultWorkspaceBoard } from "../taskDefaults.js";
+import { ensurePersonalWorkspaceBoard } from "../taskDefaults.js";
 import { formatTeamUserBlocksForPrompt, loadContextInstructionsForWorkspace } from "../contextInstructions.js";
 
 export type CitationPayload = { ref: number; chunkId: string; filename: string };
 
 /** Resolves the consulting-chat / RAG `Project` for a brand workspace (one per workspace). */
-export async function getOrCreateProjectForWorkspace(workspaceId: string | null | undefined) {
+export async function getOrCreateProjectForWorkspace(
+  principal: AppUserPrincipal,
+  workspaceId: string | null | undefined,
+) {
   if (workspaceId) {
+    const ok = await assertWorkspaceAccess(principal, workspaceId);
+    if (!ok) {
+      throw new Error("WORKSPACE_FORBIDDEN");
+    }
     return ensureBrainstormProjectForWorkspace(workspaceId);
   }
-  const { workspace } = await ensureDefaultWorkspaceBoard();
+  const { workspace } = await ensurePersonalWorkspaceBoard(principal);
   return ensureBrainstormProjectForWorkspace(workspace.id);
 }
 
-export async function getOrCreateDefaultProject() {
-  const { workspace } = await ensureDefaultWorkspaceBoard();
+export async function getOrCreateDefaultProject(principal: AppUserPrincipal) {
+  const { workspace } = await ensurePersonalWorkspaceBoard(principal);
   return ensureBrainstormProjectForWorkspace(workspace.id);
 }
 
@@ -42,7 +50,7 @@ export type PrepareTurnBody = {
 };
 
 export async function prepareConsultingTurn(
-  openai: OpenAI,
+  principal: AppUserPrincipal,
   body: PrepareTurnBody,
 ): Promise<{
   thread: { id: string; projectId: string; consultingMode: string; workspaceId: string | null };
@@ -68,7 +76,18 @@ export async function prepareConsultingTurn(
   const projectId =
     body.projectId ??
     thread?.projectId ??
-    (await getOrCreateProjectForWorkspace(body.workspaceId ?? thread?.workspaceId)).id;
+    (await getOrCreateProjectForWorkspace(principal, body.workspaceId ?? thread?.workspaceId)).id;
+
+  const projectRow = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { workspaceId: true },
+  });
+  if (projectRow?.workspaceId) {
+    const ok = await assertWorkspaceAccess(principal, projectRow.workspaceId);
+    if (!ok) {
+      throw new Error("WORKSPACE_FORBIDDEN");
+    }
+  }
 
   const modeFromRequest = parseConsultingMode(body.consultingMode);
 
@@ -87,11 +106,18 @@ export async function prepareConsultingTurn(
       throw new Error("THREAD_PROJECT_MISMATCH");
     }
     if (body.workspaceId !== undefined && body.workspaceId !== thread.workspaceId) {
+      const nextWs = body.workspaceId || null;
+      if (nextWs) {
+        const ok = await assertWorkspaceAccess(principal, nextWs);
+        if (!ok) {
+          throw new Error("WORKSPACE_FORBIDDEN");
+        }
+      }
       await prisma.chatThread.update({
         where: { id: thread.id },
-        data: { workspaceId: body.workspaceId || null },
+        data: { workspaceId: nextWs },
       });
-      thread = { ...thread, workspaceId: body.workspaceId || null };
+      thread = { ...thread, workspaceId: nextWs };
     }
     if (modeFromRequest && modeFromRequest !== thread.consultingMode) {
       await prisma.chatThread.update({
@@ -139,7 +165,7 @@ export async function prepareConsultingTurn(
   const citationPayload: CitationPayload[] = [];
 
   try {
-    const qEmb = await embedQuery(openai, latestUser.content);
+    const qEmb = await embedQuery(latestUser.content);
     const hits = await searchProjectChunks(projectId, qEmb, 8);
     const items = hits.map((h, i) => ({
       idx: i + 1,

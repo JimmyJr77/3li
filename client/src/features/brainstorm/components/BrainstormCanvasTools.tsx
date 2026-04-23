@@ -1,4 +1,4 @@
-import { ImagePlus, Maximize2, Plus, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
+import { BoxSelect, ImagePlus, Maximize2, Plus, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
   const shapePickerOpen = useBrainstormStore((s) => s.shapePickerOpen);
   const setShapePickerOpen = useBrainstormStore((s) => s.setShapePickerOpen);
   const addTableNode = useBrainstormStore((s) => s.addTableNode);
+  const addContainerNode = useBrainstormStore((s) => s.addContainerNode);
   const addImageNode = useBrainstormStore((s) => s.addImageNode);
   const addHierarchyNode = useBrainstormStore((s) => s.addHierarchyNode);
   const addTextFromToolbar = useBrainstormStore((s) => s.addTextFromToolbar);
@@ -56,6 +57,17 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
         <Button type="button" size="sm" variant="outline" className={btn} onClick={() => addTableNode()}>
           <Table2 className="size-4" />
           Table
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={btn}
+          title="Resizable frame on the bottom layer. Drag items onto it to group them; they move with the frame."
+          onClick={() => addContainerNode()}
+        >
+          <BoxSelect className="size-4" />
+          Container
         </Button>
         <input
           ref={imageInputRef}

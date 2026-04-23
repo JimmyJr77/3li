@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenAI } from "openai";
 import { prisma } from "../db.js";
 import { chunkText } from "./chunkText.js";
 import { embedTexts } from "./embeddings.js";
@@ -48,7 +47,6 @@ function resolveUnderRoot(root: string, relativeOrAbsolute: string): string {
 }
 
 export async function ingestLocalPath(params: {
-  openai: OpenAI;
   projectId: string;
   threadId?: string;
   /** Path relative to LOCAL_INGEST_ROOT, or absolute path under that root after resolve */
@@ -95,7 +93,7 @@ export async function ingestLocalPath(params: {
         continue;
       }
 
-      const embeddings = await embedTexts(params.openai, pieces);
+      const embeddings = await embedTexts(pieces);
 
       await prisma.$transaction(async (tx) => {
         const d = await tx.chatDocument.create({

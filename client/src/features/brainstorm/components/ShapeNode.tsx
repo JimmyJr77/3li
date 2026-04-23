@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { ShapeFlowNode, StencilLibrary } from "@/features/brainstorm/types";
 import { findWireframePreset } from "@/features/brainstorm/wireframePresets";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
+import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +38,10 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
     data.presetId,
     data.captionText,
     data.captionAlign,
-    data.captionPlacement,
+    data.captionVerticalAlign,
+    data.outsideCaptionText,
+    data.outsideCaptionAlign,
+    data.outsideCaptionPlacement,
     data.backgroundColor,
     data.color,
     data.borderColor,
@@ -65,11 +69,10 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
       {isBasic ? (
         <div className="min-h-0 flex-1" aria-hidden />
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-1 text-center select-none">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-1 select-none">
           {WireIcon ? (
             <WireIcon className="size-14 shrink-0 text-muted-foreground" aria-hidden />
           ) : null}
-          <p className="text-[10px] font-medium text-muted-foreground">{wirePreset?.label ?? "Stencil"}</p>
         </div>
       )}
     </div>
@@ -88,26 +91,8 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
         ref={rootRef}
         className={cn(
           "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden",
-          isBasic
-            ? cn(
-                "border-2 border-border bg-card/95 shadow-sm",
-                isEllipse || isCircle ? "rounded-[50%]" : null,
-                isRoundedRect ? "rounded-2xl" : null,
-                isSharpQuad ? "rounded-none" : null,
-                isDiamond && "rounded-none [clip-path:polygon(50%_2%,98%_50%,50%_98%,2%_50%)]",
-                isTriangle && "rounded-none border-0 [clip-path:polygon(50%_6%,100%_90%,0%_90%)]",
-                !isEllipse &&
-                  !isCircle &&
-                  !isRoundedRect &&
-                  !isSharpQuad &&
-                  !isDiamond &&
-                  !isTriangle &&
-                  "rounded-lg",
-              )
-            : "rounded-lg border-2 border-border bg-card/95 shadow-sm",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
         )}
-        style={nodeChromeToStyle(data)}
       >
         <Handle type="target" position={Position.Top} id="in" className="!size-2.5 !bg-muted-foreground" />
         <Handle
@@ -139,13 +124,32 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
           style={{ top: "70%" }}
         />
 
-        <NodeCaptionWrapper
-          captionText={data.captionText}
-          captionAlign={data.captionAlign}
-          captionPlacement={data.captionPlacement}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          {chromeBox}
+        <NodeCaptionWrapper {...nodeCaptionPropsFromData(data)} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div
+            className={cn(
+              "flex min-h-0 w-full flex-1 flex-col overflow-hidden",
+              isBasic
+                ? cn(
+                    "border-2 border-border bg-card/95 shadow-sm",
+                    isEllipse || isCircle ? "rounded-[50%]" : null,
+                    isRoundedRect ? "rounded-2xl" : null,
+                    isSharpQuad ? "rounded-none" : null,
+                    isDiamond && "rounded-none [clip-path:polygon(50%_2%,98%_50%,50%_98%,2%_50%)]",
+                    isTriangle && "rounded-none border-0 [clip-path:polygon(50%_6%,100%_90%,0%_90%)]",
+                    !isEllipse &&
+                      !isCircle &&
+                      !isRoundedRect &&
+                      !isSharpQuad &&
+                      !isDiamond &&
+                      !isTriangle &&
+                      "rounded-lg",
+                  )
+                : "rounded-lg border-2 border-border bg-card/95 shadow-sm",
+            )}
+            style={nodeChromeToStyle(data)}
+          >
+            {chromeBox}
+          </div>
         </NodeCaptionWrapper>
 
         <Handle type="source" position={Position.Bottom} id="out" className="!size-2.5 !bg-muted-foreground" />

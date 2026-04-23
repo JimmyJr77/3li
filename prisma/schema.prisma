@@ -1,10 +1,39 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// --- App accounts (username / password) ---
+
+model AppUser {
+  id           String       @id @default(cuid())
+  /// Lowercase login id (unique).
+  username     String       @unique
+  passwordHash String
+  displayName  String?
+  /// "user" | "admin"
+  role         String       @default("user")
+  brands       Brand[]
+  sessions     AppSession[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model AppSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// sha256 hex of the opaque cookie token (never store raw token).
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // --- Brainstorm (existing product area) ---
@@ -72,6 +101,9 @@ model IdeaEdge {
 /// Client or engagement: one brand kit, one sidebar row in “My brands”.
 model Brand {
   id           String      @id @default(cuid())
+  /// When set, this brand (and its workspace) belongs to that account. Null = legacy rows reassigned on seed.
+  ownerUserId  String?
+  ownerUser    AppUser?    @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
   /// Canonical brand name (Settings, “My brands” list). Not the workspace chrome title — that is `Workspace.name`.
   name         String      @default("Brand")
   /// Company/brand identity kit for AI context (JSON). One kit per brand.
@@ -86,6 +118,7 @@ model Brand {
   updatedAt    DateTime    @updatedAt
 
   @@index([archivedAt])
+  @@index([ownerUserId])
 }
 
 /// One ecosystem per brand (notes, notebooks, activity, etc.). Boards live under ProjectSpaces inside this row.

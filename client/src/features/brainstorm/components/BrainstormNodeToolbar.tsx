@@ -1,4 +1,17 @@
-import { Copy, GitBranch, RotateCcw, Trash2 } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
+  ArrowDownFromLine,
+  ArrowUpFromLine,
+  Copy,
+  GitBranch,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +21,13 @@ import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore
 import type {
   BrainstormFlowNode,
   CaptionAlignOption,
-  CaptionPlacementOption,
+  CaptionVerticalOption,
   FlowNodeChrome,
   HierarchyFlowNode,
   IdeaFlowNode,
+  ContainerFlowNode,
   ImageFlowNode,
+  OutsideCaptionPlacementOption,
   ShapeFlowNode,
   TableFlowNode,
 } from "@/features/brainstorm/types";
@@ -111,12 +126,20 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
   const patchNodeData = useBrainstormStore((s) => s.patchNodeData);
   const d = node.data as Record<string, unknown>;
   const captionText = typeof d.captionText === "string" ? d.captionText : "";
+  const rawOutside = typeof d.outsideCaptionText === "string" ? d.outsideCaptionText : "";
+  const hierarchyLabel = node.type === "hierarchy" ? String((node as HierarchyFlowNode).data.label ?? "") : "";
+  const outsideCaptionText =
+    node.type === "hierarchy" ? rawOutside || hierarchyLabel : rawOutside;
   const captionAlign = (d.captionAlign === "center" || d.captionAlign === "right" ? d.captionAlign : "left") as CaptionAlignOption;
-  const captionPlacement = (
-    d.captionPlacement === "above" || d.captionPlacement === "middle" ? d.captionPlacement : "below"
-  ) as CaptionPlacementOption;
+  const captionVerticalAlign = (
+    d.captionVerticalAlign === "top" || d.captionVerticalAlign === "bottom" ? d.captionVerticalAlign : "middle"
+  ) as CaptionVerticalOption;
+  const outsideCaptionAlign = (
+    d.outsideCaptionAlign === "left" || d.outsideCaptionAlign === "right" ? d.outsideCaptionAlign : "center"
+  ) as CaptionAlignOption;
+  const outsideCaptionPlacement = (d.outsideCaptionPlacement === "above" ? "above" : "below") as OutsideCaptionPlacementOption;
 
-  const applyCaption = useCallback(
+  const applyInsideCaption = useCallback(
     (next: string) => {
       const patch: Record<string, unknown> = { captionText: next };
       if (node.type === "text") {
@@ -128,6 +151,14 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
           patch.caption = next;
         }
       }
+      patchNodeData(node.id, patch);
+    },
+    [node.id, node.type, patchNodeData],
+  );
+
+  const applyOutsideCaption = useCallback(
+    (next: string) => {
+      const patch: Record<string, unknown> = { outsideCaptionText: next };
       if (node.type === "hierarchy") {
         patch.label = next;
       }
@@ -136,57 +167,126 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
     [node.id, node.type, patchNodeData],
   );
 
-  const setAlign = (captionAlign: CaptionAlignOption) => patchNodeData(node.id, { captionAlign });
-  const setPlacement = (captionPlacement: CaptionPlacementOption) =>
-    patchNodeData(node.id, { captionPlacement });
+  const setInsideH = (captionAlign: CaptionAlignOption) => patchNodeData(node.id, { captionAlign });
+  const setInsideV = (captionVerticalAlign: CaptionVerticalOption) => patchNodeData(node.id, { captionVerticalAlign });
+  const setOutsideH = (outsideCaptionAlign: CaptionAlignOption) => patchNodeData(node.id, { outsideCaptionAlign });
+  const setOutsideV = (outsideCaptionPlacement: OutsideCaptionPlacementOption) =>
+    patchNodeData(node.id, { outsideCaptionPlacement });
 
-  const alignBtn = (a: CaptionAlignOption, label: string) => (
+  const iconToggle = (
+    active: boolean,
+    onClick: () => void,
+    title: string,
+    Icon: typeof AlignLeft,
+  ) => (
     <Button
       type="button"
       size="sm"
-      variant={captionAlign === a ? "secondary" : "outline"}
-      className="nodrag nopan h-7 flex-1 px-1 text-[10px]"
-      onClick={() => setAlign(a)}
+      variant={active ? "secondary" : "outline"}
+      className="nodrag nopan h-8 flex-1 px-0"
+      title={title}
+      onClick={onClick}
     >
-      {label}
-    </Button>
-  );
-
-  const placeBtn = (p: CaptionPlacementOption, label: string) => (
-    <Button
-      type="button"
-      size="sm"
-      variant={captionPlacement === p ? "secondary" : "outline"}
-      className="nodrag nopan h-7 flex-1 px-1 text-[10px]"
-      onClick={() => setPlacement(p)}
-    >
-      {label}
+      <Icon className="mx-auto size-4 shrink-0" aria-hidden />
     </Button>
   );
 
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Text</p>
+    <div className="space-y-3">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Text on artifact</p>
       <textarea
-        className="nodrag nopan min-h-[4.5rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+        className="nodrag nopan min-h-[3.5rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
         value={captionText}
-        placeholder="Label or notes for this object"
-        onChange={(e) => applyCaption(e.target.value)}
+        placeholder="Optional text overlaid inside the frame"
+        onChange={(e) => applyInsideCaption(e.target.value)}
       />
-      <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">Align</span>
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Horizontal</span>
         <div className="flex gap-1">
-          {alignBtn("left", "Left")}
-          {alignBtn("center", "Center")}
-          {alignBtn("right", "Right")}
+          {iconToggle(captionAlign === "left", () => setInsideH("left"), "Align left inside artifact", AlignLeft)}
+          {iconToggle(
+            captionAlign === "center",
+            () => setInsideH("center"),
+            "Align center inside artifact",
+            AlignCenter,
+          )}
+          {iconToggle(captionAlign === "right", () => setInsideH("right"), "Align right inside artifact", AlignRight)}
         </div>
       </div>
-      <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">Placement</span>
+      <div className="space-y-1">
+        <span className="text-[10px] text-muted-foreground">Vertical</span>
         <div className="flex gap-1">
-          {placeBtn("above", "Above")}
-          {placeBtn("middle", "Middle")}
-          {placeBtn("below", "Below")}
+          {iconToggle(
+            captionVerticalAlign === "top",
+            () => setInsideV("top"),
+            "Top inside artifact",
+            AlignVerticalJustifyStart,
+          )}
+          {iconToggle(
+            captionVerticalAlign === "middle",
+            () => setInsideV("middle"),
+            "Middle inside artifact",
+            AlignVerticalJustifyCenter,
+          )}
+          {iconToggle(
+            captionVerticalAlign === "bottom",
+            () => setInsideV("bottom"),
+            "Bottom inside artifact",
+            AlignVerticalJustifyEnd,
+          )}
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-2">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Outside label</p>
+        <p className="mb-1.5 text-[10px] leading-snug text-muted-foreground">
+          Optional; sits outside the frame with an offset and does not resize the artifact.
+        </p>
+        <textarea
+          className="nodrag nopan min-h-[3.5rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+          value={outsideCaptionText}
+          placeholder="Optional label outside the frame"
+          onChange={(e) => applyOutsideCaption(e.target.value)}
+        />
+        <div className="mt-1.5 space-y-1">
+          <span className="text-[10px] text-muted-foreground">Side of artifact</span>
+          <div className="flex gap-1">
+            {iconToggle(
+              outsideCaptionPlacement === "above",
+              () => setOutsideV("above"),
+              "Place outside label above the artifact",
+              ArrowUpFromLine,
+            )}
+            {iconToggle(
+              outsideCaptionPlacement === "below",
+              () => setOutsideV("below"),
+              "Place outside label below the artifact",
+              ArrowDownFromLine,
+            )}
+          </div>
+        </div>
+        <div className="mt-1.5 space-y-1">
+          <span className="text-[10px] text-muted-foreground">Horizontal</span>
+          <div className="flex gap-1">
+            {iconToggle(
+              outsideCaptionAlign === "left",
+              () => setOutsideH("left"),
+              "Outside label left",
+              AlignLeft,
+            )}
+            {iconToggle(
+              outsideCaptionAlign === "center",
+              () => setOutsideH("center"),
+              "Outside label center",
+              AlignCenter,
+            )}
+            {iconToggle(
+              outsideCaptionAlign === "right",
+              () => setOutsideH("right"),
+              "Outside label right",
+              AlignRight,
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -351,6 +451,22 @@ function clampFr(x: number): number {
   return Math.min(Math.max(x, MIN_FR), 32);
 }
 
+function ContainerContextSection({ node }: { node: ContainerFlowNode }) {
+  const patchNodeData = useBrainstormStore((s) => s.patchNodeData);
+  const notes = typeof node.data.contextNotes === "string" ? node.data.contextNotes : "";
+  return (
+    <div className="space-y-1">
+      <Label className="text-[10px] text-muted-foreground">Group context (LLM)</Label>
+      <textarea
+        className="nodrag nopan min-h-[4rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+        value={notes}
+        placeholder="Notes that apply to everything inside this container when summarizing for AI."
+        onChange={(e) => patchNodeData(node.id, { contextNotes: e.target.value })}
+      />
+    </div>
+  );
+}
+
 function TableStructureSection({ node }: { node: TableFlowNode }) {
   const patchNodeData = useBrainstormStore((s) => s.patchNodeData);
   const numCols = node.data.rows[0]?.length ?? 1;
@@ -484,7 +600,9 @@ export function BrainstormNodeToolbar({ selected }: { selected: BrainstormFlowNo
             ? "Branch"
             : node.type === "image"
               ? "Image"
-              : "Table";
+              : node.type === "container"
+                ? "Container"
+                : "Table";
 
   const shape = node.type === "shape" ? (node as ShapeFlowNode) : null;
   const showKindBlock =
@@ -492,6 +610,7 @@ export function BrainstormNodeToolbar({ selected }: { selected: BrainstormFlowNo
     node.type === "hierarchy" ||
     node.type === "image" ||
     node.type === "table" ||
+    node.type === "container" ||
     (shape !== null && shape.data.stencilLibrary !== "basic");
 
   return (
@@ -513,6 +632,7 @@ export function BrainstormNodeToolbar({ selected }: { selected: BrainstormFlowNo
           {node.type === "image" ? <ImageSection node={node as ImageFlowNode} /> : null}
           {node.type === "shape" ? <WireframePresetSection node={node as ShapeFlowNode} /> : null}
           {node.type === "table" ? <TableStructureSection node={node as TableFlowNode} /> : null}
+          {node.type === "container" ? <ContainerContextSection node={node as ContainerFlowNode} /> : null}
         </>
       ) : null}
 

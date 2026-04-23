@@ -22,10 +22,11 @@ function normalizeEdgesFromApi(edges: BrainstormSessionResponse["edges"]): Brain
   }));
 }
 
-/** Root-level text cards: drop fixed width/height so React Flow measures DOM (toolbar toggles height). */
+/** Root-level text cards: omit width/height only when unset so React Flow can measure; keep user-resized sizes. */
 function normalizeRootTextNodesForMeasurement(nodes: BrainstormFlowNode[]): BrainstormFlowNode[] {
   return nodes.map((n) => {
     if (n.type !== "text" || n.parentId) return n;
+    if (typeof n.width === "number" || typeof n.height === "number") return n;
     const { width: _w, height: _h, ...rest } = n as TextFlowNode;
     return rest as TextFlowNode;
   });

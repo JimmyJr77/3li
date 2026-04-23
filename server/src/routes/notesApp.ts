@@ -1,5 +1,6 @@
 import { Prisma, type Note, type NoteTag, type NotesFolder } from "@prisma/client";
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
+import { assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
 import { extractFullPlainText } from "../lib/notePlainText.js";
 import {
@@ -39,6 +40,52 @@ function normalizePublicSlug(raw: string | null | undefined): string | null {
   return s.length > 0 ? s : null;
 }
 
+async function requireWritableWorkspace(
+  req: Request,
+  res: Response,
+  workspaceId: string | undefined | null,
+): Promise<string | null> {
+  if (!workspaceId?.trim()) {
+    res.status(400).json({ error: "workspaceId required" });
+    return null;
+  }
+  const id = workspaceId.trim();
+  const ok = await assertWorkspaceAccess(req.appUser!, id);
+  if (!ok) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return id;
+}
+
+async function assertNoteAccessible(req: Request, res: Response, noteId: string): Promise<boolean> {
+  const n = await prisma.note.findUnique({ where: { id: noteId }, select: { workspaceId: true } });
+  if (!n) {
+    res.status(404).json({ error: "Not found" });
+    return false;
+  }
+  const ok = await assertWorkspaceAccess(req.appUser!, n.workspaceId);
+  if (!ok) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  return true;
+}
+
+async function assertFolderAccessible(req: Request, res: Response, folderId: string): Promise<boolean> {
+  const f = await prisma.notesFolder.findUnique({ where: { id: folderId }, select: { workspaceId: true } });
+  if (!f) {
+    res.status(404).json({ error: "Not found" });
+    return false;
+  }
+  const ok = await assertWorkspaceAccess(req.appUser!, f.workspaceId);
+  if (!ok) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  return true;
+}
+
 const router = Router();
 
 const noteInclude = {
@@ -76,10 +123,12 @@ function serializeTag(t: NoteTag) {
   };
 }
 
-/** Public read-only note (no auth). */
-router.get("/public/:publicSlug", async (req, res) => {
+/** Public read-only note (no auth) — mounted from `index.ts` outside the auth gate. */
+export async function handleNotesAppPublicSlug(req: Request, res: Response): Promise<void> {
   try {
-    const publicSlug = normalizePublicSlug(req.params.publicSlug);
+    const raw = req.params.publicSlug;
+    const slugParam = Array.isArray(raw) ? raw[0] : raw;
+    const publicSlug = normalizePublicSlug(slugParam ?? null);
     if (!publicSlug) {
       res.status(400).json({ error: "Invalid slug" });
       return;
@@ -106,13 +155,18 @@ router.get("/public/:publicSlug", async (req, res) => {
     console.error(e);
     res.status(500).json({ error: "Failed to load public note" });
   }
-});
+}
 
 router.get("/bootstrap", async (req, res) => {
   try {
     const q = req.query.workspaceId;
     let workspace: Workspace;
     if (typeof q === "string" && q.trim()) {
+      const ok = await assertWorkspaceAccess(req.appUser!, q.trim());
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
       const ws = await prisma.workspace.findFirst({
         where: { id: q.trim(), archivedAt: null },
       });
@@ -122,7 +176,7 @@ router.get("/bootstrap", async (req, res) => {
       }
       workspace = ws;
     } else {
-      workspace = (await ensureNotesBootstrap()).workspace;
+      workspace = (await ensureNotesBootstrap(req.appUser!)).workspace;
     }
     const defaultFolder = await ensureDefaultNotesFolder(workspace.id);
     const quickCaptureFolder = await ensureQuicknotesFolder(workspace.id);
@@ -156,9 +210,8 @@ router.get("/bootstrap", async (req, res) => {
 
 router.get("/folders", async (req, res) => {
   try {
-    const workspaceId = req.query.workspaceId as string | undefined;
+    const workspaceId = await requireWritableWorkspace(req, res, req.query.workspaceId as string | undefined);
     if (!workspaceId) {
-      res.status(400).json({ error: "workspaceId required" });
       return;
     }
     const folders = await prisma.notesFolder.findMany({
@@ -182,6 +235,10 @@ router.post("/folders", async (req, res) => {
       res.status(400).json({ error: "workspaceId required" });
       return;
     }
+    const wsId = await requireWritableWorkspace(req, res, body.workspaceId);
+    if (!wsId) {
+      return;
+    }
     const parentId = body.parentId ?? null;
     const trimmed = typeof body.title === "string" ? body.title.trim() : "";
     let title: string;
@@ -189,7 +246,7 @@ router.post("/folders", async (req, res) => {
       title = trimmed;
     } else {
       const siblings = await prisma.notesFolder.findMany({
-        where: { workspaceId: body.workspaceId, parentId },
+        where: { workspaceId: wsId, parentId },
         select: { title: true },
       });
       const base = parentId === null ? DEFAULT_NOTEBOOK_BASE : "Folder";
@@ -199,13 +256,13 @@ router.post("/folders", async (req, res) => {
       );
     }
     const maxPos = await prisma.notesFolder.aggregate({
-      where: { workspaceId: body.workspaceId, parentId },
+      where: { workspaceId: wsId, parentId },
       _max: { position: true },
     });
     const position = (maxPos._max.position ?? -1) + 1;
     const folder = await prisma.notesFolder.create({
       data: {
-        workspaceId: body.workspaceId,
+        workspaceId: wsId,
         parentId: parentId ?? undefined,
         title,
         position,
@@ -224,8 +281,12 @@ router.patch("/folders/reorder", async (req, res) => {
       res.status(400).json({ error: "workspaceId and orderedFolderIds required" });
       return;
     }
+    const wsReorder = await requireWritableWorkspace(req, res, body.workspaceId);
+    if (!wsReorder) {
+      return;
+    }
     const folders = await prisma.notesFolder.findMany({
-      where: { workspaceId: body.workspaceId, parentId: null },
+      where: { workspaceId: wsReorder, parentId: null },
     });
     const valid = new Set(folders.map((f) => f.id));
     if (body.orderedFolderIds.length !== valid.size || body.orderedFolderIds.some((id) => !valid.has(id))) {
@@ -247,6 +308,9 @@ router.patch("/folders/reorder", async (req, res) => {
 router.patch("/folders/:folderId", async (req, res) => {
   try {
     const folderId = req.params.folderId;
+    if (!(await assertFolderAccessible(req, res, folderId))) {
+      return;
+    }
     const body = req.body as { title?: string; position?: number; rowAccentColor?: string | null };
     const existing = await prisma.notesFolder.findUnique({ where: { id: folderId } });
     if (!existing) {
@@ -278,6 +342,9 @@ router.patch("/folders/:folderId", async (req, res) => {
 router.delete("/folders/:folderId", async (req, res) => {
   try {
     const folderId = req.params.folderId;
+    if (!(await assertFolderAccessible(req, res, folderId))) {
+      return;
+    }
     const folder = await prisma.notesFolder.findUnique({ where: { id: folderId } });
     if (!folder) {
       res.status(404).json({ error: "Folder not found" });
@@ -316,9 +383,8 @@ router.delete("/folders/:folderId", async (req, res) => {
 
 router.get("/notes", async (req, res) => {
   try {
-    const workspaceId = req.query.workspaceId as string | undefined;
+    const workspaceId = await requireWritableWorkspace(req, res, req.query.workspaceId as string | undefined);
     if (!workspaceId) {
-      res.status(400).json({ error: "workspaceId required" });
       return;
     }
     const folderId = req.query.folderId as string | undefined;
@@ -341,6 +407,9 @@ router.get("/notes", async (req, res) => {
 router.get("/notes/:noteId/backlinks", async (req, res) => {
   try {
     const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
     const links = await prisma.noteLink.findMany({
       where: { toNoteId: noteId },
       include: {
@@ -366,6 +435,9 @@ router.get("/notes/:noteId/backlinks", async (req, res) => {
 router.get("/notes/:noteId/forward-links", async (req, res) => {
   try {
     const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
     const links = await prisma.noteLink.findMany({
       where: { fromNoteId: noteId },
       include: {
@@ -390,6 +462,9 @@ router.get("/notes/:noteId/forward-links", async (req, res) => {
 
 router.get("/notes/:noteId", async (req, res) => {
   try {
+    if (!(await assertNoteAccessible(req, res, req.params.noteId))) {
+      return;
+    }
     const note = await prisma.note.findUnique({
       where: { id: req.params.noteId },
       include: noteInclude,
@@ -432,6 +507,10 @@ router.post("/quick-capture/enrich", async (req, res) => {
       res.status(400).json({ error: "workspaceId and folderId required" });
       return;
     }
+    const wsCapture = await requireWritableWorkspace(req, res, workspaceId);
+    if (!wsCapture) {
+      return;
+    }
     if (rawText.length < 1) {
       res.status(400).json({ error: "Add some note text to refine" });
       return;
@@ -443,7 +522,7 @@ router.post("/quick-capture/enrich", async (req, res) => {
 
     const [workspace, folder] = await Promise.all([
       prisma.workspace.findUnique({
-        where: { id: workspaceId },
+        where: { id: wsCapture },
         select: {
           id: true,
           name: true,
@@ -552,6 +631,9 @@ router.post("/notes/:noteId/ai", async (req, res) => {
     const action = body.action;
     if (!action || !["summarize", "rewrite", "suggestTags", "notebookLinking"].includes(action)) {
       res.status(400).json({ error: "action must be summarize | rewrite | suggestTags | notebookLinking" });
+      return;
+    }
+    if (!(await assertNoteAccessible(req, res, req.params.noteId))) {
       return;
     }
     const extraContext =
@@ -697,13 +779,17 @@ router.post("/notes", async (req, res) => {
       res.status(400).json({ error: "workspaceId required" });
       return;
     }
+    const wsNote = await requireWritableWorkspace(req, res, body.workspaceId);
+    if (!wsNote) {
+      return;
+    }
     let folderId = body.folderId ?? null;
     if (!folderId) {
-      const f = await ensureDefaultNotesFolder(body.workspaceId);
+      const f = await ensureDefaultNotesFolder(wsNote);
       folderId = f.id;
     }
     const maxOrder = await prisma.note.aggregate({
-      where: { workspaceId: body.workspaceId, folderId },
+      where: { workspaceId: wsNote, folderId },
       _max: { position: true },
     });
     const position = (maxOrder._max.position ?? -1) + 1;
@@ -718,7 +804,7 @@ router.post("/notes", async (req, res) => {
       resolvedTitle = trimmedTitle;
     } else {
       const existingTitles = await prisma.note.findMany({
-        where: { workspaceId: body.workspaceId, folderId },
+        where: { workspaceId: wsNote, folderId },
         select: { title: true },
       });
       resolvedTitle = nextSequencedTitle(
@@ -729,7 +815,7 @@ router.post("/notes", async (req, res) => {
 
     const note = await prisma.note.create({
       data: {
-        workspaceId: body.workspaceId,
+        workspaceId: wsNote,
         folderId,
         title: resolvedTitle,
         ...(body.contentJson !== undefined
@@ -746,7 +832,7 @@ router.post("/notes", async (req, res) => {
       include: noteInclude,
     });
     if (body.contentJson !== undefined && body.contentJson !== null) {
-      await syncNoteLinksFromContent(note.id, body.workspaceId, body.contentJson);
+      await syncNoteLinksFromContent(note.id, wsNote, body.contentJson);
     }
     res.status(201).json(serializeNote(note));
   } catch (e) {
@@ -766,8 +852,12 @@ router.patch("/notes/reorder", async (req, res) => {
       res.status(400).json({ error: "workspaceId, folderId, orderedNoteIds required" });
       return;
     }
+    const wsReorderNotes = await requireWritableWorkspace(req, res, body.workspaceId);
+    if (!wsReorderNotes) {
+      return;
+    }
     const notes = await prisma.note.findMany({
-      where: { workspaceId: body.workspaceId, folderId: body.folderId },
+      where: { workspaceId: wsReorderNotes, folderId: body.folderId },
     });
     const valid = new Set(notes.map((n) => n.id));
     if (body.orderedNoteIds.length !== valid.size || body.orderedNoteIds.some((id) => !valid.has(id))) {
@@ -789,6 +879,9 @@ router.patch("/notes/reorder", async (req, res) => {
 router.patch("/notes/:noteId", async (req, res) => {
   try {
     const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
     const body = req.body as {
       title?: string;
       contentJson?: unknown | null;
@@ -873,6 +966,9 @@ router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
       return;
     }
     const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
     const note = await prisma.note.findUnique({
       where: { id: noteId },
       include: { tags: true },
@@ -922,6 +1018,9 @@ router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
 
 router.delete("/notes/:noteId", async (req, res) => {
   try {
+    if (!(await assertNoteAccessible(req, res, req.params.noteId))) {
+      return;
+    }
     await prisma.note.delete({ where: { id: req.params.noteId } });
     res.status(204).send();
   } catch {
@@ -932,9 +1031,8 @@ router.delete("/notes/:noteId", async (req, res) => {
 router.get("/search", async (req, res) => {
   try {
     const q = (req.query.q as string) ?? "";
-    const workspaceId = req.query.workspaceId as string | undefined;
+    const workspaceId = await requireWritableWorkspace(req, res, req.query.workspaceId as string | undefined);
     if (!workspaceId) {
-      res.status(400).json({ error: "workspaceId required" });
       return;
     }
     const term = q.trim();
@@ -967,11 +1065,15 @@ router.post("/tags", async (req, res) => {
       res.status(400).json({ error: "workspaceId and name required" });
       return;
     }
+    const wsTag = await requireWritableWorkspace(req, res, body.workspaceId);
+    if (!wsTag) {
+      return;
+    }
     const name = body.name.trim();
     try {
       const tag = await prisma.noteTag.create({
         data: {
-          workspaceId: body.workspaceId,
+          workspaceId: wsTag,
           name,
           color: body.color ?? "#6366f1",
         },
@@ -980,7 +1082,7 @@ router.post("/tags", async (req, res) => {
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         const existing = await prisma.noteTag.findFirst({
-          where: { workspaceId: body.workspaceId, name },
+          where: { workspaceId: wsTag, name },
         });
         if (existing) {
           res.json(serializeTag(existing));
@@ -997,9 +1099,8 @@ router.post("/tags", async (req, res) => {
 
 router.get("/tags", async (req, res) => {
   try {
-    const workspaceId = req.query.workspaceId as string | undefined;
+    const workspaceId = await requireWritableWorkspace(req, res, req.query.workspaceId as string | undefined);
     if (!workspaceId) {
-      res.status(400).json({ error: "workspaceId required" });
       return;
     }
     const tags = await prisma.noteTag.findMany({
@@ -1020,18 +1121,17 @@ router.get("/tags", async (req, res) => {
 
 router.delete("/tags/:tagId", async (req, res) => {
   try {
-    const workspaceId = req.query.workspaceId as string | undefined;
-    const tagId = req.params.tagId?.trim();
-    if (!workspaceId?.trim()) {
-      res.status(400).json({ error: "workspaceId required" });
+    const workspaceId = await requireWritableWorkspace(req, res, req.query.workspaceId as string | undefined);
+    if (!workspaceId) {
       return;
     }
+    const tagId = req.params.tagId?.trim();
     if (!tagId) {
       res.status(400).json({ error: "tagId required" });
       return;
     }
     const tag = await prisma.noteTag.findFirst({
-      where: { id: tagId, workspaceId: workspaceId.trim() },
+      where: { id: tagId, workspaceId },
     });
     if (!tag) {
       res.status(404).json({ error: "Tag not found" });
