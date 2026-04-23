@@ -13,14 +13,11 @@ import {
 import { defaultConsultingMode, parseConsultingMode } from "../lib/openai/chatMode.js";
 import { chunkText } from "../lib/rag/chunkText.js";
 import { embedQuery, embedTexts } from "../lib/rag/embeddings.js";
-import { extractTextFromBuffer } from "../lib/rag/extractText.js";
 import { searchProjectChunks } from "../lib/rag/searchChunks.js";
 import { assertProjectAccess, assertWorkspaceAccess, workspaceWhereForAppUser } from "../lib/auth/workspaceScope.js";
 import { ensureBrainstormProjectForWorkspace } from "../lib/brainstormProject.js";
 import { ensurePersonalWorkspaceBoard } from "../lib/taskDefaults.js";
 import { getOrCreateDefaultProject, prepareConsultingTurn } from "../lib/chat/prepareTurn.js";
-import { buildPptxBuffer, slugifyFilename } from "../lib/export/pptxDeck.js";
-import { ingestLocalPath } from "../lib/rag/ingestLocalFolder.js";
 
 const router = Router();
 const upload = multer({
@@ -355,6 +352,7 @@ router.post("/documents", upload.single("file"), async (req, res) => {
 
     let text: string;
     try {
+      const { extractTextFromBuffer } = await import("../lib/rag/extractText.js");
       text = await extractTextFromBuffer(file.buffer, mime, filename);
     } catch (e) {
       res.status(400).json({ error: e instanceof Error ? e.message : "Could not read file" });
@@ -664,6 +662,7 @@ router.post("/export/pptx", async (req, res) => {
       return;
     }
 
+    const { buildPptxBuffer, slugifyFilename } = await import("../lib/export/pptxDeck.js");
     const buffer = await buildPptxBuffer(deckTitle, content);
     const name = slugifyFilename(deckTitle);
     res.setHeader(
@@ -705,6 +704,7 @@ router.post("/documents/ingest-local", async (req, res) => {
   const rawMax = Number(process.env.LOCAL_INGEST_MAX_FILES ?? "40");
   const maxFiles = Number.isFinite(rawMax) && rawMax > 0 ? Math.min(rawMax, 200) : 40;
   try {
+    const { ingestLocalPath } = await import("../lib/rag/ingestLocalFolder.js");
     const result = await ingestLocalPath({
       projectId: body.projectId,
       threadId: body.threadId,

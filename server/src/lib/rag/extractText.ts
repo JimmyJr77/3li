@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import mammoth from "mammoth";
 
 const require = createRequire(import.meta.url);
 
@@ -24,7 +23,8 @@ export async function extractTextFromBuffer(buf: Buffer, mime: string, filename:
     mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     lower.endsWith(".docx")
   ) {
-    const result = await mammoth.extractRawText({ buffer: buf });
+    const mammoth = await import("mammoth");
+    const result = await mammoth.default.extractRawText({ buffer: buf });
     return (result.value ?? "").trim();
   }
   if (
