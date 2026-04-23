@@ -1,21 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { register } from "@/features/auth/api";
+import { formatApiError } from "@/lib/apiErrorMessage";
 import { formatUsPhoneInput } from "@/lib/phoneUs";
-
-function registerErrorMessage(err: unknown): string {
-  if (axios.isAxiosError(err)) {
-    const d = err.response?.data as { error?: string } | undefined;
-    if (d?.error) return d.error;
-  }
-  if (err instanceof Error) return err.message;
-  return "Could not create account";
-}
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -127,7 +118,7 @@ export function RegisterPage() {
           </div>
           {mutation.isError ? (
             <p className="text-sm text-destructive" role="alert">
-              {registerErrorMessage(mutation.error)}
+              {formatApiError(mutation.error, "Could not create account")}
             </p>
           ) : null}
           <Button type="submit" className="w-full" disabled={mutation.isPending}>

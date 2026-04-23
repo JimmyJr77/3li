@@ -1,19 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login } from "@/features/auth/api";
-
-function loginErrorMessage(err: unknown): string {
-  if (axios.isAxiosError(err)) {
-    const d = err.response?.data as { error?: string } | undefined;
-    if (d?.error) return d.error;
-  }
-  if (err instanceof Error) return err.message;
-  return "Sign-in failed";
-}
+import { formatApiError } from "@/lib/apiErrorMessage";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -72,7 +63,7 @@ export function LoginPage() {
           </div>
           {mutation.isError ? (
             <p className="text-sm text-destructive" role="alert">
-              {loginErrorMessage(mutation.error)}
+              {formatApiError(mutation.error, "Sign-in failed")}
             </p>
           ) : null}
           <Button type="submit" className="w-full" disabled={mutation.isPending}>
