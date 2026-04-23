@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
+import { prismaMigrateDatabaseUrl } from "./lib/prisma-migrate-database-url.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -144,8 +145,13 @@ const run = (cmd, args, extraEnv = {}) => {
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
 
-console.log("\n→ prisma migrate deploy (target)…");
-run("npx", ["prisma", "migrate", "deploy"], { DATABASE_URL: targetUrl });
+const migrateTargetUrl = prismaMigrateDatabaseUrl(targetUrl);
+if (migrateTargetUrl !== targetUrl) {
+  console.log("\n→ prisma migrate deploy (target, direct / non-pooler URL for Prisma Migrate)…");
+} else {
+  console.log("\n→ prisma migrate deploy (target)…");
+}
+run("npx", ["prisma", "migrate", "deploy"], { DATABASE_URL: migrateTargetUrl });
 
 const dumpPath = path.join(os.tmpdir(), `3li-data-${Date.now()}.dump`);
 console.log(`\nUsing ${pgDumpBin} / ${pgRestoreBin} (set PG_DUMP / PG_RESTORE to override).`);
