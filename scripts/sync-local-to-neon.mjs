@@ -46,13 +46,48 @@ function resolvePgTool(name, envOverride) {
 const pgDumpBin = resolvePgTool("pg_dump", "PG_DUMP");
 const pgRestoreBin = resolvePgTool("pg_restore", "PG_RESTORE");
 
+/** `URL.origin` is useless for `postgresql:` — redact userinfo without relying on it. */
 function redactUrl(u) {
+  if (!u) return "(empty)";
+  return u.replace(/^(postgres(ql)?:\/\/)([^/@]+)(@)/i, (_, proto, _q, userinfo, at) => {
+    const redactedUserinfo = userinfo.includes(":")
+      ? userinfo.replace(/^([^:]+):.*$/, "$1:***")
+      : userinfo.length > 0
+        ? "***"
+        : "";
+    return `${proto}${redactedUserinfo}${at}`;
+  });
+}
+
+function assertValidPostgresUrl(label, raw, { rejectDocPlaceholders = false } = {}) {
+  const s = raw.trim();
+  if (
+    rejectDocPlaceholders &&
+    /paste-your|your-neon-connection-string|neon-connection-string-here/i.test(s)
+  ) {
+    console.error(
+      `${label} is still the documentation placeholder. Use the full URI from Neon (starts with postgresql://…).`,
+    );
+    process.exit(1);
+  }
+  if (!/^postgres(ql)?:\/\//i.test(s)) {
+    console.error(`${label} must start with postgresql:// or postgres:// (copy the full “Connection string” from Neon).`);
+    process.exit(1);
+  }
+  if (
+    rejectDocPlaceholders &&
+    /example\.(com|org)|changeme/i.test(s)
+  ) {
+    console.error(
+      `${label} still looks like documentation placeholder text. Paste the real connection string from the Neon dashboard (Connection details → URI).`,
+    );
+    process.exit(1);
+  }
   try {
-    const x = new URL(u);
-    if (x.password) x.password = "***";
-    return x.origin + x.pathname + x.search;
+    new URL(s);
   } catch {
-    return "(unparseable URL)";
+    console.error(`${label} is not a valid URL. Check for stray spaces or smart quotes.`);
+    process.exit(1);
   }
 }
 
@@ -77,6 +112,9 @@ function mustGet(name, ...aliases) {
 
 const targetUrl = mustGet("TARGET_DATABASE_URL", "NEON_DATABASE_URL");
 const sourceUrl = mustGet("SOURCE_DATABASE_URL", "DATABASE_URL");
+
+assertValidPostgresUrl("TARGET_DATABASE_URL", targetUrl, { rejectDocPlaceholders: true });
+assertValidPostgresUrl("SOURCE_DATABASE_URL (or DATABASE_URL from .env)", sourceUrl, { rejectDocPlaceholders: false });
 
 if (/\b(localhost|127\.0\.0\.1)\b/i.test(targetUrl)) {
   console.error("Refusing: TARGET_DATABASE_URL looks like localhost.");
