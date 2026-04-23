@@ -14,10 +14,12 @@
     "vercel-build": "prisma generate && npm run vercel-migrate-if-hosted && npm run build -w client && npm run build -w server && cp client/dist/index.html server/dist/spa-index.html && rm -rf public client/public && cp -R client/dist public && cp -R client/dist client/public",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "db:sync-to-neon": "node scripts/sync-local-to-neon.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
+    "dotenv": "^17.4.2",
     "prisma": "^6.19.0"
   }
 }
