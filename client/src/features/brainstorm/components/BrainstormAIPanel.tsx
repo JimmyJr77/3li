@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ClassValue } from "clsx";
-import { Loader2, Sparkles } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { GripHorizontal, Loader2, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -78,6 +78,24 @@ const tabBtnClass =
 const tabBtnActiveClass =
   "border-primary text-foreground";
 
+const OUTPUT_PANE_HEIGHT_STORAGE_KEY = "brainstormAgentOutputPaneHeightPx";
+const OUTPUT_PANE_DEFAULT = 220;
+const OUTPUT_PANE_MIN = 120;
+const OUTPUT_PANE_MAX = 560;
+
+function readStoredOutputPaneHeight(): number {
+  try {
+    const raw = localStorage.getItem(OUTPUT_PANE_HEIGHT_STORAGE_KEY);
+    const n = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(n) && n >= OUTPUT_PANE_MIN && n <= OUTPUT_PANE_MAX) {
+      return n;
+    }
+  } catch {
+    /* ignore */
+  }
+  return OUTPUT_PANE_DEFAULT;
+}
+
 export function BrainstormAIPanel({
   sessionId,
   workspaceId,
@@ -99,7 +117,57 @@ export function BrainstormAIPanel({
   const [freeformMessage, setFreeformMessage] = useState("");
   const [pendingProposals, setPendingProposals] = useState<StudioCanvasProposalItem[] | null>(null);
   const [agentTab, setAgentTab] = useState<BrainstormAgentTab>("thought");
+  const [outputPaneHeight, setOutputPaneHeight] = useState(readStoredOutputPaneHeight);
+  const outputPaneHeightRef = useRef(outputPaneHeight);
+  const layoutRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    outputPaneHeightRef.current = outputPaneHeight;
+  }, [outputPaneHeight]);
+
+  const outputPaneHeightDisplay = useMemo(() => {
+    const winCap = typeof window !== "undefined" ? window.innerHeight * 0.65 : OUTPUT_PANE_MAX;
+    const cap = Math.min(OUTPUT_PANE_MAX, winCap);
+    return Math.min(cap, Math.max(OUTPUT_PANE_MIN, outputPaneHeight));
+  }, [outputPaneHeight]);
+
+  const clampOutputHeightDuringDrag = useCallback((h: number) => {
+    const el = layoutRef.current;
+    const layoutH = el?.clientHeight ?? 0;
+    const maxFromLayout =
+      layoutH > 120 ? Math.max(OUTPUT_PANE_MIN, layoutH - 140) : OUTPUT_PANE_MAX;
+    const winCap = typeof window !== "undefined" ? window.innerHeight * 0.65 : OUTPUT_PANE_MAX;
+    const cap = Math.min(OUTPUT_PANE_MAX, maxFromLayout, winCap);
+    return Math.min(cap, Math.max(OUTPUT_PANE_MIN, h));
+  }, []);
+
+  const startOutputPaneResize = useCallback(
+    (e: ReactMouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = outputPaneHeightRef.current;
+      const onMove = (ev: MouseEvent) => {
+        const dy = ev.clientY - startY;
+        const raw = startH + dy;
+        const next = clampOutputHeightDuringDrag(raw);
+        outputPaneHeightRef.current = next;
+        setOutputPaneHeight(next);
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        try {
+          localStorage.setItem(OUTPUT_PANE_HEIGHT_STORAGE_KEY, String(outputPaneHeightRef.current));
+        } catch {
+          /* ignore */
+        }
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [clampOutputHeightDuringDrag],
+  );
 
   const selectedNode = useMemo(() => nodes.find((n) => n.selected), [nodes]);
   const selectedIdea = useMemo(
@@ -272,7 +340,7 @@ If proposing concrete idea or text nodes for the board, use the STUDIO_CANVAS_JS
   return (
     <Card
       className={cn(
-        "flex h-full min-h-0 flex-col border bg-card shadow-sm",
+        "flex h-full min-h-0 flex-col overflow-hidden border bg-card shadow-sm",
         embeddedInSheet && "border-0 bg-transparent shadow-none",
         className,
       )}
@@ -313,6 +381,7 @@ If proposing concrete idea or text nodes for the board, use the STUDIO_CANVAS_JS
         </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden px-0 pb-0 pt-2 sm:pt-3">
+        <div ref={layoutRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           role="tablist"
           aria-label="Brainstorm agent sections"
@@ -340,7 +409,7 @@ If proposing concrete idea or text nodes for the board, use the STUDIO_CANVAS_JS
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
           {agentTab === "thought" ? (
             <div
               role="tabpanel"
@@ -528,38 +597,61 @@ If proposing concrete idea or text nodes for the board, use the STUDIO_CANVAS_JS
           ) : null}
         </div>
 
-        <div className="shrink-0 border-t border-border bg-card/95 px-3 py-3 sm:px-4">
-          {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
-          {pendingProposals && pendingProposals.length > 0 ? (
-            <div className="mb-3 flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
-              <p className="text-foreground">
-                The red team suggested <strong>{pendingProposals.length}</strong> board item(s) (idea cards or text blocks).
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" onClick={applyPendingToBoard}>
-                  Add to board
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setPendingProposals(null)}>
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Latest output</p>
-          <div className="max-h-[min(240px,32vh)] overflow-auto rounded-md border bg-muted/30 p-3 text-sm leading-relaxed whitespace-pre-wrap">
-            {busy && !output ? (
-              <span className="inline-flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Thinking…
-              </span>
-            ) : (
-              output || (
-                <span className="text-muted-foreground">
-                  Responses from the red team and consultant appear here across all tabs.
-                </span>
-              )
-            )}
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Drag to resize output area"
+          title="Drag to resize — output vs inputs"
+          className="group relative z-10 flex h-7 shrink-0 cursor-row-resize touch-none items-center justify-center border-y border-border/60 bg-muted/30 hover:bg-muted/60"
+          onMouseDown={startOutputPaneResize}
+        >
+          <div className="pointer-events-none flex items-center gap-1.5 text-muted-foreground">
+            <GripHorizontal className="size-4 opacity-70 group-hover:opacity-100" aria-hidden />
+            <span className="hidden text-[10px] font-medium uppercase tracking-wide sm:inline">Resize</span>
           </div>
+        </div>
+
+        <div
+          className="flex min-h-0 shrink-0 flex-col overflow-hidden bg-card/95"
+          style={{ height: outputPaneHeightDisplay }}
+        >
+          <div className="shrink-0 space-y-2 px-3 pt-2 sm:px-4">
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            {pendingProposals && pendingProposals.length > 0 ? (
+              <div className="flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+                <p className="text-foreground">
+                  The red team suggested <strong>{pendingProposals.length}</strong> board item(s) (idea cards or text
+                  blocks).
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={applyPendingToBoard}>
+                    Add to board
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPendingProposals(null)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Latest output</p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto px-3 pb-3 sm:px-4 sm:pb-4">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm leading-relaxed whitespace-pre-wrap">
+              {busy && !output ? (
+                <span className="inline-flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Thinking…
+                </span>
+              ) : (
+                output || (
+                  <span className="text-muted-foreground">
+                    Responses from the red team and consultant appear here across all tabs.
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+        </div>
         </div>
       </CardContent>
     </Card>

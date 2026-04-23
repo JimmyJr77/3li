@@ -76,7 +76,7 @@ export function BrainstormAgentsSheet({ sessionId, workspaceId }: BrainstormAgen
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent
         side="right"
-        className="flex h-full max-w-none flex-col gap-0 overflow-y-auto border-l p-0 shadow-xl !max-w-none"
+        className="flex h-full max-w-none flex-col gap-0 overflow-hidden border-l p-0 shadow-xl !max-w-none"
         style={{
           width: `min(${panelWidthPx}px, calc(100vw - 12px))`,
         }}
