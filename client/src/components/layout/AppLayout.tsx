@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { ModeToggle } from "@/components/shared/ModeToggle";
 import { WorkspaceBrandSwitcher } from "@/components/layout/WorkspaceBrandSwitcher";
@@ -17,6 +17,7 @@ function AppLayoutInner() {
   const { mailroomOpen, setMailroomOpen } = useMailroomRouting();
   const pinned = sidebarBehavior === "pinned";
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
+  const desktopSidebarAsideRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!desktopSidebarOpen) return;
@@ -26,6 +27,13 @@ function AppLayoutInner() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [desktopSidebarOpen]);
+
+  useEffect(() => {
+    if (desktopSidebarOpen || pinned) return;
+    const root = desktopSidebarAsideRef.current;
+    if (!root?.contains(document.activeElement)) return;
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }, [desktopSidebarOpen, pinned]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -64,11 +72,12 @@ function AppLayoutInner() {
               onMouseLeave={() => setDesktopSidebarOpen(false)}
             >
               <aside
+                ref={desktopSidebarAsideRef}
                 className={cn(
                   "flex h-full w-56 flex-col border-r border-sidebar-border bg-sidebar shadow-lg transition-transform duration-200 ease-out",
                   desktopSidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
                 )}
-                aria-hidden={!desktopSidebarOpen}
+                inert={desktopSidebarOpen ? undefined : true}
               >
                 <WorkspaceSidebarColumn />
               </aside>
