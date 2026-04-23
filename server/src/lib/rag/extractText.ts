@@ -2,13 +2,22 @@ import { createRequire } from "node:module";
 import mammoth from "mammoth";
 
 const require = createRequire(import.meta.url);
-// pdf-parse is CommonJS; load lazily for ESM compatibility
-const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text?: string }>;
+
+type PdfParseFn = (buf: Buffer) => Promise<{ text?: string }>;
+let pdfParse: PdfParseFn | undefined;
+
+/** Load pdf-parse only when parsing a PDF (pulls canvas/DOM; crashes Vercel if required at cold start). */
+function getPdfParse(): PdfParseFn {
+  if (!pdfParse) {
+    pdfParse = require("pdf-parse") as PdfParseFn;
+  }
+  return pdfParse;
+}
 
 export async function extractTextFromBuffer(buf: Buffer, mime: string, filename: string): Promise<string> {
   const lower = filename.toLowerCase();
   if (mime === "application/pdf" || lower.endsWith(".pdf")) {
-    const data = await pdfParse(buf);
+    const data = await getPdfParse()(buf);
     return (data.text ?? "").trim();
   }
   if (
