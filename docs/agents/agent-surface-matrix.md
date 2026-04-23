@@ -5,8 +5,8 @@ Maps authenticated app routes (`/app/...`) to **which agents** should be availab
 | Route | Primary purpose | Consultant | AI Consultant | Brand Rep | Red Team | Mailroom | Notebook linking | PM Agent | Standard tools (target UX) |
 |-------|-----------------|-------------|---------------|-----------|----------|----------|------------------|----------|------------------------------|
 | `/app/dashboard` | Home | — | — | — | — | entry | — | — | Link to Rapid Router, Brand Center |
-| `/app/rapid-router` | Capture & route | — | — | optional review | **panel** | **primary** | — | optional | Red Team pre-route; Mailroom wizard; destination chips |
-| `/app/notes` | Notebooks | — | — | — | **sheet/button** | **button → dialog** | inline refine | — | Mailroom (replaces brainstorm-only shortcut where applicable); Red Team exercises; export to Brainstorm |
+| `/app/rapid-router` | Capture & route | — | — | optional review | **panel** | **primary** | — | optional | Advise sheet (quick tools + routed prompts); Mailroom wizard; destination chips |
+| `/app/notes` | Notebooks | — | — | — | **sheet/button** | **button → dialog** | inline refine | — | Mailroom (replaces brainstorm-only shortcut where applicable); Advise sheet; export to Brainstorm |
 | `/app/brainstorm` | Studio boards | — | **collapsible panel** | kit injection | **collapsible panel** | — | — | — | Mode + AI Consultant / Red Team tabs; convert plan → tasks |
 | `/app/boards`, `/app/boards/:id` | Project boards | — | — | — | optional | optional | — | **sheet/popup** | “Plan with PM Agent”; send to notes/brainstorm with provenance (future) |
 | `/app/tasks`, `/app/my-tasks` | Task lists | — | — | — | — | holding pen | — | **popup** | Create task → project space / board / holding pen |
@@ -33,8 +33,8 @@ Maps authenticated app routes (`/app/...`) to **which agents** should be availab
 |-------|---------------------------|
 | Global | **Agents** dropdown in sidebar + mobile header; **Mailroom** dialog via [`MailroomRoutingContext`](../../client/src/context/MailroomRoutingContext.tsx) (single dialog in [`AppLayout`](../../client/src/components/layout/AppLayout.tsx)). |
 | `/app/dashboard` | **Agent quick actions** card: Mailroom, Rapid Router, Consultant, Brand Center, Notebooks, Brainstorm ([`DashboardPage`](../../client/src/pages/DashboardPage.tsx)). |
-| `/app/rapid-router` | **Red Team** panel ([`RedTeamPanel`](../../client/src/features/agents/RedTeamPanel.tsx)), Mailroom + Consultant links. |
-| `/app/notes` | Mailroom button (global dialog), **Red Team** panel, **Linking ideas** (`notebookLinking` on [`POST /api/notes-app/notes/:id/ai`](../../server/src/routes/notesApp.ts)). |
+| `/app/rapid-router` | **Advise** sheet ([`AdvisorAgentsSheet`](../../client/src/features/agents/AdvisorAgentsSheet.tsx) + [`RedTeamPanel`](../../client/src/features/agents/RedTeamPanel.tsx): Quick tools + routed Advise), Mailroom + Consultant links. |
+| `/app/notes` | Mailroom button (global dialog), **Advise** sheet (same panel: quick tools + Advise with internal red/consultant routing), **Linking ideas** (`notebookLinking` on [`POST /api/notes-app/notes/:id/ai`](../../server/src/routes/notesApp.ts)). |
 | `/app/brainstorm` | Unchanged: AI Consultant + Red Team in [`BrainstormAIPanel`](../../client/src/features/brainstorm/components/BrainstormAIPanel.tsx). |
 | `/app/boards`, `/app/boards/:id` | **PM Agent** sheet ([`PMAgentSheet`](../../client/src/features/agents/PMAgentSheet.tsx)) + [`POST /api/ai/agent`](../../server/src/routes/ai.ts) `surfaceType: task_popup`. |
 | `/app/my-tasks`, `/app/tasks` | PM Agent sheet with filtered task snapshot. |

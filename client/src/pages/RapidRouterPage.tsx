@@ -1129,7 +1129,7 @@ export function RapidRouterPage() {
 
         {!activeWorkspaceId ? (
           <p className="text-sm text-muted-foreground">
-            Select a brand in the sidebar to use Advisor Agents (AI Tools, Red Team Agent, and AI Consultant).
+            Select a brand in the sidebar to open Advisor Agents (prompts and Advise on your capture).
           </p>
         ) : null}
         </div>
