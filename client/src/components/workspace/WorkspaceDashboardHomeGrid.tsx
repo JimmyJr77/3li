@@ -22,11 +22,11 @@ const workspaceMarketing = {
   },
   activity: {
     headline:
-      "Activity Tracker — a simple “what changed while I was gone?” feed for your workspace.",
+      "Activity Tracker — a concise log of task actions you took in the active brand workspace.",
     highlights: [
-      "Skim updates the way you’d scan a group chat for the important bits.",
-      "See what moved on tasks without opening every board.",
-      "Easier to hand off work—everyone’s looking at the same story.",
+      "Skim your own moves the way you’d scan a group chat for the important bits.",
+      "See what you changed on tasks without opening every board.",
+      "Scoped to your login so a fresh account starts with an empty feed.",
     ],
     ai: undefined,
   },
@@ -106,7 +106,7 @@ export const workspaceDashboardHomeTiles = [
   {
     title: "Activity Tracker",
     to: "/app/notifications",
-    body: "Task events for your active brand workspace in one place.",
+    body: "Your task actions for the active brand workspace in one place.",
     preview: "activity",
   },
   {

@@ -39,7 +39,7 @@ export async function resetShowcaseDemoData() {
 }
 
 /**
- * Rich demo tasks + activity feed for empty boards (or boards without Showcase tasks).
+ * Rich demo tasks for empty boards (or boards without Showcase tasks). Does not seed Activity rows.
  * Idempotent: skips if any task titled with `Showcase ·` already exists on this board.
  */
 export async function ensureTaskflowShowcase(boardId: string) {
@@ -231,51 +231,6 @@ export async function ensureTaskflowShowcase(boardId: string) {
           data: { taskId: task.id, labelId: byName[spec.label] },
         });
       }
-
-      await tx.activity.create({
-        data: {
-          taskId: task.id,
-          action: "created",
-          detail: "",
-          createdAt: new Date(Date.now() - 86400000 * 3),
-        },
-      });
-    }
-
-    const created = await tx.task.findMany({
-      where: { list: { boardId }, title: { startsWith: SHOWCASE } },
-      select: { id: true },
-      orderBy: { createdAt: "asc" },
-    });
-    const ids = created.map((t) => t.id);
-
-    const feed: { action: string; detail: string }[] = [
-      { action: "moved", detail: "In progress" },
-      { action: "moved", detail: "Backlog" },
-      { action: "comment", detail: "Synced with client — scope narrowed" },
-      { action: "moved", detail: "Done" },
-      { action: "comment", detail: "Linked to steering deck v3" },
-      { action: "moved", detail: "In progress" },
-      { action: "comment", detail: "Waiting on security sign-off" },
-      { action: "archived", detail: "" },
-      { action: "unarchived", detail: "" },
-      { action: "moved", detail: "In progress" },
-      { action: "comment", detail: "Added acceptance criteria" },
-      { action: "moved", detail: "Done" },
-      { action: "created", detail: "" },
-    ];
-
-    for (let i = 0; i < 48; i++) {
-      const taskId = ids[i % ids.length];
-      const row = feed[i % feed.length];
-      await tx.activity.create({
-        data: {
-          taskId,
-          action: row.action,
-          detail: row.detail,
-          createdAt: new Date(Date.now() - (i + 1) * 55 * 60000),
-        },
-      });
     }
   });
 }

@@ -14,6 +14,7 @@ import {
   brandWhereForAppUser,
   listAccessibleWorkspaceIds,
   workspaceWhereForAppUser,
+  type AppUserPrincipal,
 } from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
 import { ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
@@ -139,23 +140,31 @@ async function resolveWorkspaceTemplate(
   return { templateName: row.name, lists };
 }
 
-const taskInclude = {
-  list: {
-    select: {
-      id: true,
-      title: true,
-      key: true,
-      position: true,
-      boardId: true,
-      board: { select: { id: true, name: true, projectSpace: boardProjectSpaceRef } },
+function taskActivitiesInclude(user: AppUserPrincipal, take: number) {
+  const base = { orderBy: { createdAt: "desc" as const }, take };
+  if (user.role === "admin") return base;
+  return { ...base, where: { actorUserId: user.id } };
+}
+
+function buildTaskInclude(user: AppUserPrincipal) {
+  return {
+    list: {
+      select: {
+        id: true,
+        title: true,
+        key: true,
+        position: true,
+        boardId: true,
+        board: { select: { id: true, name: true, projectSpace: boardProjectSpaceRef } },
+      },
     },
-  },
-  ideaNode: { select: { id: true, title: true } },
-  labels: { include: { label: true } },
-  comments: { orderBy: { createdAt: "asc" as const } },
-  checklist: { orderBy: { position: "asc" as const } },
-  activities: { orderBy: { createdAt: "desc" as const }, take: 30 },
-} as const;
+    ideaNode: { select: { id: true, title: true } },
+    labels: { include: { label: true } },
+    comments: { orderBy: { createdAt: "asc" as const } },
+    checklist: { orderBy: { position: "asc" as const } },
+    activities: taskActivitiesInclude(user, 30),
+  } as const;
+}
 
 /** Kanban and API responses only surface non-archived tasks on a board. */
 const activeTaskWhere: Prisma.TaskWhereInput = { archivedAt: null };
@@ -178,26 +187,28 @@ const boardIncludeBootstrap = {
   labels: { orderBy: { name: "asc" as const } },
 } as const;
 
-const boardIncludeFull = {
-  projectSpace: boardProjectSpaceRef,
-  lists: {
-    orderBy: { position: "asc" as const },
-    include: {
-      tasks: {
-        where: activeTaskWhere,
-        orderBy: { order: "asc" as const },
-        include: {
-          ideaNode: { select: { id: true, title: true } },
-          labels: { include: { label: true } },
-          comments: { orderBy: { createdAt: "asc" as const } },
-          checklist: { orderBy: { position: "asc" as const } },
-          activities: { orderBy: { createdAt: "desc" as const }, take: 20 },
+function buildBoardIncludeFull(user: AppUserPrincipal) {
+  return {
+    projectSpace: boardProjectSpaceRef,
+    lists: {
+      orderBy: { position: "asc" as const },
+      include: {
+        tasks: {
+          where: activeTaskWhere,
+          orderBy: { order: "asc" as const },
+          include: {
+            ideaNode: { select: { id: true, title: true } },
+            labels: { include: { label: true } },
+            comments: { orderBy: { createdAt: "asc" as const } },
+            checklist: { orderBy: { position: "asc" as const } },
+            activities: taskActivitiesInclude(user, 20),
+          },
         },
       },
     },
-  },
-  labels: { orderBy: { name: "asc" as const } },
-} as const;
+    labels: { orderBy: { name: "asc" as const } },
+  } as const;
+}
 
 const boardIncludePositions = {
   projectSpace: boardProjectSpaceRef,
@@ -217,8 +228,8 @@ const boardIncludePositions = {
   labels: { orderBy: { name: "asc" as const } },
 } as const;
 
-async function logActivity(taskId: string, action: string, detail = "") {
-  await prisma.activity.create({ data: { taskId, action, detail } });
+async function logActivity(taskId: string, actorUserId: string, action: string, detail = "") {
+  await prisma.activity.create({ data: { taskId, actorUserId, action, detail } });
 }
 
 router.get("/bootstrap", async (req, res) => {
@@ -649,7 +660,7 @@ router.get("/boards/:boardId", async (req, res) => {
   try {
     const board = await prisma.board.findUnique({
       where: { id: req.params.boardId },
-      include: boardIncludeFull,
+      include: buildBoardIncludeFull(req.appUser!),
     });
     if (!board) {
       res.status(404).json({ error: "Board not found" });
@@ -757,7 +768,7 @@ router.get("/tasks", async (req, res) => {
     const tasks = await prisma.task.findMany({
       where,
       orderBy: parseTaskListSort(sortRaw),
-      include: taskInclude,
+      include: buildTaskInclude(req.appUser!),
     });
     res.json(tasks.map((t) => taskJsonForApi(t)));
   } catch (e) {
@@ -769,13 +780,15 @@ router.get("/tasks", async (req, res) => {
 router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
   try {
     const workspaceId = req.params.workspaceId;
+    const user = req.appUser!;
+    const taskScope = {
+      archivedAt: null,
+      list: { board: { projectSpace: { workspaceId } } },
+    };
+    const where: Prisma.ActivityWhereInput =
+      user.role === "admin" ? { task: taskScope } : { task: taskScope, actorUserId: user.id };
     const rows = await prisma.activity.findMany({
-      where: {
-        task: {
-          archivedAt: null,
-          list: { board: { projectSpace: { workspaceId } } },
-        },
-      },
+      where,
       orderBy: { createdAt: "desc" },
       take: 120,
       include: {
@@ -1527,9 +1540,9 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
         sourceMessageId: body.sourceMessageId ?? undefined,
         ...(routingSource ? { routingSource } : {}),
       },
-      include: taskInclude,
+      include: buildTaskInclude(req.appUser!),
     });
-    await logActivity(task.id, "created", task.title);
+    await logActivity(task.id, req.appUser!.id, "created", task.title);
     res.status(201).json(task);
   } catch (e) {
     console.error(e);
@@ -1586,9 +1599,9 @@ router.patch("/tasks/:taskId", async (req, res) => {
             ? { startDate: body.startDate ? new Date(body.startDate) : null }
             : {}),
         },
-        include: taskInclude,
+        include: buildTaskInclude(req.appUser!),
       });
-      await logActivity(taskId, "moved", list.title);
+      await logActivity(taskId, req.appUser!.id, "moved", list.title);
       res.json(taskJsonForApi(task));
       return;
     }
@@ -1613,12 +1626,12 @@ router.patch("/tasks/:taskId", async (req, res) => {
           ? { startDate: body.startDate ? new Date(body.startDate) : null }
           : {}),
       },
-      include: taskInclude,
+      include: buildTaskInclude(req.appUser!),
     });
     if (body.archived === true) {
-      await logActivity(taskId, "archived", task.title);
+      await logActivity(taskId, req.appUser!.id, "archived", task.title);
     } else if (body.archived === false) {
-      await logActivity(taskId, "unarchived", task.title);
+      await logActivity(taskId, req.appUser!.id, "unarchived", task.title);
     }
     res.json(taskJsonForApi(task));
   } catch {
@@ -1703,7 +1716,7 @@ router.patch("/boards/:boardId", async (req, res) => {
     const board = await prisma.board.update({
       where: { id: boardId },
       data,
-      include: boardIncludeFull,
+      include: buildBoardIncludeFull(req.appUser!),
     });
     res.json(boardJsonForApi(board));
   } catch (e) {
@@ -1738,7 +1751,7 @@ router.patch("/boards/:boardId/lists/:listId", async (req, res) => {
     });
     const board = await prisma.board.findUnique({
       where: { id: boardId },
-      include: boardIncludeFull,
+      include: buildBoardIncludeFull(req.appUser!),
     });
     res.json(boardJsonForApi(board));
   } catch (e) {
@@ -1814,7 +1827,7 @@ router.delete("/boards/:boardId/lists/:listId", async (req, res) => {
 
     const board = await prisma.board.findUnique({
       where: { id: boardId },
-      include: boardIncludeFull,
+      include: buildBoardIncludeFull(req.appUser!),
     });
     res.json(boardJsonForApi(board));
   } catch (e) {
@@ -1895,7 +1908,7 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
     const comment = await prisma.comment.create({
       data: { taskId, body: body.body.trim() },
     });
-    await logActivity(taskId, "comment", "");
+    await logActivity(taskId, req.appUser!.id, "comment", "");
     res.status(201).json(comment);
   } catch {
     res.status(500).json({ error: "Failed to add comment" });
@@ -1959,7 +1972,7 @@ router.post("/tasks/:taskId/labels", async (req, res) => {
     });
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      include: taskInclude,
+      include: buildTaskInclude(req.appUser!),
     });
     res.json(taskJsonForApi(task));
   } catch {
@@ -1975,7 +1988,7 @@ router.delete("/tasks/:taskId/labels/:labelId", async (req, res) => {
     });
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      include: taskInclude,
+      include: buildTaskInclude(req.appUser!),
     });
     res.json(taskJsonForApi(task));
   } catch {

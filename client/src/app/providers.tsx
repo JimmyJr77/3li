@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
+import { REGISTERED_THEMES, THEME_STORAGE_KEY } from "@/lib/themeIds";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -22,7 +23,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultTheme="vibrant"
         enableSystem
         disableTransitionOnChange
-        themes={["light", "dark", "vibrant", "rainbow-explosion"]}
+        storageKey={THEME_STORAGE_KEY}
+        themes={[...REGISTERED_THEMES]}
       >
         {children}
       </ThemeProvider>

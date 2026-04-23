@@ -6,6 +6,7 @@ import { PublicThemeToggle } from "@/components/shared/PublicThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { isWorkspaceColorTheme, marketingZincIsDark } from "@/lib/themeIds";
 import { cn } from "@/lib/utils";
 
 const publicLinks = [
@@ -18,7 +19,7 @@ const publicLinks = [
 export function PublicLayout() {
   const location = useLocation();
   const isHome = location.pathname === "/";
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -27,38 +28,43 @@ export function PublicLayout() {
     });
   }, []);
 
-  /** Vibrant / rainbow clash with marketing palette — normalize once when entering public shell. */
-  useEffect(() => {
-    if (!mounted) return;
-    if (theme === "vibrant" || theme === "rainbow-explosion") {
-      setTheme("dark");
-    }
-  }, [mounted, theme, setTheme]);
-
-  const marketingDark = resolvedTheme === "dark";
+  const semanticPublicShell = mounted && isWorkspaceColorTheme(theme);
+  const zincMarketingDark = !semanticPublicShell && marketingZincIsDark(theme, resolvedTheme);
 
   return (
     <div
-      className={cn(
-        "flex min-h-screen flex-col",
-        marketingDark ? "bg-zinc-950 text-zinc-50" : "bg-zinc-50 text-zinc-950",
-      )}
+      className={
+        semanticPublicShell
+          ? "flex min-h-screen flex-col bg-background text-foreground"
+          : cn(
+              "flex min-h-screen flex-col",
+              zincMarketingDark ? "bg-zinc-950 text-zinc-50" : "bg-zinc-50 text-zinc-950",
+            )
+      }
     >
       <header
-        className={cn(
-          "sticky top-0 z-50 border-b backdrop-blur-md",
-          marketingDark
-            ? "border-white/10 bg-zinc-950/85 supports-[backdrop-filter]:bg-zinc-950/70"
-            : "border-zinc-900/10 bg-zinc-50/90 supports-[backdrop-filter]:bg-zinc-50/75",
-        )}
+        className={
+          semanticPublicShell
+            ? "sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/70"
+            : cn(
+                "sticky top-0 z-50 border-b backdrop-blur-md",
+                zincMarketingDark
+                  ? "border-white/10 bg-zinc-950/85 supports-[backdrop-filter]:bg-zinc-950/70"
+                  : "border-zinc-900/10 bg-zinc-50/90 supports-[backdrop-filter]:bg-zinc-50/75",
+              )
+        }
       >
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link
             to="/"
-            className={cn(
-              "font-semibold tracking-tight",
-              marketingDark ? "text-white" : "text-zinc-900",
-            )}
+            className={
+              semanticPublicShell
+                ? "font-semibold tracking-tight text-foreground"
+                : cn(
+                    "font-semibold tracking-tight",
+                    zincMarketingDark ? "text-white" : "text-zinc-900",
+                  )
+            }
           >
             Three Lions Industries
           </Link>
@@ -79,14 +85,19 @@ export function PublicLayout() {
                     to={to}
                     end={to === "/"}
                     className={({ isActive }) =>
-                      cn(
-                        "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                        marketingDark
-                          ? "text-zinc-400 hover:bg-white/10 hover:text-white"
-                          : "text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900",
-                        isActive &&
-                          (marketingDark ? "bg-white/10 text-white" : "bg-zinc-900/10 text-zinc-900"),
-                      )
+                      semanticPublicShell
+                        ? cn(
+                            "rounded-md px-3 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                            isActive && "bg-muted text-foreground",
+                          )
+                        : cn(
+                            "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                            zincMarketingDark
+                              ? "text-zinc-400 hover:bg-white/10 hover:text-white"
+                              : "text-zinc-600 hover:bg-zinc-900/5 hover:text-zinc-900",
+                            isActive &&
+                              (zincMarketingDark ? "bg-white/10 text-white" : "bg-zinc-900/10 text-zinc-900"),
+                          )
                     }
                   >
                     {label}
@@ -105,13 +116,16 @@ export function PublicLayout() {
                 to={to}
                 end={to === "/"}
                 className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    marketingDark
-                      ? "text-zinc-400 hover:text-white"
-                      : "text-zinc-600 hover:text-zinc-900",
-                    isActive && (marketingDark ? "bg-white/10 text-white" : "bg-zinc-900/10 text-zinc-900"),
-                  )
+                  semanticPublicShell
+                    ? cn(
+                        "rounded-md px-3 py-2 text-sm font-medium transition-colors text-muted-foreground hover:text-foreground",
+                        isActive && "bg-muted text-foreground",
+                      )
+                    : cn(
+                        "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        zincMarketingDark ? "text-zinc-400 hover:text-white" : "text-zinc-600 hover:text-zinc-900",
+                        isActive && (zincMarketingDark ? "bg-white/10 text-white" : "bg-zinc-900/10 text-zinc-900"),
+                      )
                 }
               >
                 {label}
@@ -133,17 +147,22 @@ export function PublicLayout() {
 
       {isHome ? (
         <footer
-          className={cn(
-            "border-t py-10",
-            marketingDark ? "border-white/10" : "border-zinc-900/10",
-          )}
+          className={
+            semanticPublicShell
+              ? "border-t border-border py-10"
+              : cn("border-t py-10", zincMarketingDark ? "border-white/10" : "border-zinc-900/10")
+          }
         >
           <div className="mx-auto max-w-6xl px-4 text-center sm:px-6">
             <p
-              className={cn(
-                "text-sm font-medium tracking-wide",
-                marketingDark ? "text-zinc-400" : "text-zinc-600",
-              )}
+              className={
+                semanticPublicShell
+                  ? "text-sm font-medium tracking-wide text-muted-foreground"
+                  : cn(
+                      "text-sm font-medium tracking-wide",
+                      zincMarketingDark ? "text-zinc-400" : "text-zinc-600",
+                    )
+              }
             >
               Three Lions Industries — Structured Thinking. Relentless Execution.
             </p>
@@ -151,33 +170,51 @@ export function PublicLayout() {
         </footer>
       ) : (
         <footer
-          className={cn(
-            "border-t py-8",
-            marketingDark ? "border-white/10" : "border-zinc-900/10",
-          )}
+          className={
+            semanticPublicShell
+              ? "border-t border-border py-8"
+              : cn("border-t py-8", zincMarketingDark ? "border-white/10" : "border-zinc-900/10")
+          }
         >
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <Separator className={cn("mb-6", marketingDark ? "bg-white/10" : "bg-zinc-900/10")} />
+            <Separator
+              className={
+                semanticPublicShell
+                  ? "mb-6 bg-border"
+                  : cn("mb-6", zincMarketingDark ? "bg-white/10" : "bg-zinc-900/10")
+              }
+            />
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <p
-                className={cn(
-                  "text-sm",
-                  marketingDark ? "text-zinc-500" : "text-zinc-600",
-                )}
+                className={
+                  semanticPublicShell
+                    ? "text-sm text-muted-foreground"
+                    : cn("text-sm", zincMarketingDark ? "text-zinc-500" : "text-zinc-600")
+                }
               >
                 © {new Date().getFullYear()} Three Lions Industries. Consulting operating system.
               </p>
               <nav
-                className={cn(
-                  "flex flex-wrap gap-4 text-sm",
-                  marketingDark ? "text-zinc-500" : "text-zinc-600",
-                )}
+                className={
+                  semanticPublicShell
+                    ? "flex flex-wrap gap-4 text-sm text-muted-foreground"
+                    : cn(
+                        "flex flex-wrap gap-4 text-sm",
+                        zincMarketingDark ? "text-zinc-500" : "text-zinc-600",
+                      )
+                }
               >
                 {publicLinks.map(({ to, label }) => (
                   <Link
                     key={to}
                     to={to}
-                    className={marketingDark ? "hover:text-white" : "hover:text-zinc-900"}
+                    className={
+                      semanticPublicShell
+                        ? "hover:text-foreground"
+                        : zincMarketingDark
+                          ? "hover:text-white"
+                          : "hover:text-zinc-900"
+                    }
                   >
                     {label}
                   </Link>

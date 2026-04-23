@@ -53,7 +53,7 @@ export function NotificationsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Activity Tracker</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Recent task events for the active brand workspace. Open a task from the{" "}
+          Your recent task actions for the active brand workspace. Open a task from the{" "}
           <Link
             to={defaultBoardId ? `/app/boards/${defaultBoardId}` : "/app/boards"}
             className="font-medium text-primary underline-offset-4 hover:underline"
@@ -99,7 +99,7 @@ export function NotificationsPage() {
       <ul className="divide-y rounded-xl border bg-card">
         {rows.length === 0 && !loading && (
           <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Nothing in Activity Tracker yet. Create or move tasks on a board to see the feed.
+            Nothing in Activity Tracker yet. Create, move, or comment on tasks on a board to see your feed.
           </li>
         )}
         {rows.length > 0 && filteredRows.length === 0 && !loading && (

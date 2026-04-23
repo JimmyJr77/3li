@@ -1,8 +1,9 @@
 import { useTheme } from "next-themes";
+import { landingContentIsDark } from "@/lib/themeIds";
 
-/** Marketing sections: explicit zinc palette vs global shadcn theme. */
+/** Marketing sections: zinc + red when using site themes; align with workspace light/dark when app themes are active on public. */
 export function useLandingPalette() {
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme !== "light";
+  const { theme, resolvedTheme } = useTheme();
+  const isDark = landingContentIsDark(theme, resolvedTheme);
   return { isDark };
 }
