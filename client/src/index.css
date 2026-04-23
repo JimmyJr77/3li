@@ -208,6 +208,7 @@
     }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
     }
   html.vibrant {
     color-scheme: light;
