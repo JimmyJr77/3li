@@ -1,8 +1,10 @@
 import "./env.js";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
+import type { Request } from "express";
 import { ensureSeedUsers } from "./lib/auth/seedUsers.js";
 import { loadSessionUser, requireAuth } from "./lib/auth/sessionDb.js";
 import aiRouter from "./routes/ai.js";
@@ -18,6 +20,10 @@ function parseAllowedOrigins(): string[] {
   const out = new Set<string>(["http://localhost:5173", "http://127.0.0.1:5173", ...fromEnv]);
   if (process.env.VERCEL_URL) {
     out.add(`https://${process.env.VERCEL_URL}`);
+  }
+  const prodUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (prodUrl) {
+    out.add(prodUrl.startsWith("http") ? prodUrl : `https://${prodUrl}`);
   }
   return [...out];
 }
@@ -66,14 +72,37 @@ protectedApi.use("/notes-app", notesAppRouter);
 
 app.use("/api", protectedApi);
 
-const indexHtmlPath = path.join(process.cwd(), "public", "index.html");
+/** Vercel serves `public/` from the edge CDN; the function bundle often has no `public/` on disk unless included. */
+function resolveIndexHtmlPath(): string | null {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.join(process.cwd(), "public", "index.html"),
+    path.join(process.cwd(), "client", "public", "index.html"),
+    path.join(here, "..", "..", "public", "index.html"),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 
-app.get(/^(?!\/api(\/|$)).*/, (req, res, next) => {
-  if (req.method !== "GET" && req.method !== "HEAD") {
+function wantsSpaShell(req: Request): boolean {
+  const m = req.method;
+  if (m !== "GET" && m !== "HEAD") return false;
+  const p = req.path;
+  if (p.startsWith("/api")) return false;
+  if (p.startsWith("/assets/")) return false;
+  if (p === "/favicon.svg" || p === "/icons.svg") return false;
+  return true;
+}
+
+app.use((req, res, next) => {
+  if (!wantsSpaShell(req)) {
     next();
     return;
   }
-  if (!fs.existsSync(indexHtmlPath)) {
+  const indexHtmlPath = resolveIndexHtmlPath();
+  if (!indexHtmlPath) {
     next();
     return;
   }

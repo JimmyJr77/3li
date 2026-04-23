@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "installCommand": "cd .. && npm install",
-  "buildCommand": "cd .. && npm run vercel-build"
+  "buildCommand": "cd .. && npm run vercel-build",
+  "outputDirectory": "public",
+  "functions": {
+    "server.ts": {
+      "includeFiles": "public/**"
+    }
+  }
 }
