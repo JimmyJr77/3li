@@ -23,35 +23,56 @@ function buildInitial(): {
   tags: NoteTagDto[];
   workspaceCreatedAt: string;
 } {
-  const notesFolderId = crypto.randomUUID();
+  const notebookFolderId = crypto.randomUUID();
   const quickFolderId = crypto.randomUUID();
+  const noteId = crypto.randomUUID();
   const t = nowIso();
+  const doc = emptyDoc();
   return {
     folders: [
       {
-        id: notesFolderId,
+        id: quickFolderId,
         workspaceId: LOCAL_WORKSPACE_ID,
         parentId: null,
-        title: "Notes",
+        title: "Quicknotes",
         position: 0,
         rowAccentColor: null,
         createdAt: t,
         updatedAt: t,
       },
       {
-        id: quickFolderId,
+        id: notebookFolderId,
         workspaceId: LOCAL_WORKSPACE_ID,
         parentId: null,
-        title: "Quicknotes",
+        title: DEFAULT_NOTEBOOK_BASE,
         position: 1,
         rowAccentColor: null,
         createdAt: t,
         updatedAt: t,
       },
     ],
-    defaultFolderId: notesFolderId,
+    defaultFolderId: notebookFolderId,
     quickCaptureFolderId: quickFolderId,
-    notes: [],
+    notes: [
+      {
+        id: noteId,
+        workspaceId: LOCAL_WORKSPACE_ID,
+        folderId: notebookFolderId,
+        title: DEFAULT_NOTE_BASE,
+        slug: null,
+        contentJson: doc,
+        previewText: null,
+        position: 0,
+        rowAccentColor: null,
+        isPinned: false,
+        isPublic: false,
+        publicSlug: null,
+        routingSource: null,
+        tags: [],
+        createdAt: t,
+        updatedAt: t,
+      },
+    ],
     tags: [],
     workspaceCreatedAt: t,
   };
@@ -364,42 +385,110 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         if (!p || !p.folders?.length) {
           return { ...current, ...buildInitial() };
         }
-        const top = p.folders.filter((f) => f.parentId === null);
-        const hasQuicknotes = top.some((f) => f.title === "Quicknotes");
-        let folders = p.folders;
-        let quickCaptureFolderId = p.quickCaptureFolderId;
-        if (!hasQuicknotes) {
-          const t = nowIso();
-          const nextPos =
-            top.length > 0 ? Math.max(...top.map((f) => f.position), -1) + 1 : 0;
-          const qid = crypto.randomUUID();
-          folders = [
-            ...p.folders,
-            {
-              id: qid,
-              workspaceId: LOCAL_WORKSPACE_ID,
-              parentId: null,
-              title: "Quicknotes",
-              position: nextPos,
-              rowAccentColor: null,
-              createdAt: t,
-              updatedAt: t,
-            },
-          ];
-          quickCaptureFolderId = qid;
-        } else {
-          const qf = folders.find((f) => f.parentId === null && f.title === "Quicknotes");
-          if (
-            qf &&
-            (!quickCaptureFolderId || !folders.some((f) => f.id === quickCaptureFolderId))
-          ) {
-            quickCaptureFolderId = qf.id;
+        const t = nowIso();
+        let folders: NotesFolderDto[] = p.folders.map((f) => ({ ...f }));
+        const top = () => folders.filter((f) => f.parentId === null);
+
+        const hasNotebook = () => top().some((f) => f.title === DEFAULT_NOTEBOOK_BASE);
+        if (!hasNotebook()) {
+          const legacy = top().find((f) => f.title === "Notes");
+          if (legacy) {
+            const idx = folders.findIndex((f) => f.id === legacy.id);
+            if (idx >= 0) {
+              folders[idx] = { ...folders[idx]!, title: DEFAULT_NOTEBOOK_BASE, updatedAt: t };
+            }
           }
         }
+
+        if (!top().some((f) => f.title === "Quicknotes")) {
+          const qid = crypto.randomUUID();
+          folders.push({
+            id: qid,
+            workspaceId: LOCAL_WORKSPACE_ID,
+            parentId: null,
+            title: "Quicknotes",
+            position: 9999,
+            rowAccentColor: null,
+            createdAt: t,
+            updatedAt: t,
+          });
+        }
+
+        if (!top().some((f) => f.title === DEFAULT_NOTEBOOK_BASE)) {
+          const nid = crypto.randomUUID();
+          folders.push({
+            id: nid,
+            workspaceId: LOCAL_WORKSPACE_ID,
+            parentId: null,
+            title: DEFAULT_NOTEBOOK_BASE,
+            position: 9998,
+            createdAt: t,
+            updatedAt: t,
+          });
+        }
+
+        const tops = top();
+        const quickF = tops.find((f) => f.title === "Quicknotes");
+        const nbF = tops.find((f) => f.title === DEFAULT_NOTEBOOK_BASE);
+        const others = tops
+          .filter((f) => f.id !== quickF?.id && f.id !== nbF?.id)
+          .sort((a, b) => a.position - b.position);
+        const orderedTop = [quickF, nbF, ...others].filter((f): f is NotesFolderDto => Boolean(f));
+        const posById = new Map(orderedTop.map((f, i) => [f.id, i]));
+        folders = folders.map((f) =>
+          f.parentId === null && posById.has(f.id) ? { ...f, position: posById.get(f.id)!, updatedAt: t } : f,
+        );
+
+        const quickCaptureFolder =
+          folders.find((f) => f.parentId === null && f.title === "Quicknotes") ?? null;
+        const notebookFolder =
+          folders.find((f) => f.parentId === null && f.title === DEFAULT_NOTEBOOK_BASE) ?? null;
+        let quickCaptureFolderId = p.quickCaptureFolderId;
+        if (
+          quickCaptureFolder &&
+          (!quickCaptureFolderId || !folders.some((f) => f.id === quickCaptureFolderId))
+        ) {
+          quickCaptureFolderId = quickCaptureFolder.id;
+        } else if (quickCaptureFolder) {
+          quickCaptureFolderId = quickCaptureFolder.id;
+        }
+
+        let defaultFolderId = p.defaultFolderId;
+        if (!defaultFolderId || !folders.some((f) => f.id === defaultFolderId)) {
+          defaultFolderId = notebookFolder?.id ?? defaultFolderId;
+        }
+        if (notebookFolder && defaultFolderId === quickCaptureFolder?.id) {
+          defaultFolderId = notebookFolder.id;
+        }
+
+        let notes = p.notes ? [...p.notes] : [];
+        if (notes.length === 0 && notebookFolder) {
+          notes.push({
+            id: crypto.randomUUID(),
+            workspaceId: LOCAL_WORKSPACE_ID,
+            folderId: notebookFolder.id,
+            title: DEFAULT_NOTE_BASE,
+            slug: null,
+            contentJson: emptyDoc(),
+            previewText: null,
+            position: 0,
+            rowAccentColor: null,
+            isPinned: false,
+            isPublic: false,
+            publicSlug: null,
+            routingSource: null,
+            tags: [],
+            createdAt: t,
+            updatedAt: t,
+          });
+        }
+
         return {
           ...current,
           ...p,
           folders,
+          notes,
+          defaultFolderId: defaultFolderId ?? current.defaultFolderId,
           quickCaptureFolderId: quickCaptureFolderId ?? current.quickCaptureFolderId,
           workspaceCreatedAt: p.workspaceCreatedAt ?? current.workspaceCreatedAt,
         };

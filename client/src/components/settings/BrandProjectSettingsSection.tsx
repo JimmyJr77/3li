@@ -1,15 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Building2, LayoutGrid, Loader2, Pencil, Plus } from "lucide-react";
+import { Archive, Building2, Copy, LayoutGrid, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   createBrand,
+  createBrandInvites,
+  fetchBrandTeam,
   fetchBrandTree,
+  joinBrandWithKey,
   patchBoard,
   patchBrand,
   patchProjectSpace,
   patchWorkspace,
+  regenerateBrandJoinKey,
+  removeBrandMember,
+  revokeBrandInvite,
 } from "@/features/taskflow/api";
+import type { BrandInviteCreatedDto, BrandTreeDto } from "@/features/taskflow/types";
+import { formatApiError } from "@/lib/apiErrorMessage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -300,6 +308,328 @@ function BrandNameRow({ brandId, brandName }: { brandId: string; brandName: stri
   );
 }
 
+function BrandJoinKeyRow({
+  joinKey,
+  brandRowId,
+  isOwner,
+}: {
+  joinKey: string;
+  brandRowId: string;
+  isOwner: boolean;
+}) {
+  const qc = useQueryClient();
+  const [copied, setCopied] = useState(false);
+  const regenMut = useMutation({
+    mutationFn: () => regenerateBrandJoinKey(brandRowId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["brands-tree"] });
+      void qc.invalidateQueries({ queryKey: ["brand-team", brandRowId] });
+    },
+  });
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Join key</span>
+        <code className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+          {joinKey}
+        </code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs"
+          onClick={async () => {
+            await navigator.clipboard.writeText(joinKey);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          <Copy className="size-3" aria-hidden />
+          {copied ? "Copied" : "Copy"}
+        </Button>
+        {isOwner ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            disabled={regenMut.isPending}
+            title="Invalidate the current key and issue a new one if it was leaked"
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Regenerate this join key? Anyone with the old key will no longer be able to use it to join.",
+                )
+              ) {
+                regenMut.mutate();
+              }
+            }}
+          >
+            <RefreshCw className={`size-3 ${regenMut.isPending ? "animate-spin" : ""}`} aria-hidden />
+            Regenerate
+          </Button>
+        ) : null}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Share this key or use email invites under Team access. The internal database id is not used for joining.
+      </p>
+    </div>
+  );
+}
+
+function JoinBrandWithKeyPanel({ onJoined }: { onJoined: (brandId: string) => void }) {
+  const qc = useQueryClient();
+  const { setActiveWorkspaceId } = useActiveWorkspace();
+  const [joinKeyInput, setJoinKeyInput] = useState("");
+
+  const joinMut = useMutation({
+    mutationFn: () => joinBrandWithKey(joinKeyInput.trim()),
+    onSuccess: async (data) => {
+      setJoinKeyInput("");
+      await qc.refetchQueries({ queryKey: ["brands-tree"] });
+      await qc.refetchQueries({ queryKey: ["workspaces"] });
+      onJoined(data.brandId);
+      if (data.workspaceId) {
+        setActiveWorkspaceId(data.workspaceId);
+      }
+    },
+  });
+
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-muted/15 p-4">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+        <span className="font-medium text-foreground">Join a brand</span>
+        <span className="text-muted-foreground">—</span>
+        <button
+          type="button"
+          className="font-medium text-primary underline-offset-4 hover:underline"
+          onClick={() => document.getElementById("settings-join-brand-key")?.focus()}
+        >
+          Paste a join key
+        </button>
+        <span className="text-muted-foreground">from the owner (same access as an email invite).</span>
+      </div>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Label htmlFor="settings-join-brand-key">Brand join key</Label>
+          <Input
+            id="settings-join-brand-key"
+            placeholder="Paste key here"
+            value={joinKeyInput}
+            onChange={(e) => setJoinKeyInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && joinKeyInput.trim() && !joinMut.isPending) {
+                joinMut.mutate();
+              }
+            }}
+            className="h-9 font-mono text-sm"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0 self-start sm:self-end"
+          disabled={joinMut.isPending || !joinKeyInput.trim()}
+          onClick={() => joinMut.mutate()}
+        >
+          {joinMut.isPending ? "Joining…" : "Join brand"}
+        </Button>
+      </div>
+      {joinMut.isError ? (
+        <p className="mt-2 text-xs text-destructive" role="alert">
+          {formatApiError(joinMut.error, "Could not join with that key")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BrandTeamAccessSection({ brand }: { brand: BrandTreeDto }) {
+  const qc = useQueryClient();
+  const teamQuery = useQuery({
+    queryKey: ["brand-team", brand.id],
+    queryFn: () => fetchBrandTeam(brand.id),
+  });
+  const [emailsText, setEmailsText] = useState("");
+  const [lastCreated, setLastCreated] = useState<BrandInviteCreatedDto[] | null>(null);
+
+  const inviteMut = useMutation({
+    mutationFn: () => {
+      const emails = emailsText
+        .split(/[\s,;]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!emails.length) {
+        throw new Error("Enter at least one email address.");
+      }
+      return createBrandInvites(brand.id, emails);
+    },
+    onSuccess: (data) => {
+      setEmailsText("");
+      setLastCreated(data.created);
+      void qc.invalidateQueries({ queryKey: ["brand-team", brand.id] });
+    },
+  });
+
+  const revokeMut = useMutation({
+    mutationFn: (inviteId: string) => revokeBrandInvite(brand.id, inviteId),
+    onSuccess: async () => {
+      void qc.invalidateQueries({ queryKey: ["brand-team", brand.id] });
+    },
+  });
+
+  const removeMemberMut = useMutation({
+    mutationFn: (userId: string) => removeBrandMember(brand.id, userId),
+    onSuccess: async () => {
+      void qc.invalidateQueries({ queryKey: ["brand-team", brand.id] });
+      void qc.invalidateQueries({ queryKey: ["brands-tree"] });
+      void qc.invalidateQueries({ queryKey: ["workspaces"] });
+    },
+  });
+
+  if (teamQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        Loading team…
+      </div>
+    );
+  }
+  if (teamQuery.isError) {
+    return (
+      <p className="border-t border-border pt-4 text-xs text-destructive">Could not load team for this brand.</p>
+    );
+  }
+  const team = teamQuery.data;
+
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team access</p>
+      {brand.youAreOwner ? (
+        <p className="text-xs text-muted-foreground">
+          Invite by email below, or share the <span className="font-medium text-foreground">join key</span> above so
+          someone can use <span className="font-medium text-foreground">Join a brand</span> in Settings.
+        </p>
+      ) : null}
+      {!brand.youAreOwner ? (
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Shared with you</span> — you can use this brand workspace as a
+          team member. Owner:{" "}
+          <span className="font-medium text-foreground">{team?.owner.label ?? "—"}</span>{" "}
+          <span className="text-xs">({team?.owner.email ?? ""})</span>.
+        </p>
+      ) : (
+        <>
+          <ul className="space-y-2 text-sm">
+            <li className="flex flex-wrap gap-2 border-b border-border pb-2">
+              <span className="text-muted-foreground">Owner</span>
+              <span className="ml-auto font-medium text-foreground">{team?.owner.label}</span>
+              <span className="w-full text-xs text-muted-foreground sm:w-auto sm:ml-2">{team?.owner.email}</span>
+            </li>
+            {team?.members.map((m) => (
+              <li
+                key={m.membershipId}
+                className="flex flex-col gap-2 border-b border-border py-2 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{m.label}</p>
+                  <p className="text-xs text-muted-foreground">{m.email}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={removeMemberMut.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Remove ${m.label} from this brand team?`)) {
+                      removeMemberMut.mutate(m.userId);
+                    }
+                  }}
+                >
+                  Remove access
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {team?.pendingInvites.length ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Pending invites</p>
+              <ul className="space-y-2">
+                {team.pendingInvites.map((inv) => (
+                  <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 truncate">{inv.email}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={revokeMut.isPending}
+                      onClick={() => revokeMut.mutate(inv.id)}
+                    >
+                      Revoke
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor={`invite-emails-${brand.id}`}>Invite collaborators</Label>
+            <textarea
+              id={`invite-emails-${brand.id}`}
+              className="flex min-h-[72px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="teammate@company.com, another@company.com"
+              value={emailsText}
+              onChange={(e) => {
+                setEmailsText(e.target.value);
+                setLastCreated(null);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Separate addresses with spaces, commas, or new lines. This build does not send email automatically —
+              copy the generated links and send them with your own mail or chat.
+            </p>
+            {inviteMut.isError ? (
+              <p className="text-xs text-destructive" role="alert">
+                {formatApiError(inviteMut.error, "Could not create invites")}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={inviteMut.isPending || !emailsText.trim()}
+              onClick={() => inviteMut.mutate()}
+            >
+              {inviteMut.isPending ? "Creating…" : "Create invite links"}
+            </Button>
+            {lastCreated && lastCreated.length > 0 ? (
+              <ul className="space-y-3 rounded-md border border-border bg-muted/20 p-3 text-xs">
+                {lastCreated.map((row) => (
+                  <li key={row.email} className="space-y-1">
+                    <p className="font-medium text-foreground">{row.email}</p>
+                    <p className="break-all text-muted-foreground">
+                      <span className="font-medium text-foreground">Open invite: </span>
+                      {row.landingUrl}
+                    </p>
+                    <p className="break-all text-muted-foreground">
+                      <span className="font-medium text-foreground">Register directly: </span>
+                      {row.registerUrl}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ArchiveBrandRowButton({ brandId, label }: { brandId: string; label: string }) {
   const qc = useQueryClient();
   const mut = useMutation({
@@ -335,13 +665,28 @@ function ArchiveBrandRowButton({ brandId, label }: { brandId: string; label: str
 /** Brands only: name + workspace chrome title per brand. */
 export function BrandsSettingsCardParts() {
   const qc = useQueryClient();
-  const { setActiveWorkspaceId } = useActiveWorkspace();
+  const { activeWorkspace, setActiveWorkspaceId } = useActiveWorkspace();
   const brandsQuery = useQuery({
     queryKey: ["brands-tree"],
     queryFn: fetchBrandTree,
   });
   const brandTree = brandsQuery.data ?? [];
   const [newBrandName, setNewBrandName] = useState("");
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (brandTree.length === 0) {
+      setSelectedBrandId(null);
+      return;
+    }
+    setSelectedBrandId((cur) => {
+      if (cur && brandTree.some((b) => b.id === cur)) return cur;
+      if (activeWorkspace?.brandId && brandTree.some((b) => b.id === activeWorkspace.brandId)) {
+        return activeWorkspace.brandId;
+      }
+      return brandTree[0]!.id;
+    });
+  }, [brandTree, activeWorkspace?.brandId]);
 
   const createBrandMut = useMutation({
     mutationFn: (name: string) => createBrand(name),
@@ -362,6 +707,11 @@ export function BrandsSettingsCardParts() {
     },
   });
 
+  const selectedBrand =
+    selectedBrandId && brandTree.length > 0 ? (brandTree.find((b) => b.id === selectedBrandId) ?? null) : null;
+  const selectedFirstWorkspaceId = selectedBrand?.workspaces[0]?.id ?? null;
+  const isSidebarBrand = Boolean(selectedBrand && activeWorkspace?.brandId === selectedBrand.id);
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -370,13 +720,14 @@ export function BrandsSettingsCardParts() {
           Brands
         </CardTitle>
         <CardDescription>
-          Set each brand&apos;s name and the workspace name shown at the top of the sidebar for that brand. Visual
-          identity and kit live in{" "}
+          Each brand has a join key and display name (duplicate names are fine). Owners can invite collaborators by
+          email or share the join key — invitees keep their personal workspace and also see this brand. Set names and
+          sidebar workspace titles here; visual identity lives in{" "}
           <Link to="/app/brand-center" className="font-medium text-primary underline-offset-4 hover:underline">
             Brand Center
           </Link>
-          . Manage project spaces and boards under{" "}
-          <span className="font-medium text-foreground">Project spaces &amp; boards</span> in the category list.
+          . Project spaces and boards are under{" "}
+          <span className="font-medium text-foreground">Workspace pages → Project Boards</span>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -390,39 +741,89 @@ export function BrandsSettingsCardParts() {
         ) : brandTree.length === 0 ? (
           <p className="text-sm text-muted-foreground">No brands yet — add one below.</p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {brandTree.map((b) => {
-              const w = b.workspaces[0];
-              const defaultWorkspaceHint = defaultWorkspaceTitleFromBrandName(b.name);
-              return (
-                <li
-                  key={b.id}
-                  className="space-y-4 px-4 py-4 first:rounded-t-[calc(var(--radius)-1px)] last:rounded-b-[calc(var(--radius)-1px)]"
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0 flex-1 space-y-2 sm:max-w-md">
+                <Label htmlFor="brands-settings-brand-select">Brand</Label>
+                <select
+                  id="brands-settings-brand-select"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={selectedBrandId ?? ""}
+                  onChange={(e) => setSelectedBrandId(e.target.value || null)}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Label className="text-xs text-muted-foreground">Brand name</Label>
-                      <BrandNameRow brandId={b.id} brandName={b.name} />
-                    </div>
-                    <ArchiveBrandRowButton brandId={b.id} label={b.name} />
+                  {brandTree.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Choose a brand to edit. This does not change the sidebar until you use the button below.
+                </p>
+              </div>
+              {selectedBrand && selectedFirstWorkspaceId ? (
+                isSidebarBrand ? (
+                  <p className="shrink-0 text-xs font-medium text-muted-foreground sm:pb-2">Active in sidebar</p>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0 self-start sm:self-end"
+                    onClick={() => setActiveWorkspaceId(selectedFirstWorkspaceId)}
+                  >
+                    Use in sidebar
+                  </Button>
+                )
+              ) : null}
+            </div>
+
+            {selectedBrand ? (
+              <div className="space-y-4 rounded-lg border border-border bg-muted/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Label className="text-xs text-muted-foreground">Brand name</Label>
+                    <BrandNameRow brandId={selectedBrand.id} brandName={selectedBrand.name} />
+                    <BrandJoinKeyRow
+                      joinKey={selectedBrand.brandIdentifier ?? selectedBrand.id}
+                      brandRowId={selectedBrand.id}
+                      isOwner={selectedBrand.youAreOwner}
+                    />
                   </div>
-                  {w ? (
-                    <div className="space-y-2 border-t border-border pt-4">
-                      <Label htmlFor={`workspace-name-${w.id}`} className="text-xs text-muted-foreground">
-                        Workspace name
-                      </Label>
-                      <WorkspaceNameField workspaceId={w.id} serverName={w.name} />
-                      <p className="text-xs text-muted-foreground">
-                        Appears at the top of the workspace sidebar. Default when unchanged:{" "}
-                        <span className="font-medium text-foreground">{defaultWorkspaceHint}</span>.
-                      </p>
-                    </div>
+                  {selectedBrand.youAreOwner ? (
+                    <ArchiveBrandRowButton brandId={selectedBrand.id} label={selectedBrand.name} />
                   ) : null}
-                </li>
-              );
-            })}
-          </ul>
+                </div>
+                <BrandTeamAccessSection brand={selectedBrand} />
+                {selectedBrand.workspaces[0] ? (
+                  <div className="space-y-2 border-t border-border pt-4">
+                    <Label
+                      htmlFor={`workspace-name-${selectedBrand.workspaces[0].id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Workspace name
+                    </Label>
+                    <WorkspaceNameField
+                      workspaceId={selectedBrand.workspaces[0].id}
+                      serverName={selectedBrand.workspaces[0].name}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Appears at the top of the workspace sidebar. Default when unchanged:{" "}
+                      <span className="font-medium text-foreground">
+                        {defaultWorkspaceTitleFromBrandName(selectedBrand.name)}
+                      </span>
+                      .
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         )}
+
+        {!brandsQuery.isLoading && !brandsQuery.isError ? (
+          <JoinBrandWithKeyPanel onJoined={(brandId) => setSelectedBrandId(brandId)} />
+        ) : null}
 
         <div className="flex w-full max-w-md flex-col gap-2 sm:flex-row sm:items-center">
           <Input

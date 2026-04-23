@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, type RoutingHold } from "@prisma/client";
 import { Router } from "express";
 import {
@@ -8,14 +9,18 @@ import {
 import {
   assertBoardAccess,
   assertBrandAccess,
+  assertBrandOwnerAccess,
   assertProjectSpaceAccess,
   assertTaskAccess,
   assertWorkspaceAccess,
+  brandAccessWhereForUserId,
   brandWhereForAppUser,
   listAccessibleWorkspaceIds,
   workspaceWhereForAppUser,
   type AppUserPrincipal,
 } from "../lib/auth/workspaceScope.js";
+import { newInviteToken } from "../lib/auth/brandInvite.js";
+import { EMAIL_RE, normalizeEmail } from "../lib/auth/identifiers.js";
 import { prisma } from "../lib/db.js";
 import { ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
@@ -96,6 +101,16 @@ router.param("projectSpaceId", async (req, res, next, projectSpaceId) => {
     res.status(500).json({ error: "Project space access check failed" });
   }
 });
+
+function appPublicOrigin(req: import("express").Request): string {
+  const fromEnv = process.env.APP_PUBLIC_ORIGIN?.replace(/\/$/, "");
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const host = req.get("x-forwarded-host") ?? req.get("host") ?? "localhost:5173";
+  const proto = req.get("x-forwarded-proto") ?? "http";
+  return `${proto}://${host}`;
+}
 
 const boardProjectSpaceRef = { select: { workspaceId: true } } as const;
 
@@ -624,7 +639,7 @@ router.get("/workspaces/archived", async (req, res) => {
     const workspaces = await prisma.workspace.findMany({
       where: {
         archivedAt: { not: null },
-        ...(user.role === "admin" ? {} : { brand: { ownerUserId: user.id } }),
+        ...(user.role === "admin" ? {} : { brand: brandAccessWhereForUserId(user.id) }),
       },
       orderBy: { archivedAt: "desc" },
       select: { id: true, name: true, archivedAt: true },
@@ -1129,13 +1144,16 @@ router.post("/workspaces/:workspaceId/project-spaces/reorder", async (req, res) 
 /** List brands with nested project spaces and boards (settings / admin). */
 router.get("/brands", async (req, res) => {
   try {
+    const me = req.appUser!;
     const brands = await prisma.brand.findMany({
-      where: brandWhereForAppUser(req.appUser!),
+      where: brandWhereForAppUser(me),
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
         name: true,
         position: true,
+        ownerUserId: true,
+        joinKey: true,
         brandProfile: true,
         workspaces: {
           where: { archivedAt: null },
@@ -1166,6 +1184,9 @@ router.get("/brands", async (req, res) => {
         id: b.id,
         name: b.name,
         position: b.position,
+        ownerUserId: b.ownerUserId,
+        youAreOwner: b.ownerUserId === me.id || me.role === "admin",
+        brandIdentifier: b.joinKey,
         brandDisplayName: brandDisplayNameFromProfileJson(b.brandProfile),
         workspaces: b.workspaces.map((w) => ({
           id: w.id,
@@ -1177,6 +1198,305 @@ router.get("/brands", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to list brands" });
+  }
+});
+
+/** Self-join as a team member using the owner-shared join key (separate from the internal brand row id). */
+router.post("/brands/join-with-key", async (req, res) => {
+  try {
+    const me = req.appUser!;
+    const raw = (req.body as { joinKey?: unknown }).joinKey;
+    const joinKey = typeof raw === "string" ? raw.trim() : "";
+    if (!joinKey) {
+      res.status(400).json({ error: "joinKey is required" });
+      return;
+    }
+    const brand = await prisma.brand.findFirst({
+      where: { joinKey, archivedAt: null },
+      select: {
+        id: true,
+        ownerUserId: true,
+        workspaces: {
+          where: { archivedAt: null },
+          take: 1,
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        },
+      },
+    });
+    if (!brand) {
+      res.status(404).json({ error: "No brand matches that join key" });
+      return;
+    }
+    const workspaceId = brand.workspaces[0]?.id ?? null;
+    if (brand.ownerUserId === me.id) {
+      res.status(200).json({
+        ok: true,
+        brandId: brand.id,
+        workspaceId,
+        alreadyHadAccess: true,
+      });
+      return;
+    }
+    const existing = await prisma.brandMember.findUnique({
+      where: { brandId_userId: { brandId: brand.id, userId: me.id } },
+    });
+    if (existing) {
+      res.status(200).json({
+        ok: true,
+        brandId: brand.id,
+        workspaceId,
+        alreadyHadAccess: true,
+      });
+      return;
+    }
+    await prisma.brandMember.create({
+      data: { brandId: brand.id, userId: me.id, invitedByUserId: null },
+    });
+    res.status(201).json({
+      ok: true,
+      brandId: brand.id,
+      workspaceId,
+      alreadyHadAccess: false,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to join brand" });
+  }
+});
+
+const BRAND_INVITE_EXPIRY_DAYS = 14;
+
+router.get("/brands/:brandId/team", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    const brand = await prisma.brand.findUnique({
+      where: { id: brandId },
+      select: {
+        id: true,
+        name: true,
+        joinKey: true,
+        ownerUserId: true,
+        ownerUser: {
+          select: { id: true, username: true, email: true, displayName: true, firstName: true, lastName: true },
+        },
+        members: {
+          include: {
+            user: {
+              select: { id: true, username: true, email: true, displayName: true, firstName: true, lastName: true },
+            },
+          },
+          orderBy: { createdAt: "asc" },
+        },
+        invites: {
+          where: { consumedAt: null, expiresAt: { gt: new Date() } },
+          select: { id: true, email: true, createdAt: true, expiresAt: true },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+    if (!brand?.ownerUser) {
+      res.status(404).json({ error: "Brand not found" });
+      return;
+    }
+    const owner = brand.ownerUser;
+    const ownerLabel =
+      owner.displayName?.trim() ||
+      [owner.firstName, owner.lastName].filter(Boolean).join(" ").trim() ||
+      owner.username;
+    res.json({
+      brandId: brand.id,
+      brandName: brand.name,
+      brandIdentifier: brand.joinKey,
+      ownerUserId: brand.ownerUserId,
+      owner: {
+        id: owner.id,
+        username: owner.username,
+        email: owner.email,
+        label: ownerLabel,
+      },
+      members: brand.members.map((m) => {
+        const u = m.user;
+        const label =
+          u.displayName?.trim() ||
+          [u.firstName, u.lastName].filter(Boolean).join(" ").trim() ||
+          u.username;
+        return {
+          membershipId: m.id,
+          userId: u.id,
+          username: u.username,
+          email: u.email,
+          label,
+          invitedByUserId: m.invitedByUserId,
+        };
+      }),
+      pendingInvites: brand.invites.map((i) => ({
+        id: i.id,
+        email: i.email,
+        createdAt: i.createdAt.toISOString(),
+        expiresAt: i.expiresAt.toISOString(),
+      })),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load brand team" });
+  }
+});
+
+router.post("/brands/:brandId/invites", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+      res.status(403).json({ error: "Only the brand owner can send invites" });
+      return;
+    }
+    const body = req.body as { emails?: unknown };
+    if (!Array.isArray(body.emails)) {
+      res.status(400).json({ error: "emails must be an array of strings" });
+      return;
+    }
+    const brand = await prisma.brand.findUnique({
+      where: { id: brandId },
+      select: { id: true, name: true, ownerUserId: true, ownerUser: { select: { email: true } } },
+    });
+    if (!brand?.ownerUser?.email) {
+      res.status(400).json({ error: "Brand has no owner email on file" });
+      return;
+    }
+    const origin = appPublicOrigin(req);
+    const invitedByUserId = req.appUser!.id;
+    const expiresAt = new Date(Date.now() + BRAND_INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    const created: { email: string; registerUrl: string; landingUrl: string }[] = [];
+    const skipped: string[] = [];
+
+    const rawList = body.emails.filter((x): x is string => typeof x === "string");
+    const seen = new Set<string>();
+    for (const raw of rawList) {
+      const email = normalizeEmail(raw);
+      if (!email || !EMAIL_RE.test(email)) {
+        skipped.push(String(raw));
+        continue;
+      }
+      if (seen.has(email)) {
+        continue;
+      }
+      seen.add(email);
+
+      if (normalizeEmail(brand.ownerUser.email) === email) {
+        skipped.push(email);
+        continue;
+      }
+
+      const existingUser = await prisma.appUser.findUnique({ where: { email } });
+      if (existingUser) {
+        if (existingUser.id === brand.ownerUserId) {
+          continue;
+        }
+        const member = await prisma.brandMember.findUnique({
+          where: { brandId_userId: { brandId, userId: existingUser.id } },
+        });
+        if (member) {
+          skipped.push(email);
+          continue;
+        }
+      }
+
+      await prisma.brandInvite.deleteMany({
+        where: { brandId, email, consumedAt: null },
+      });
+
+      const { token, tokenHash } = newInviteToken();
+      await prisma.brandInvite.create({
+        data: {
+          brandId,
+          email,
+          tokenHash,
+          invitedByUserId,
+          expiresAt,
+        },
+      });
+
+      const enc = encodeURIComponent(token);
+      created.push({
+        email,
+        registerUrl: `${origin}/register?invite=${enc}`,
+        landingUrl: `${origin}/invite/brand?token=${enc}`,
+      });
+
+      if (process.env.NODE_ENV !== "production") {
+        console.info(`[brand-invite] brand="${brand.name}" (${brandId}) → ${email}\n  ${origin}/invite/brand?token=${enc}`);
+      }
+    }
+
+    res.status(201).json({ created, skipped: skipped.length ? skipped : undefined });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to create invites" });
+  }
+});
+
+router.delete("/brands/:brandId/invites/:inviteId", async (req, res) => {
+  try {
+    const { brandId, inviteId } = req.params;
+    if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+      res.status(403).json({ error: "Only the brand owner can revoke invites" });
+      return;
+    }
+    const del = await prisma.brandInvite.deleteMany({
+      where: { id: inviteId, brandId, consumedAt: null },
+    });
+    if (del.count === 0) {
+      res.status(404).json({ error: "Invite not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to revoke invite" });
+  }
+});
+
+router.delete("/brands/:brandId/members/:userId", async (req, res) => {
+  try {
+    const { brandId, userId } = req.params;
+    if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+      res.status(403).json({ error: "Only the brand owner can remove members" });
+      return;
+    }
+    const brand = await prisma.brand.findUnique({
+      where: { id: brandId },
+      select: { ownerUserId: true },
+    });
+    if (!brand) {
+      res.status(404).json({ error: "Brand not found" });
+      return;
+    }
+    if (userId === brand.ownerUserId) {
+      res.status(400).json({ error: "Cannot remove the brand owner" });
+      return;
+    }
+    await prisma.brandMember.deleteMany({ where: { brandId, userId } });
+    res.status(204).send();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to remove member" });
+  }
+});
+
+/** Owner rotates the shareable join key; previous key stops working for new joins. */
+router.post("/brands/:brandId/regenerate-join-key", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+      res.status(403).json({ error: "Only the brand owner can rotate the join key" });
+      return;
+    }
+    const next = randomUUID();
+    await prisma.brand.update({ where: { id: brandId }, data: { joinKey: next } });
+    res.json({ joinKey: next });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to rotate join key" });
   }
 });
 
@@ -1201,6 +1521,7 @@ router.post("/brands", async (req, res) => {
         position,
         name: parsed.name,
         ownerUserId: req.appUser!.id,
+        joinKey: randomUUID(),
         workspaces: {
           create: {
             name: workspaceTitle,
@@ -1214,6 +1535,7 @@ router.post("/brands", async (req, res) => {
         id: true,
         name: true,
         position: true,
+        joinKey: true,
         brandProfile: true,
         workspaces: {
           where: { archivedAt: null },
@@ -1238,10 +1560,14 @@ router.post("/brands", async (req, res) => {
         },
       },
     });
+    const uid = req.appUser!.id;
     res.status(201).json({
       id: brand.id,
       name: brand.name,
       position: brand.position,
+      ownerUserId: uid,
+      youAreOwner: true,
+      brandIdentifier: brand.joinKey,
       brandDisplayName: brandDisplayNameFromProfileJson(brand.brandProfile),
       workspaces: brand.workspaces.map((w) => ({
         id: w.id,
@@ -1288,6 +1614,10 @@ router.patch("/brands/:brandId", async (req, res) => {
     }
 
     if (body.archived === true) {
+      if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+        res.status(403).json({ error: "Only the brand owner can archive this brand" });
+        return;
+      }
       await prisma.$transaction([
         prisma.brand.update({
           where: { id: brandId },
@@ -1299,6 +1629,10 @@ router.patch("/brands/:brandId", async (req, res) => {
         }),
       ]);
     } else if (body.archived === false) {
+      if (!(await assertBrandOwnerAccess(req.appUser!, brandId))) {
+        res.status(403).json({ error: "Only the brand owner can restore this brand" });
+        return;
+      }
       const maxPos = await prisma.brand.aggregate({
         where: { archivedAt: null },
         _max: { position: true },
@@ -1369,7 +1703,7 @@ router.post("/brands/reorder", async (req, res) => {
       return;
     }
     const active = await prisma.brand.findMany({
-      where: { archivedAt: null },
+      where: { archivedAt: null, ...brandWhereForAppUser(req.appUser!) },
       select: { id: true },
       orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     });

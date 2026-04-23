@@ -24,6 +24,11 @@ export type MailroomDecompositionPayload = {
   actionItems: MailroomActionItemDecomp[];
 };
 
+export type BrandRepCenterPayload = {
+  assistantMessage: string;
+  proposedProfilePatch: Record<string, unknown> | null;
+};
+
 export type AgentSurfaceResponse = {
   schemaVersion?: string;
   agentId?: string | null;
@@ -31,6 +36,7 @@ export type AgentSurfaceResponse = {
   result: string;
   plan?: MailroomPlanPayload;
   decomposition?: MailroomDecompositionPayload;
+  brandRepCenter?: BrandRepCenterPayload;
 };
 
 export async function postAgentSurface(body: {
@@ -71,6 +77,33 @@ export async function postBrandRepReview(body: {
     workspaceId: body.workspaceId,
     message: body.message,
   });
+}
+
+export async function postBrandRepCenter(body: {
+  workspaceId: string;
+  message: string;
+  mode: "ask" | "consult";
+  consultSectionId: string;
+  transcript: string;
+  brandProfileDraft: unknown;
+}): Promise<AgentSurfaceResponse & { brandRepCenter: BrandRepCenterPayload }> {
+  const { data } = await api.post<AgentSurfaceResponse & { brandRepCenter: BrandRepCenterPayload }>(
+    "/api/ai/agent",
+    {
+      schemaVersion: "1.0.0",
+      agentId: "brand_rep",
+      surfaceType: "brand_rep_center",
+      workspaceId: body.workspaceId,
+      message: body.message,
+      surfacePayload: {
+        mode: body.mode,
+        consultSectionId: body.consultSectionId,
+        transcript: body.transcript,
+        brandProfileDraft: body.brandProfileDraft,
+      },
+    },
+  );
+  return data;
 }
 
 export async function postMailroomRoutingPlan(body: {

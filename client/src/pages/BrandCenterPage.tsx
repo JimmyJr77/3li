@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Palette } from "lucide-react";
+import { Check, Goal, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { fetchBrandKitAiText, fetchBrandProfile, saveBrandProfile } from "@/features/brand/api";
 import {
@@ -13,7 +13,7 @@ import {
   normalizeBrandProfile,
 } from "@/features/brand/types";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
-import { postBrandRepReview } from "@/features/agents/api";
+import { BrandRepAgentSheet } from "@/features/agents/BrandRepAgentSheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,53 +50,6 @@ function CollapsibleSection({
       </summary>
       <div className="space-y-4 border-t border-border px-5 pb-5 pt-2">{children}</div>
     </details>
-  );
-}
-
-function BrandRepReviewBlock({ workspaceId }: { workspaceId: string }) {
-  const [draft, setDraft] = useState("");
-  const [output, setOutput] = useState("");
-  const mut = useMutation({
-    mutationFn: () => postBrandRepReview({ workspaceId, message: draft }),
-    onSuccess: (d) => setOutput(d.result),
-  });
-
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Paste marketing copy, headlines, or client-facing text. The Brand Rep Agent checks it against your saved kit.
-      </p>
-      <textarea
-        className={textareaClass}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="Copy to review…"
-        rows={5}
-      />
-      <Button
-        type="button"
-        disabled={!draft.trim() || mut.isPending}
-        onClick={() => {
-          setOutput("");
-          mut.mutate();
-        }}
-      >
-        {mut.isPending ? (
-          <>
-            <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-            Reviewing…
-          </>
-        ) : (
-          "Review with Brand Rep"
-        )}
-      </Button>
-      {mut.isError ? <p className="text-sm text-destructive">Could not run review. Save your kit and try again.</p> : null}
-      {output ? (
-        <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-muted/20 p-3 text-sm whitespace-pre-wrap">
-          {output}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -180,17 +133,28 @@ export function BrandCenterPage() {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 pb-16">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <Palette className="size-7 shrink-0 text-muted-foreground" aria-hidden />
-          <h1 className="text-2xl font-semibold tracking-tight">Brand Center</h1>
+    <div className="flex w-full min-w-0 flex-col gap-8 pb-16">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Goal className="size-7 shrink-0 text-muted-foreground" aria-hidden />
+            <h1 className="text-2xl font-semibold tracking-tight">Brand Center</h1>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Define your company&apos;s brand identity so AI across 3LI — chat, notes, Brainstorm, and more — stays on-message.
+            This kit is the source of truth for the active brand: it applies across that brand&apos;s whole workspace
+            (boards, tasks, notebooks, and more), not the other way around.
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Define your company&apos;s brand identity so AI across 3LI — chat, notes, Brainstorm, and more — stays on-message.
-          This kit is the source of truth for the active brand: it applies across that brand&apos;s whole workspace
-          (boards, tasks, notebooks, and more), not the other way around.
-        </p>
+        {workspaceId ? (
+          <div className="shrink-0 pt-1">
+            <BrandRepAgentSheet
+              workspaceId={workspaceId}
+              brandProfile={profile}
+              onApplyProfilePatch={(next) => setProfile(next)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <CollapsibleSection
@@ -208,16 +172,6 @@ export function BrandCenterPage() {
           and related delivery work; this kit applies to the whole brand workspace.
         </p>
       </CollapsibleSection>
-
-      {workspaceId ? (
-        <CollapsibleSection
-          title="Brand Rep Agent"
-          description="Review draft copy against this brand kit before you ship it."
-          defaultOpen={false}
-        >
-          <BrandRepReviewBlock workspaceId={workspaceId} />
-        </CollapsibleSection>
-      ) : null}
 
       {wsLoading && (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -768,6 +722,25 @@ export function BrandCenterPage() {
                     assets: { ...p.assets, photoDirection: e.target.value },
                   }))
                 }
+              />
+            </Field>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Other brand considerations"
+            description="Anything that should influence the brand and AI outputs but does not fit the sections above — sensitivities, naming constraints, partnerships, regulatory notes, or internal context. You or the Brand Rep Agent can maintain this."
+            defaultOpen={false}
+          >
+            <Field
+              label="Additional considerations"
+              hint="Optional. Shown to AI with the rest of the kit. The Brand Rep consultation includes a step for this block."
+            >
+              <textarea
+                className={textareaClass}
+                rows={5}
+                value={profile.otherBrandConsiderations ?? ""}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => update("otherBrandConsiderations", e.target.value)}
+                placeholder="e.g. Avoid comparing to Acme Corp by name · Board prefers “clients” not “customers” · EU claims require legal sign-off…"
               />
             </Field>
           </CollapsibleSection>

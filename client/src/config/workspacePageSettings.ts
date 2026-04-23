@@ -3,12 +3,12 @@ import {
   Bell,
   BookOpen,
   CalendarDays,
+  Goal,
   Home,
   LayoutGrid,
   Lightbulb,
   ListTodo,
   MessageSquare,
-  Palette,
   StickyNote,
   Zap,
 } from "lucide-react";
@@ -33,7 +33,7 @@ export const WORKSPACE_PAGE_SETTINGS = [
     to: "/app/brand-center",
     label: "Brand Center",
     description: "Brand kit, voice, and positioning used across AI and delivery tools.",
-    icon: Palette,
+    icon: Goal,
   },
   {
     id: "wp-rapid-router",

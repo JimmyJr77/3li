@@ -98,6 +98,7 @@ export const brandProfileSchema = z
           })
           .partial()
           .optional(),
+        otherBrandConsiderations: text,
       })
       .passthrough(),
   ])

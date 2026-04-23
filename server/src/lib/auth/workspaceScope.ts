@@ -3,13 +3,20 @@ import { prisma } from "../db.js";
 
 export type AppUserPrincipal = { id: string; role: string };
 
+/** Brands this user may open: owned, or shared via `BrandMember`. */
+export function brandAccessWhereForUserId(userId: string): Prisma.BrandWhereInput {
+  return {
+    OR: [{ ownerUserId: userId }, { members: { some: { userId } } }],
+  };
+}
+
 export function workspaceWhereForAppUser(user: AppUserPrincipal): Prisma.WorkspaceWhereInput {
   if (user.role === "admin") {
     return { archivedAt: null, brand: { archivedAt: null } };
   }
   return {
     archivedAt: null,
-    brand: { archivedAt: null, ownerUserId: user.id },
+    brand: { archivedAt: null, ...brandAccessWhereForUserId(user.id) },
   };
 }
 
@@ -17,7 +24,21 @@ export function brandWhereForAppUser(user: AppUserPrincipal): Prisma.BrandWhereI
   if (user.role === "admin") {
     return { archivedAt: null };
   }
-  return { archivedAt: null, ownerUserId: user.id };
+  return { archivedAt: null, ...brandAccessWhereForUserId(user.id) };
+}
+
+export async function assertBrandOwnerAccess(
+  user: AppUserPrincipal,
+  brandId: string,
+): Promise<boolean> {
+  if (user.role === "admin") {
+    const n = await prisma.brand.count({ where: { id: brandId } });
+    return n > 0;
+  }
+  const n = await prisma.brand.count({
+    where: { id: brandId, archivedAt: null, ownerUserId: user.id },
+  });
+  return n > 0;
 }
 
 export async function assertWorkspaceAccess(

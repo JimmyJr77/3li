@@ -12,6 +12,7 @@ import { HomePage } from "@/pages/HomePage";
 import { RapidRouterPage } from "@/pages/RapidRouterPage";
 import { RequireAuthAppLayout } from "@/components/auth/RequireAuthAppLayout";
 import { LoginPage } from "@/pages/LoginPage";
+import { InviteBrandPage } from "@/pages/InviteBrandPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { BrandCenterPage } from "@/pages/BrandCenterPage";
 import { ModulePlaceholderPage } from "@/pages/ModulePlaceholderPage";
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
       { path: "contact", element: <ContactPage /> },
       { path: "login", element: <LoginPage /> },
       { path: "register", element: <RegisterPage /> },
+      { path: "invite/brand", element: <InviteBrandPage /> },
       { path: "n/:publicSlug", element: <PublicNotePage /> },
     ],
   },

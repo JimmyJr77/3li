@@ -3,7 +3,6 @@ import { AlertTriangle, FileText, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
-import { RedTeamPanel } from "@/features/agents/RedTeamPanel";
 import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
 import type { AtlasNoteDto } from "./types";
 import { Input } from "@/components/ui/input";
@@ -20,6 +19,7 @@ import {
   reorderNotes as reorderNotesApi,
   searchNotes,
 } from "./api";
+import { extractPlainTextFromDoc } from "./extractPreview";
 import { AtlasNotesBrowseColumns } from "./AtlasNotesBrowseColumns";
 import { applyLocalContentPatch, LOCAL_WORKSPACE_ID, useLocalNotesStore } from "./localNotesStore";
 import { NoteEditor } from "./NoteEditor";
@@ -28,6 +28,7 @@ import { NotePublishingBar } from "./NotePublishingBar";
 import { NoteTagsRow } from "./NoteTagsRow";
 import { NotesPortabilityPanel } from "./NotesPortabilityPanel";
 import type { ExportedNotePayload } from "./notesImportExport";
+import { useOptionalNotesAdvisorAgentsShell } from "./NotesAdvisorAgentsShellContext";
 import { useNotesWorkspaceShortcuts } from "./NotesWorkspaceShortcutsProvider";
 
 export function AtlasNotesApp() {
@@ -89,6 +90,7 @@ export function AtlasNotesApp() {
   const beforeUniversalRef = useRef<{ folderFilter: string | "all"; selectedId: string | null } | null>(null);
   const urlNoteApplied = useRef(false);
   const { setActiveNotesFolderId } = useNotesWorkspaceShortcuts();
+  const notesAdvisorSetPayload = useOptionalNotesAdvisorAgentsShell()?.setNotesAdvisorPayload;
 
   const notesQuery = useQuery({
     queryKey: ["notes-app", "notes", workspaceId, folderFilter],
@@ -292,6 +294,35 @@ export function AtlasNotesApp() {
     setActiveNotesFolderId(captureFolderForShortcuts);
     return () => setActiveNotesFolderId(null);
   }, [captureFolderForShortcuts, setActiveNotesFolderId]);
+
+  useEffect(() => {
+    if (!notesAdvisorSetPayload) return;
+    if (bootstrapLoading || !workspaceId) {
+      notesAdvisorSetPayload(null);
+      return;
+    }
+    if (selected) {
+      const bodyPlain = extractPlainTextFromDoc(selected.contentJson, 7200);
+      const bodyBlock = (bodyPlain || selected.previewText || "").trim();
+      notesAdvisorSetPayload({
+        workspaceId,
+        contextHint: `Title: ${selected.title}\n\nBody:\n${bodyBlock}`.slice(0, 8000),
+        noteAi: {
+          note: selected,
+          offline: localMode,
+          onUpdated: () => void qc.invalidateQueries({ queryKey: ["notes-app"] }),
+        },
+      });
+    } else {
+      notesAdvisorSetPayload({
+        workspaceId,
+        contextHint: "",
+      });
+    }
+    return () => {
+      notesAdvisorSetPayload(null);
+    };
+  }, [bootstrapLoading, localMode, notesAdvisorSetPayload, qc, selected, workspaceId]);
 
   const importPayloads = async (payloads: ExportedNotePayload[]) => {
     if (!defaultFolderId) return;
@@ -505,19 +536,6 @@ export function AtlasNotesApp() {
                 />
               </div>
 
-              {workspaceId ? (
-                <div className="mt-4 shrink-0 border-t border-border pt-4">
-                  <RedTeamPanel
-                    workspaceId={workspaceId}
-                    contextHint={`${selected.title}\n\n${selected.previewText ?? ""}`.slice(0, 8000)}
-                    noteAi={{
-                      note: selected,
-                      offline: localMode,
-                      onUpdated: () => void qc.invalidateQueries({ queryKey: ["notes-app"] }),
-                    }}
-                  />
-                </div>
-              ) : null}
               <div className="mt-4 shrink-0 border-t border-border pt-4">
                 <NoteTagsRow
                   note={selected}

@@ -33,7 +33,7 @@ import {
   type MailroomPlanChunk,
   type MailroomPlanPayload,
 } from "@/features/agents/api";
-import { RedTeamPanel } from "@/features/agents/RedTeamPanel";
+import { AdvisorAgentsSheet } from "@/features/agents/AdvisorAgentsSheet";
 import {
   createBoardTask,
   createRoutingHold,
@@ -1052,9 +1052,16 @@ export function RapidRouterPage() {
 
   return (
     <div className="flex w-full flex-col gap-8">
-      <div className="flex items-center gap-2">
-        <RapidRouterIcon className="size-7 shrink-0 text-muted-foreground" />
-        <h1 className="text-2xl font-semibold tracking-tight">Rapid Router</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <RapidRouterIcon className="size-7 shrink-0 text-muted-foreground" />
+          <h1 className="text-2xl font-semibold tracking-tight">Rapid Router</h1>
+        </div>
+        {activeWorkspaceId ? (
+          <div className="shrink-0 sm:pt-0.5">
+            <AdvisorAgentsSheet workspaceId={activeWorkspaceId} captureMaterial={text} />
+          </div>
+        ) : null}
       </div>
       <p className="text-sm text-muted-foreground">
         Write in Capture, optionally push a sticky into the box with the arrow control, route to a workspace
@@ -1082,14 +1089,11 @@ export function RapidRouterPage() {
           }}
         >
         <section className="min-w-0 space-y-3">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-6">
-          <Label htmlFor="rapid-capture" className="text-foreground">
-            Capture
-          </Label>
-          <span className="hidden lg:block" aria-hidden />
-        </div>
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-6">
-          <div className="flex min-h-0 w-full min-w-0 flex-col lg:w-1/2 lg:shrink-0">
+        <Label htmlFor="rapid-capture" className="text-foreground">
+          Capture
+        </Label>
+        <div className="flex flex-col gap-6">
+          <div className="flex min-h-0 w-full min-w-0 flex-col">
             <div className="relative">
           <textarea
             id="rapid-capture"
@@ -1103,7 +1107,7 @@ export function RapidRouterPage() {
             }}
             placeholder="Type freely. First line is often used as a title for tasks and notes."
                 rows={12}
-                className="border-input bg-card text-card-foreground placeholder:text-muted-foreground shadow-sm focus-visible:border-ring focus-visible:ring-ring/50 min-h-[20rem] w-full flex-1 resize-y rounded-lg border px-3 pt-2 pb-16 text-sm outline-none focus-visible:ring-[3px] lg:min-h-[24rem]"
+                className="border-input bg-card text-card-foreground placeholder:text-muted-foreground shadow-sm focus-visible:border-ring focus-visible:ring-ring/50 min-h-[24rem] w-full flex-1 resize-y rounded-lg border px-3 pt-2 pb-16 text-sm outline-none focus-visible:ring-[3px]"
               />
               <Button
                 type="button"
@@ -1123,15 +1127,11 @@ export function RapidRouterPage() {
             </div>
           </div>
 
-        {activeWorkspaceId ? (
-          <div className="flex w-full min-w-0 flex-col self-start lg:w-1/2">
-            <RedTeamPanel workspaceId={activeWorkspaceId} captureMaterial={text} className="min-h-[24rem] w-full flex-1" />
-          </div>
-        ) : (
-          <div className="flex min-h-[24rem] w-full flex-col items-center justify-center self-start rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground lg:w-1/2">
-            Select a brand to use Agents (AI Tools, Red Team Agent, and AI Consultant).
-          </div>
-        )}
+        {!activeWorkspaceId ? (
+          <p className="text-sm text-muted-foreground">
+            Select a brand in the sidebar to use Advisor Agents (AI Tools, Red Team Agent, and AI Consultant).
+          </p>
+        ) : null}
         </div>
       </section>
 

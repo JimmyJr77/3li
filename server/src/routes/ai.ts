@@ -9,6 +9,7 @@ import {
   isAiBackendConfigured,
 } from "../lib/openai/client.js";
 import {
+  runBrandRepCenterSession,
   runBrandRepReview,
   runMailroomCaptureDecomposition,
   runMailroomRouteSelectedItems,
@@ -59,7 +60,7 @@ router.post("/brainstorm", async (req, res) => {
 
 /**
  * CONTEXT_BUNDLE-style entry: `agentId`, `surfaceType`, and surface payload.
- * Supports: brainstorm, task_popup / generic (PM Agent), brand_rep_review.
+ * Supports: brainstorm, task_popup / generic (PM Agent), brand_rep_review, brand_rep_center.
  */
 router.post("/agent", async (req, res) => {
   try {
@@ -160,6 +161,60 @@ router.post("/agent", async (req, res) => {
         }
         if (msg === "BRAND_KIT_REQUIRED") {
           res.status(400).json({ error: "Brand kit required — complete Brand Center for this workspace" });
+          return;
+        }
+        throw e;
+      }
+      return;
+    }
+
+    if (surface === "brand_rep_center") {
+      const openai = getOpenAIOrNull();
+      if (!openai) {
+        res.status(503).json({
+          error: "AI service unavailable",
+          detail: aiServiceUnavailableDetail(),
+        });
+        return;
+      }
+      const bodyExt = req.body as {
+        message?: string;
+        surfacePayload?: {
+          mode?: string;
+          consultSectionId?: string;
+          transcript?: string;
+          brandProfileDraft?: unknown;
+        };
+      };
+      const message =
+        (typeof bodyExt.message === "string" ? bodyExt.message : undefined) ??
+        (typeof body.prompt === "string" ? body.prompt : undefined) ??
+        "";
+      const sp = bodyExt.surfacePayload ?? {};
+      const mode = sp.mode === "consult" ? "consult" : "ask";
+      const consultSectionId = typeof sp.consultSectionId === "string" ? sp.consultSectionId : "discovery";
+      const transcript = typeof sp.transcript === "string" ? sp.transcript : "";
+      const ws = typeof body.workspaceId === "string" ? body.workspaceId : "";
+      try {
+        const turn = await runBrandRepCenterSession(openai, {
+          workspaceId: ws,
+          mode,
+          consultSectionId,
+          userMessage: message,
+          transcript,
+          brandProfileDraft: sp.brandProfileDraft,
+        });
+        res.json({
+          schemaVersion: body.schemaVersion ?? "1.0.0",
+          agentId: "brand_rep",
+          surfaceType: surface,
+          result: turn.assistantMessage,
+          brandRepCenter: turn,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg === "WORKSPACE_REQUIRED") {
+          res.status(400).json({ error: "workspaceId is required" });
           return;
         }
         throw e;
@@ -351,7 +406,7 @@ router.post("/agent", async (req, res) => {
       res.status(400).json({
         error: "Unsupported surfaceType",
         detail:
-          "Use brainstorm | task_popup | generic | brand_rep_review | mail_clerk_plan | mail_clerk_decompose | mail_clerk_route",
+          "Use brainstorm | task_popup | generic | brand_rep_review | brand_rep_center | mail_clerk_plan | mail_clerk_decompose | mail_clerk_route",
       });
       return;
     }

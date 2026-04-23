@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
@@ -26,7 +26,9 @@ import {
   type WorkspacePageSettingsId,
 } from "@/config/workspacePageSettings";
 import { useWorkspacePrefs, type SidebarBehavior } from "@/context/WorkspacePrefsContext";
-import { fetchMe, logout } from "@/features/auth/api";
+import { changePassword, fetchMe, logout, patchProfile } from "@/features/auth/api";
+import { formatUsPhoneInput } from "@/lib/phoneUs";
+import { formatApiError } from "@/lib/apiErrorMessage";
 import { cn } from "@/lib/utils";
 
 type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout";
@@ -135,13 +137,105 @@ function SidebarOptionCard({
   );
 }
 
+type AccountDraft = {
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+};
+
+function emptyAccountDraft(): AccountDraft {
+  return { username: "", email: "", firstName: "", lastName: "", displayName: "" };
+}
+
 export function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { profile, updateProfile, sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
+  const { sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
   const [category, setCategory] = useState<SettingsCategoryId>("profile");
   const { data: authUser } = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
+  const [accountDraft, setAccountDraft] = useState<AccountDraft>(emptyAccountDraft);
+  const [phoneDisplay, setPhoneDisplay] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPassword2, setNewPassword2] = useState("");
+
+  useEffect(() => {
+    if (!authUser) {
+      setAccountDraft(emptyAccountDraft());
+      setPhoneDisplay("");
+      return;
+    }
+    setAccountDraft({
+      username: authUser.username,
+      email: authUser.email,
+      firstName: authUser.firstName ?? "",
+      lastName: authUser.lastName ?? "",
+      displayName: authUser.displayName ?? "",
+    });
+    setPhoneDisplay(formatUsPhoneInput(authUser.phone ?? ""));
+  }, [authUser]);
+
+  const accountDirty = useMemo(() => {
+    if (!authUser) return false;
+    const phone = formatUsPhoneInput(phoneDisplay);
+    return (
+      accountDraft.username.trim() !== authUser.username ||
+      accountDraft.email.trim() !== authUser.email ||
+      phone !== (authUser.phone ?? "") ||
+      (accountDraft.firstName.trim() || "") !== (authUser.firstName ?? "") ||
+      (accountDraft.lastName.trim() || "") !== (authUser.lastName ?? "") ||
+      (accountDraft.displayName.trim() || "") !== (authUser.displayName ?? "")
+    );
+  }, [authUser, accountDraft, phoneDisplay]);
+
+  const profileSaveMut = useMutation({
+    mutationFn: async () => {
+      const phone = formatUsPhoneInput(phoneDisplay);
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length !== 10) {
+        throw new Error("Enter a complete US phone number (10 digits).");
+      }
+      return patchProfile({
+        username: accountDraft.username.trim(),
+        email: accountDraft.email.trim(),
+        phone,
+        firstName: accountDraft.firstName.trim(),
+        lastName: accountDraft.lastName.trim(),
+        displayName: accountDraft.displayName.trim() ? accountDraft.displayName.trim() : null,
+      });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    },
+  });
+
+  const passwordMut = useMutation({
+    mutationFn: async () => {
+      if (newPassword !== newPassword2) {
+        throw new Error("New password and confirmation do not match.");
+      }
+      await changePassword(currentPassword, newPassword);
+    },
+    onSuccess: () => {
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPassword2("");
+    },
+  });
+
+  useEffect(() => {
+    if (accountDirty) {
+      profileSaveMut.reset();
+    }
+  }, [accountDirty, profileSaveMut]);
+
+  useEffect(() => {
+    passwordMut.reset();
+  }, [currentPassword, newPassword, newPassword2, passwordMut]);
+
   const logoutMut = useMutation({
     mutationFn: logout,
     onSuccess: async () => {
@@ -194,74 +288,200 @@ export function SettingsPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <User className="size-4 opacity-70" aria-hidden />
-                    Your profile
+                    Profile &amp; account
                   </CardTitle>
                   <CardDescription>
-                    Local display preferences below. Your account username is managed on the server when you sign in.
+                    These fields are stored with your login. Save changes when you are done editing. Password changes
+                    apply immediately and keep you signed in on this device.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                    <div
-                      className="flex size-16 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground"
-                      aria-hidden
-                    >
-                      {initialsFromProfile(profile.displayName, profile.email)}
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="profile-display-name">Display name</Label>
-                        <Input
-                          id="profile-display-name"
-                          autoComplete="name"
-                          placeholder="Alex Morgan"
-                          value={profile.displayName}
-                          onChange={(e) => updateProfile({ displayName: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="profile-email">Email</Label>
-                        <Input
-                          id="profile-email"
-                          type="email"
-                          autoComplete="email"
-                          placeholder="you@company.com"
-                          value={profile.email}
-                          onChange={(e) => updateProfile({ email: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  {authUser ? (
-                    <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                      <div>
-                        <p className="text-sm font-medium">Account</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Signed in as{" "}
-                          <span className="font-medium text-foreground">{authUser.username}</span>
-                          {authUser.displayName ? ` (${authUser.displayName})` : null}
+                <CardContent className="space-y-8">
+                  {!authUser ? (
+                    <p className="text-sm text-muted-foreground">Sign in to manage your account from this page.</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                        <div
+                          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground"
+                          aria-hidden
+                        >
+                          {initialsFromProfile(accountDraft.displayName, accountDraft.email)}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-4">
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label htmlFor="acct-first">First name</Label>
+                              <Input
+                                id="acct-first"
+                                autoComplete="given-name"
+                                value={accountDraft.firstName}
+                                onChange={(e) => setAccountDraft((d) => ({ ...d, firstName: e.target.value }))}
+                                maxLength={80}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="acct-last">Last name</Label>
+                              <Input
+                                id="acct-last"
+                                autoComplete="family-name"
+                                value={accountDraft.lastName}
+                                onChange={(e) => setAccountDraft((d) => ({ ...d, lastName: e.target.value }))}
+                                maxLength={80}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-display">Display name</Label>
+                            <Input
+                              id="acct-display"
+                              autoComplete="name"
+                              placeholder="Shown in the product"
+                              value={accountDraft.displayName}
+                              onChange={(e) => setAccountDraft((d) => ({ ...d, displayName: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-email">Email</Label>
+                            <Input
+                              id="acct-email"
+                              type="email"
+                              autoComplete="email"
+                              value={accountDraft.email}
+                              onChange={(e) => setAccountDraft((d) => ({ ...d, email: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-phone">Mobile phone (US)</Label>
+                            <Input
+                              id="acct-phone"
+                              type="tel"
+                              inputMode="numeric"
+                              autoComplete="tel"
+                              placeholder="555-123-4567"
+                              value={phoneDisplay}
+                              onChange={(e) => setPhoneDisplay(formatUsPhoneInput(e.target.value))}
+                              aria-describedby="acct-phone-hint"
+                            />
+                            <p id="acct-phone-hint" className="text-xs text-muted-foreground">
+                              Stored as ###-###-#### (10 digits).
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-username">Username</Label>
+                            <Input
+                              id="acct-username"
+                              autoComplete="username"
+                              value={accountDraft.username}
+                              onChange={(e) => setAccountDraft((d) => ({ ...d, username: e.target.value }))}
+                              minLength={3}
+                              maxLength={32}
+                              className="font-mono text-sm"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              3–32 characters: lowercase letters, digits, or underscore.
+                            </p>
+                          </div>
                           {authUser.role === "admin" ? (
-                            <span className="ml-2 text-xs uppercase tracking-wide text-muted-foreground">
-                              Admin
-                            </span>
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Administrator account</p>
                           ) : null}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {authUser.email}
-                          {authUser.phone ? ` · ${authUser.phone}` : null}
-                        </p>
+                          {profileSaveMut.isError ? (
+                            <p className="text-sm text-destructive" role="alert">
+                              {formatApiError(profileSaveMut.error, "Could not save profile")}
+                            </p>
+                          ) : null}
+                          {profileSaveMut.isSuccess && !accountDirty ? (
+                            <p className="text-sm text-muted-foreground">Profile saved.</p>
+                          ) : null}
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!accountDirty || profileSaveMut.isPending}
+                            onClick={() => profileSaveMut.mutate()}
+                          >
+                            {profileSaveMut.isPending ? "Saving…" : "Save profile"}
+                          </Button>
+                        </div>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={logoutMut.isPending}
-                        onClick={() => logoutMut.mutate()}
-                      >
-                        {logoutMut.isPending ? "Signing out…" : "Sign out"}
-                      </Button>
-                    </div>
-                  ) : null}
+
+                      <div className="space-y-4 border-t border-border pt-6">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Password</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Enter your current password, then choose a new one (at least 8 characters).
+                          </p>
+                        </div>
+                        <div className="grid max-w-md gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-cur-pw">Current password</Label>
+                            <Input
+                              id="acct-cur-pw"
+                              type="password"
+                              autoComplete="current-password"
+                              value={currentPassword}
+                              onChange={(e) => setCurrentPassword(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-new-pw">New password</Label>
+                            <Input
+                              id="acct-new-pw"
+                              type="password"
+                              autoComplete="new-password"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              minLength={8}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="acct-new-pw2">Confirm new password</Label>
+                            <Input
+                              id="acct-new-pw2"
+                              type="password"
+                              autoComplete="new-password"
+                              value={newPassword2}
+                              onChange={(e) => setNewPassword2(e.target.value)}
+                              minLength={8}
+                            />
+                          </div>
+                          {passwordMut.isError ? (
+                            <p className="text-sm text-destructive" role="alert">
+                              {formatApiError(passwordMut.error, "Could not change password")}
+                            </p>
+                          ) : null}
+                          {passwordMut.isSuccess ? (
+                            <p className="text-sm text-muted-foreground">Password updated.</p>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={
+                              passwordMut.isPending ||
+                              !currentPassword ||
+                              !newPassword ||
+                              newPassword.length < 8 ||
+                              !newPassword2
+                            }
+                            onClick={() => passwordMut.mutate()}
+                          >
+                            {passwordMut.isPending ? "Updating…" : "Update password"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 border-t border-border pt-6">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={logoutMut.isPending}
+                          onClick={() => logoutMut.mutate()}
+                        >
+                          {logoutMut.isPending ? "Signing out…" : "Sign out"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </>
             )}

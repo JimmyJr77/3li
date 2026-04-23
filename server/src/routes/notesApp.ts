@@ -9,7 +9,11 @@ import {
   getAiPublicMetadata,
   getOpenAIOrNull,
 } from "../lib/openai/client.js";
-import { ensureDefaultNotesFolder, ensureNotesBootstrap, ensureQuicknotesFolder } from "../lib/notesDefaults.js";
+import {
+  ensureDefaultNotesFolder,
+  ensureNotesBootstrap,
+  syncNotesWorkspaceFolderDefaults,
+} from "../lib/notesDefaults.js";
 import type { Workspace } from "@prisma/client";
 import { syncNoteLinksFromContent } from "../lib/wikiLinks.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
@@ -178,8 +182,9 @@ router.get("/bootstrap", async (req, res) => {
     } else {
       workspace = (await ensureNotesBootstrap(req.appUser!)).workspace;
     }
-    const defaultFolder = await ensureDefaultNotesFolder(workspace.id);
-    const quickCaptureFolder = await ensureQuicknotesFolder(workspace.id);
+    const { notebook: defaultFolder, quicknotes: quickCaptureFolder } = await syncNotesWorkspaceFolderDefaults(
+      workspace.id,
+    );
     const folders = await prisma.notesFolder.findMany({
       where: { workspaceId: workspace.id },
       orderBy: [{ parentId: "asc" }, { position: "asc" }],

@@ -60,6 +60,8 @@ export type BrandProfile = {
     /** Optional data URL — keep small; used for preview + “logo present” signal */
     logoPrimaryDataUrl?: string;
   };
+  /** Catch-all: sensitivities, naming notes, partnerships, risks, or anything that does not fit other sections */
+  otherBrandConsiderations?: string;
 };
 
 export function emptyBrandProfile(): BrandProfile {
@@ -77,6 +79,7 @@ export function emptyBrandProfile(): BrandProfile {
     channels: "",
     legal: {},
     assets: {},
+    otherBrandConsiderations: "",
   };
 }
 
@@ -101,5 +104,7 @@ export function normalizeBrandProfile(raw: unknown): BrandProfile {
     channels: typeof o.channels === "string" ? o.channels : base.channels,
     legal: { ...base.legal, ...(typeof o.legal === "object" && o.legal && !Array.isArray(o.legal) ? o.legal : {}) },
     assets: { ...base.assets, ...(typeof o.assets === "object" && o.assets && !Array.isArray(o.assets) ? o.assets : {}) },
+    otherBrandConsiderations:
+      typeof o.otherBrandConsiderations === "string" ? o.otherBrandConsiderations : base.otherBrandConsiderations,
   };
 }

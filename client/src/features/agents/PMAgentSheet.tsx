@@ -80,8 +80,9 @@ export function PMAgentSheet({ workspaceId, contextText, surfaceLabel }: PMAgent
         <SheetHeader>
           <SheetTitle>Plan with PM Agent</SheetTitle>
           <SheetDescription>
-            {surfaceLabel}. Describe what you want to accomplish; the agent suggests agendas, tasks, and risks. No
-            automatic ticket changes in this version.
+            {surfaceLabel}. The agent&apos;s primary dialogue is that <strong>page context</strong> (boards, tasks, or
+            calendar snapshot) plus your goal below — not other workspaces or screens. Describe what you want to
+            accomplish; it suggests agendas, tasks, and risks. No automatic ticket changes in this version.
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-2">

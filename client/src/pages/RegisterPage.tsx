@@ -1,17 +1,33 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { register } from "@/features/auth/api";
+import { fetchBrandInvitePreview, register } from "@/features/auth/api";
 import { formatApiError } from "@/lib/apiErrorMessage";
 import { formatUsPhoneInput } from "@/lib/phoneUs";
 
 export function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get("invite")?.trim() ?? "";
   const [phoneDisplay, setPhoneDisplay] = useState("");
+  const [inviteEmailPrefill, setInviteEmailPrefill] = useState("");
+
+  const invitePreviewQuery = useQuery({
+    queryKey: ["brand-invite-preview", inviteToken],
+    queryFn: () => fetchBrandInvitePreview(inviteToken),
+    enabled: Boolean(inviteToken),
+  });
+
+  useEffect(() => {
+    const e = invitePreviewQuery.data?.email;
+    if (e) {
+      setInviteEmailPrefill(e);
+    }
+  }, [invitePreviewQuery.data?.email]);
 
   const mutation = useMutation({
     mutationFn: async (fd: FormData) => {
@@ -25,11 +41,20 @@ export function RegisterPage() {
       if (digits.length !== 10) {
         throw new Error("Enter a complete US phone number (10 digits).");
       }
-      return register({ username, password, email, phone, firstName, lastName });
+      return register({
+        username,
+        password,
+        email,
+        phone,
+        firstName,
+        lastName,
+        ...(inviteToken ? { brandInviteToken: inviteToken } : {}),
+      });
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["auth", "me"] });
       await qc.invalidateQueries({ queryKey: ["workspaces"] });
+      await qc.invalidateQueries({ queryKey: ["brands-tree"] });
       navigate("/app/dashboard");
     },
   });
@@ -42,6 +67,25 @@ export function RegisterPage() {
           Add your name, contact info, and sign-in details. Phone is stored as a US number (###-###-####). You will be
           signed in automatically.
         </p>
+        {inviteToken && invitePreviewQuery.isSuccess ? (
+          <div className="mt-6 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+            <p className="font-medium text-foreground">Brand team invite</p>
+            <p className="mt-1 text-muted-foreground">
+              After you create your account you will keep your personal workspace and also gain access to the shared
+              brand <span className="font-medium text-foreground">{invitePreviewQuery.data.brandName}</span>.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Use the email address this invite was sent to ({invitePreviewQuery.data.email}) so the link can attach
+              you to the team.
+            </p>
+          </div>
+        ) : null}
+        {inviteToken && invitePreviewQuery.isError ? (
+          <p className="mt-6 text-sm text-destructive" role="alert">
+            This invite link is not valid anymore. You can still register below, but you will not be added to the team
+            automatically.
+          </p>
+        ) : null}
         <form
           className="mt-8 space-y-6"
           onSubmit={(e) => {
@@ -69,6 +113,8 @@ export function RegisterPage() {
               autoComplete="email"
               required
               placeholder="you@company.com"
+              defaultValue={inviteEmailPrefill}
+              key={inviteEmailPrefill || "email"}
             />
           </div>
           <div className="space-y-2">

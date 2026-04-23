@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Inbox, Lightbulb, MessageSquare, Palette, StickyNote, Zap } from "lucide-react";
+import { Goal, Inbox, Lightbulb, MessageSquare, StickyNote, Zap } from "lucide-react";
 import { RapidRouterIcon } from "@/components/shared/RapidRouterIcon";
 import { WorkspaceDashboardHomeGrid } from "@/components/workspace/WorkspaceDashboardHomeGrid";
 import { ComingSoonCard } from "@/components/shared/ComingSoonCard";
@@ -48,7 +48,7 @@ export function DashboardPage() {
           </Button>
           <Button type="button" variant="outline" size="sm" asChild>
             <Link to="/app/brand-center">
-              <Palette className="mr-1.5 size-3.5" aria-hidden />
+              <Goal className="mr-1.5 size-3.5" aria-hidden />
               Brand Center
             </Link>
           </Button>

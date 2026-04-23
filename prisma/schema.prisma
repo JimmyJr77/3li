@@ -24,6 +24,10 @@ model AppUser {
   /// "user" | "admin"
   role         String       @default("user")
   brands       Brand[]
+  brandMemberships BrandMember[]
+  brandMembersInvited BrandMember[] @relation("BrandMemberInvitedBy")
+  brandInvitesSent BrandInvite[] @relation("BrandInviteInvitedBy")
+  brandInvitesConsumed BrandInvite[] @relation("BrandInviteConsumedBy")
   sessions     AppSession[]
   /// Task board events attributed to this login (Activity Tracker).
   authoredTaskActivities Activity[] @relation("TaskActivityActor")
@@ -119,13 +123,53 @@ model Brand {
   teamContextInstructions String? @db.Text
   /// Sort order among non-archived brands (sidebar / settings).
   position     Int         @default(0)
+  /// Shareable token for self-join as a team member; owner can rotate without changing `id`.
+  joinKey      String      @unique
   archivedAt   DateTime?
   workspaces   Workspace[]
+  members      BrandMember[]
+  invites      BrandInvite[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([archivedAt])
   @@index([ownerUserId])
+}
+
+/// Additional accounts that can use a brand workspace (owner remains on `Brand.ownerUserId`).
+model BrandMember {
+  id               String   @id @default(cuid())
+  brandId          String
+  brand            Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  userId           String
+  user             AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitedByUserId  String?
+  invitedBy        AppUser? @relation("BrandMemberInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+
+  @@unique([brandId, userId])
+  @@index([userId])
+  @@index([brandId])
+}
+
+/// Pending email invite to join a brand team (token shown in invite link only).
+model BrandInvite {
+  id               String    @id @default(cuid())
+  brandId          String
+  brand            Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  /// Normalized lowercase email the invitee must sign up or sign in with.
+  email            String
+  tokenHash        String    @unique
+  invitedByUserId  String
+  invitedBy        AppUser   @relation("BrandInviteInvitedBy", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  expiresAt        DateTime
+  consumedAt       DateTime?
+  consumedByUserId String?
+  consumedBy       AppUser?  @relation("BrandInviteConsumedBy", fields: [consumedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+
+  @@index([brandId])
+  @@index([email])
 }
 
 /// One ecosystem per brand (notes, notebooks, activity, etc.). Boards live under ProjectSpaces inside this row.

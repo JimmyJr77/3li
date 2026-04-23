@@ -189,6 +189,30 @@ type RedTeamPanelProps = {
   };
 };
 
+/** Prepended to Brainstorm-based agent calls so the model stays scoped to the hosting page’s primary dialogue. */
+function primaryDialoguePreamble(
+  usesCaptureMaterial: boolean,
+  hasOpenNote: boolean,
+  contextHintNonEmpty: boolean,
+): string {
+  if (usesCaptureMaterial) {
+    return (
+      "PRIMARY DIALOGUE (mandatory scope): Base your answer ONLY on the Captured material block in this message (the Rapid Router Capture field on this page). " +
+      "Do not assume other captures, mailroom plans, routing destinations, or UI state unless the user pasted them into the operator request.\n\n"
+    );
+  }
+  if (hasOpenNote) {
+    return (
+      "PRIMARY DIALOGUE (mandatory scope): Base your answer ONLY on the open note in the Capture context below (active Notebooks note — title and body text provided there). " +
+      "Do not treat other notes, the folder list, or notebook chrome as the subject of your answer unless they appear in that capture text.\n\n"
+    );
+  }
+  if (contextHintNonEmpty) {
+    return "PRIMARY DIALOGUE (mandatory scope): Base your answer on the Capture context block below.\n\n";
+  }
+  return "";
+}
+
 function buildAgentUserMessage(
   operatorRequest: string,
   contextHint: string,
@@ -280,8 +304,10 @@ function CaptureAITools({
         );
       }
 
+      const scope =
+        "PRIMARY DIALOGUE (mandatory scope): Base your answer ONLY on the Captured material in this message (Rapid Router Capture field on this page). Ignore mailroom, routing UI, and other page chrome.\n\n";
       return postBrainstormAI({
-        prompt: userBlock,
+        prompt: scope + userBlock,
         mode: CAPTURE_AI_MODE[kind],
         workspaceId,
         agentRole: "consultant",
@@ -401,6 +427,11 @@ export function RedTeamPanel({
 
   const redMessage = buildAgentUserMessage(redPrompt, contextHint, captureMaterial);
   const consultantMessage = buildAgentUserMessage(consultantPrompt, contextHint, captureMaterial);
+  const agentPreamble = primaryDialoguePreamble(
+    usesCaptureMaterial,
+    Boolean(noteAi),
+    contextHint.trim().length > 0,
+  );
 
   const redMut = useMutation({
     mutationFn: async (prompt: string) => {
@@ -435,12 +466,12 @@ export function RedTeamPanel({
 
   const runRed = () => {
     if (!redMessage) return;
-    redMut.mutate(redMessage);
+    redMut.mutate(agentPreamble + redMessage);
   };
 
   const runConsultant = () => {
     if (!consultantMessage) return;
-    consultantMut.mutate(consultantMessage);
+    consultantMut.mutate(agentPreamble + consultantMessage);
   };
 
   const applyConsultantFraming = (m: ThinkingModeApi) => {
@@ -460,6 +491,22 @@ export function RedTeamPanel({
     <div className={cn("flex min-h-[24rem] flex-col gap-3", className)}>
       <Card className="min-h-0 flex-1 border bg-card shadow-sm">
         <CardHeader className="gap-0 space-y-0 pb-0">
+          <div
+            role="note"
+            className="mx-4 mt-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-foreground"
+          >
+            <span className="font-semibold text-foreground">Primary dialogue</span>
+            <span className="text-muted-foreground">
+              {" — "}
+              {usesCaptureMaterial ?
+                "Only the Rapid Router Capture field (read from this page). Agents do not see routing tables or destinations."
+              : noteAi ?
+                "Only the open note in the editor (title + body sent with requests). Other notes and lists are out of scope."
+              : contextHint.trim() ?
+                "The capture context below. Open a note on Notebooks or use Rapid Router for a clearer scope."
+              : "Add text in Capture on Rapid Router or open a note in Notebooks so agents have a primary dialogue to work with."}
+            </span>
+          </div>
           {showBrainstormAgents || !noteAi ? (
             <div
               role="tablist"
@@ -527,19 +574,19 @@ export function RedTeamPanel({
               "Summarize, rewrite, and suggest notebook links for this note. Uses the notes AI API (not the Brainstorm agent engine)."
             : agentTab === "ai_tools" ?
               noteAi ?
-                "Summarize, rewrite, and linking ideas for the open note. Uses the notes AI API."
+                "Summarize, rewrite, and linking run on the open note only (notes AI API reads the live note body)."
               : usesCaptureMaterial ?
-                "Summarize, rewrite, and linking-style suggestions on the Capture field (read-only). Uses the Brainstorm AI Consultant engine."
-              : "Summarize, rewrite, and linking ideas using your note context."
+                "Summarize, rewrite, and linking run on the Capture field only (Brainstorm consultant engine; read-only capture from this page)."
+              : "Summarize, rewrite, and linking use the capture context below when present."
             : agentTab === "red_team" ?
               noteAi ?
-                "Pre-mortem, contrary views, and weakest-assumption exercises on your note context. Uses the Brainstorm Red Team engine."
+                "Red Team challenges the open note’s content only (title + body in context). Uses the Brainstorm Red Team engine."
               : usesCaptureMaterial ?
-                "Uses the main capture text. Presets fill the exercise box; thought framing does not apply to Red Team."
-              : "Stress-test assumptions and explore alternatives. Uses the same engine as Brainstorm Studio."
+                "Red Team uses the Capture field text only. Presets fill the exercise box; thought framing does not apply to Red Team."
+              : "Stress-test the capture context below. Uses the same engine as Brainstorm Studio."
             : usesCaptureMaterial ?
-              "Seed the text area with the buttons below, edit, then run. Uses the main capture text and the selected framing mode."
-            : "Seed the text area with the buttons below, edit, then run. Uses the same engine as Brainstorm Studio."}
+              "Consultant uses the Capture field text plus your request and framing mode. Brand presets align answers to the workspace brand kit."
+            : "Consultant uses the capture context plus your request. Brand presets align answers to the workspace brand kit."}
           </CardDescription>
         </CardHeader>
 

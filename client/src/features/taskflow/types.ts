@@ -80,12 +80,49 @@ export type BrandTreeDto = {
   /** Canonical brand name (editable in Settings). */
   name: string;
   position: number;
+  /** Shareable join key for this brand (rotatable; not the internal database id). */
+  brandIdentifier: string;
+  ownerUserId: string | null;
+  /** True when the signed-in account owns the brand, is an admin, or otherwise has owner-level control in the UI. */
+  youAreOwner: boolean;
   brandDisplayName?: string | null;
   workspaces: {
     id: string;
     name: string;
     projectSpaces: ProjectSpaceSummaryDto[];
   }[];
+};
+
+export type BrandTeamMemberDto = {
+  membershipId: string;
+  userId: string;
+  username: string;
+  email: string;
+  label: string;
+  invitedByUserId: string | null;
+};
+
+export type BrandTeamPendingInviteDto = {
+  id: string;
+  email: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type BrandTeamDto = {
+  brandId: string;
+  brandName: string;
+  brandIdentifier: string;
+  ownerUserId: string | null;
+  owner: { id: string; username: string; email: string; label: string };
+  members: BrandTeamMemberDto[];
+  pendingInvites: BrandTeamPendingInviteDto[];
+};
+
+export type BrandInviteCreatedDto = {
+  email: string;
+  registerUrl: string;
+  landingUrl: string;
 };
 
 export type BootstrapDto = {

@@ -160,7 +160,7 @@ export async function runBrandRepReview(
   const { teamBlock, userBlock } = formatTeamUserBlocksForPrompt(team, user);
 
   const system = [
-    `You are the Brand Rep Agent. Review the user's copy for alignment with the brand kit: voice, positioning, claims, and audience. Suggest compliant alternatives; flag risky or unsubstantiated claims.`,
+    `You are the Brand Rep Agent. The user's PRIMARY DIALOGUE is the copy they pasted below for review — that text alone is what you critique. The brand kit is supporting context for alignment (voice, positioning, claims, audience). Suggest compliant alternatives; flag risky or unsubstantiated claims.`,
     teamBlock,
     userBlock,
     `## Brand kit\n${brandBlock}`,
@@ -182,6 +182,143 @@ export async function runBrandRepReview(
     throw new Error("EMPTY_AI");
   }
   return out;
+}
+
+export type BrandRepCenterMode = "ask" | "consult";
+
+export type BrandRepCenterTurnResult = {
+  assistantMessage: string;
+  /** Partial brand kit fields the user may apply to the editor */
+  proposedProfilePatch: Record<string, unknown> | null;
+};
+
+const BRAND_CENTER_SECTION_PROMPTS: Record<string, string> = {
+  discovery: `You are in DISCOVERY. Open with one broad, inviting question so the founder or marketer explains the brand in their own words: who they serve, the promise, personality, and what makes them different. Listen; you may ask ONE sharp follow-up if critical gaps remain. Offer respectful pushback if positioning sounds fuzzy or self-contradictory. When you have a workable picture, you may optionally include proposedProfilePatch with only fields you are confident about from this conversation (often identity.displayName, identity.industry, audience.summary). Leave proposedProfilePatch null if still too early.`,
+  core_identity: `Focus CORE IDENTITY: display/brand name, legal name if relevant, tagline, industry/category. Ask what you still need; then propose concise kit-ready copy in proposedProfilePatch under "identity" (and only keys you are improving). Push back on generic or misleading category labels.`,
+  purpose: `Focus PURPOSE: mission, vision, values (array of short strings). Ask clarifying questions; propose proposedProfilePatch with purpose and/or values when ready. Challenge empty platitudes — push for specificity.`,
+  audience_positioning: `Focus AUDIENCE & POSITIONING: ideal customer summary, segments/personas, geography, market category, differentiators, competitors. Use industry expertise. proposedProfilePatch may include audience, positioning.`,
+  voice_tone: `Focus VOICE & TONE: personality, do/don't lists, vocabulary. proposedProfilePatch uses key "voice". Be opinionated about tone that fits the audience.`,
+  visual_system: `Focus VISUAL SYSTEM: primary/secondary/accent hex colors if they have them, typography notes. Never invent logoPrimaryDataUrl or image data — text only. proposedProfilePatch uses key "visual".`,
+  goals_outcomes: `Focus GOALS & OUTCOMES: business goals, marketing goals, metrics. proposedProfilePatch uses key "goals".`,
+  messaging_proof: `Focus MESSAGING & PROOF: key messages/pillars, proof points, origin narrative, social proof. proposedProfilePatch may include messaging and/or story.`,
+  channels_legal: `Focus CHANNELS & LEGAL: channels string, trademark/usage notes, disclaimers. proposedProfilePatch may include channels (string), legal.`,
+  assets_logos: `Focus LOGOS & IMAGERY: logo usage notes, secondary lockup notes, photography direction — text only, no binary. proposedProfilePatch uses key "assets" without logoPrimaryDataUrl.`,
+  other_considerations: `Focus OTHER BRAND CONSIDERATIONS: a catch-all for sensitivities (topics to avoid), stakeholder politics, naming constraints, partnerships/co-brand rules, regulatory or industry nuances, internal vocabulary, or anything that should influence messaging but does not fit other kit sections. Ask what else matters; propose proposedProfilePatch with top-level key "otherBrandConsiderations" (one cohesive string, bullet lines OK).`,
+  recap: `You are in RECAP. Summarize what was captured, call out any remaining risks or inconsistencies, and remind them to Save brand kit. proposedProfilePatch should be null unless fixing a small obvious error.`,
+};
+
+function sanitizeBrandProfilePatch(patch: unknown): Record<string, unknown> | null {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+  const o = { ...(patch as Record<string, unknown>) };
+  if (o.assets && typeof o.assets === "object" && !Array.isArray(o.assets)) {
+    const a = { ...(o.assets as Record<string, unknown>) };
+    delete a.logoPrimaryDataUrl;
+    o.assets = a;
+  }
+  return o;
+}
+
+/**
+ * Brand Center sheet: Q&A or guided consultation with optional partial kit proposals (JSON).
+ */
+export async function runBrandRepCenterSession(
+  openai: OpenAI,
+  body: {
+    workspaceId: string;
+    mode: BrandRepCenterMode;
+    consultSectionId: string;
+    userMessage: string;
+    transcript: string;
+    brandProfileDraft?: unknown;
+  },
+): Promise<BrandRepCenterTurnResult> {
+  const wsId = body.workspaceId?.trim();
+  if (!wsId) {
+    throw new Error("WORKSPACE_REQUIRED");
+  }
+
+  let savedKitBlock = "";
+  try {
+    const kit = await loadBrandProfileJsonForWorkspaceId(wsId);
+    savedKitBlock = formatBrandProfileForPrompt(kit);
+  } catch {
+    /* empty kit ok */
+  }
+
+  const { team, user } = await loadContextInstructionsForWorkspace(wsId);
+  const { teamBlock, userBlock } = formatTeamUserBlocksForPrompt(team, user);
+
+  const draftJson =
+    body.brandProfileDraft !== undefined && body.brandProfileDraft !== null
+      ? JSON.stringify(body.brandProfileDraft).slice(0, 24_000)
+      : "{}";
+
+  const sectionKey = BRAND_CENTER_SECTION_PROMPTS[body.consultSectionId] ? body.consultSectionId : "discovery";
+  const sectionDirective = BRAND_CENTER_SECTION_PROMPTS[sectionKey] ?? BRAND_CENTER_SECTION_PROMPTS.discovery;
+
+  const isAsk = body.mode === "ask";
+  const systemParts = [
+    `You are the Brand Rep Agent — a senior brand strategist and creative director. You know brand strategy, positioning, naming, narrative, voice, visual identity basics, and go-to-market context across B2B and consumer categories.`,
+    `PRIMARY DIALOGUE for this session: Brand Center — the full brand kit the user is editing on that page (JSON draft of all fields below, plus the chat transcript). Treat that kit as the substantive workspace you are helping shape. Do not assume visibility into other apps (boards, captures, notes) unless the user pastes them into the conversation.`,
+    `You are direct, expert, and constructive. When the user is vague or off-strategy, say so and explain why; offer a sharper alternative.`,
+    isAsk
+      ? `Mode: OPEN Q&A. Answer the user's question about brand development, this workspace, or their kit. Do not output proposedProfilePatch — set it to null always.`
+      : `Mode: GUIDED CONSULTATION. Current section: "${sectionKey}".\n${sectionDirective}`,
+    `Output JSON ONLY with this exact shape: {"assistantMessage":"string","proposedProfilePatch":null or object}`,
+    `Rules for proposedProfilePatch (consult mode only):`,
+    `- Only include keys you intend to set: identity, purpose, values, audience, positioning, voice, visual, goals, messaging, story, channels, legal, assets, otherBrandConsiderations (string) — nested object partials are OK where applicable.`,
+    `- Strings must be kit-ready (concise, professional). Do not include logoPrimaryDataUrl or any base64.`,
+    `- If you are only asking questions or need more input, set proposedProfilePatch to null.`,
+    teamBlock,
+    userBlock,
+    savedKitBlock ? `## Saved brand kit on server (authoritative baseline)\n${savedKitBlock}` : `## Saved brand kit on server: (empty — you are helping build it from conversation.)`,
+    `## Current draft in the editor (JSON — may differ from saved kit; prefer improving this when proposing patches)\n${draftJson}`,
+  ];
+
+  const system = systemParts.filter(Boolean).join("\n\n").trim();
+
+  const userMsg = [
+    body.transcript.trim() ? `## Conversation so far\n${body.transcript.trim().slice(0, 12_000)}` : "",
+    `## Latest user message\n${body.userMessage.trim().slice(0, 8_000) || "(no message)"}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const completion = await openai.chat.completions.create({
+    model: chatModel("primary"),
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: userMsg },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content ?? "";
+  if (!raw) {
+    throw new Error("EMPTY_AI");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error("BAD_JSON");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("BAD_JSON");
+  }
+  const o = parsed as Record<string, unknown>;
+  const assistantMessage =
+    typeof o.assistantMessage === "string" && o.assistantMessage.trim()
+      ? o.assistantMessage.trim()
+      : "I could not format a reply. Please try again with a bit more detail.";
+
+  let proposed: Record<string, unknown> | null = null;
+  if (!isAsk && o.proposedProfilePatch !== null && o.proposedProfilePatch !== undefined) {
+    proposed = sanitizeBrandProfilePatch(o.proposedProfilePatch);
+    if (proposed && Object.keys(proposed).length === 0) proposed = null;
+  }
+
+  return { assistantMessage, proposedProfilePatch: proposed };
 }
 
 /** Mail Clerk: propose how to split inbound capture across destinations using workspace routing index. */

@@ -1,5 +1,13 @@
 import { api } from "@/lib/api/client";
-import type { BoardDto, BootstrapDto, BrandTreeDto, TaskFlowTask, WorkspaceDto } from "./types";
+import type {
+  BoardDto,
+  BootstrapDto,
+  BrandInviteCreatedDto,
+  BrandTeamDto,
+  BrandTreeDto,
+  TaskFlowTask,
+  WorkspaceDto,
+} from "./types";
 
 export type TaskListParams = {
   workspaceId?: string;
@@ -110,6 +118,30 @@ export async function fetchBrandTree(): Promise<BrandTreeDto[]> {
   return data;
 }
 
+export async function fetchBrandTeam(brandId: string): Promise<BrandTeamDto> {
+  const { data } = await api.get<BrandTeamDto>(`/api/task-app/brands/${brandId}/team`);
+  return data;
+}
+
+export async function createBrandInvites(
+  brandId: string,
+  emails: string[],
+): Promise<{ created: BrandInviteCreatedDto[]; skipped?: string[] }> {
+  const { data } = await api.post<{ created: BrandInviteCreatedDto[]; skipped?: string[] }>(
+    `/api/task-app/brands/${brandId}/invites`,
+    { emails },
+  );
+  return data;
+}
+
+export async function revokeBrandInvite(brandId: string, inviteId: string): Promise<void> {
+  await api.delete(`/api/task-app/brands/${brandId}/invites/${inviteId}`);
+}
+
+export async function removeBrandMember(brandId: string, userId: string): Promise<void> {
+  await api.delete(`/api/task-app/brands/${brandId}/members/${userId}`);
+}
+
 export type ArchivedBoardSummary = {
   id: string;
   name: string;
@@ -199,6 +231,25 @@ export async function patchProjectSpace(
 
 export async function createBrand(name: string): Promise<BrandTreeDto> {
   const { data } = await api.post<BrandTreeDto>("/api/task-app/brands", { name });
+  return data;
+}
+
+export type JoinBrandWithKeyResult = {
+  ok: boolean;
+  brandId: string;
+  workspaceId: string | null;
+  alreadyHadAccess: boolean;
+};
+
+export async function joinBrandWithKey(joinKey: string): Promise<JoinBrandWithKeyResult> {
+  const { data } = await api.post<JoinBrandWithKeyResult>("/api/task-app/brands/join-with-key", { joinKey });
+  return data;
+}
+
+export async function regenerateBrandJoinKey(brandId: string): Promise<{ joinKey: string }> {
+  const { data } = await api.post<{ joinKey: string }>(
+    `/api/task-app/brands/${encodeURIComponent(brandId)}/regenerate-join-key`,
+  );
   return data;
 }
 

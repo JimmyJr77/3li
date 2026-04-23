@@ -1,8 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "./db.js";
 import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { workspaceWhereForAppUser } from "./auth/workspaceScope.js";
 import { defaultWorkspaceTitleFromBrandName } from "./workspaceLimits.js";
-import { ensureTaskflowShowcase } from "./showcaseSeed.js";
 
 const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
   { title: "Backlog", key: "backlog", position: 0 },
@@ -28,7 +28,10 @@ export async function ensureBoardLists(boardId: string) {
   }
 }
 
-/** Ensures the default project space + main board for a specific brand workspace. */
+/**
+ * Ensures the default project space + main board for a specific brand workspace.
+ * Does not insert demo tasks or other seeded content — new brands start empty (lists/labels only when a board is created).
+ */
 export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
   const workspace = await prisma.workspace.findFirst({
     where: { id: workspaceId, archivedAt: null },
@@ -82,8 +85,6 @@ export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
     await ensureBoardLists(board.id);
   }
 
-  await ensureTaskflowShowcase(board.id);
-
   return { workspace, board };
 }
 
@@ -122,7 +123,7 @@ export async function ensurePersonalWorkspaceBoard(user: AppUserPrincipal) {
         : "Workspace");
     const brandName = rawLabel.slice(0, 80);
     const brand = await prisma.brand.create({
-      data: { position, name: brandName, ownerUserId: user.id },
+      data: { position, name: brandName, ownerUserId: user.id, joinKey: randomUUID() },
     });
     workspace = await prisma.workspace.create({
       data: { name: defaultWorkspaceTitleFromBrandName(brand.name), brandId: brand.id },

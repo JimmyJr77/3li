@@ -107,6 +107,8 @@ export function formatBrandProfileForPrompt(brandProfile: Prisma.JsonValue | nul
     push("Primary logo: image attached in brand kit (use brand notes above; do not invent visual details not described in text).");
   }
 
+  push(line("Other brand considerations", o.otherBrandConsiderations));
+
   if (!lines.length) return "";
   return trimBlock(`## Company brand kit (authoritative for this workspace)\n${lines.map((l) => `• ${l}`).join("\n")}`);
 }

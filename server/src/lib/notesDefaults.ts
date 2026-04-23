@@ -1,54 +1,124 @@
+import type { NotesFolder } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { prisma } from "./db.js";
 import { ensurePersonalWorkspaceBoard } from "./taskDefaults.js";
-
-/** Ensures the first workspace has a default top-level notes folder for Notebooks. */
-export async function ensureDefaultNotesFolder(workspaceId: string) {
-  let folder = await prisma.notesFolder.findFirst({
-    where: { workspaceId, parentId: null },
-    orderBy: { position: "asc" },
-  });
-  if (!folder) {
-    folder = await prisma.notesFolder.create({
-      data: {
-        workspaceId,
-        title: "Notes",
-        position: 0,
-      },
-    });
-  }
-  return folder;
-}
+import { DEFAULT_NOTE_BASE } from "./sequencedDefaultTitle.js";
 
 const QUICKNOTES_FOLDER_TITLE = "Quicknotes";
+const NOTEBOOK_FOLDER_TITLE = "Notebook";
+const LEGACY_NOTES_FOLDER_TITLE = "Notes";
 
-/** Top-level notebook used for Quick Capture (⌘⇧C) saves. Created if missing. */
-export async function ensureQuicknotesFolder(workspaceId: string) {
-  const existing = await prisma.notesFolder.findFirst({
+const EMPTY_NOTE_DOC: Prisma.InputJsonValue = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
+
+/**
+ * Ensures top-level notebooks: Quicknotes (position 0, quick capture) and Notebook (position 1, default).
+ * Renames legacy "Notes" → "Notebook" when no Notebook exists yet.
+ * If the workspace has no notes, creates a starter note titled "Note" in Notebook.
+ */
+export async function syncNotesWorkspaceFolderDefaults(
+  workspaceId: string,
+): Promise<{ notebook: NotesFolder; quicknotes: NotesFolder }> {
+  await prisma.$transaction(async (tx) => {
+    const refetchTops = () =>
+      tx.notesFolder.findMany({
+        where: { workspaceId, parentId: null },
+        orderBy: { position: "asc" },
+      });
+
+    let tops = await refetchTops();
+
+    const hasNotebookTitle = tops.some((f) => f.title === NOTEBOOK_FOLDER_TITLE);
+    if (!hasNotebookTitle) {
+      const legacyNotes = tops.filter((f) => f.title === LEGACY_NOTES_FOLDER_TITLE);
+      if (legacyNotes.length === 1) {
+        await tx.notesFolder.update({
+          where: { id: legacyNotes[0]!.id },
+          data: { title: NOTEBOOK_FOLDER_TITLE },
+        });
+        tops = await refetchTops();
+      }
+    }
+
+    if (!tops.some((f) => f.title === QUICKNOTES_FOLDER_TITLE)) {
+      await tx.notesFolder.create({
+        data: {
+          workspaceId,
+          parentId: null,
+          title: QUICKNOTES_FOLDER_TITLE,
+          position: 9999,
+        },
+      });
+      tops = await refetchTops();
+    }
+
+    if (!tops.some((f) => f.title === NOTEBOOK_FOLDER_TITLE)) {
+      await tx.notesFolder.create({
+        data: {
+          workspaceId,
+          parentId: null,
+          title: NOTEBOOK_FOLDER_TITLE,
+          position: 9998,
+        },
+      });
+      tops = await refetchTops();
+    }
+
+    const quickFolder = tops.find((f) => f.title === QUICKNOTES_FOLDER_TITLE);
+    const notebookFolder = tops.find((f) => f.title === NOTEBOOK_FOLDER_TITLE);
+    if (!quickFolder || !notebookFolder) {
+      throw new Error("notesDefaults: failed to ensure Quicknotes and Notebook folders");
+    }
+
+    const rest = tops.filter((f) => f.id !== quickFolder.id && f.id !== notebookFolder.id);
+    const ordered = [quickFolder, notebookFolder, ...rest];
+
+    for (let i = 0; i < ordered.length; i += 1) {
+      await tx.notesFolder.update({
+        where: { id: ordered[i]!.id },
+        data: { position: i },
+      });
+    }
+
+    const noteCount = await tx.note.count({ where: { workspaceId } });
+    if (noteCount === 0) {
+      await tx.note.create({
+        data: {
+          workspaceId,
+          folderId: notebookFolder.id,
+          title: DEFAULT_NOTE_BASE,
+          position: 0,
+          contentJson: EMPTY_NOTE_DOC,
+        },
+      });
+    }
+  });
+
+  const quicknotes = await prisma.notesFolder.findFirstOrThrow({
     where: { workspaceId, parentId: null, title: QUICKNOTES_FOLDER_TITLE },
   });
-  if (existing) return existing;
-
-  const maxPos = await prisma.notesFolder.aggregate({
-    where: { workspaceId, parentId: null },
-    _max: { position: true },
+  const notebook = await prisma.notesFolder.findFirstOrThrow({
+    where: { workspaceId, parentId: null, title: NOTEBOOK_FOLDER_TITLE },
   });
-  const position = (maxPos._max.position ?? -1) + 1;
-
-  return prisma.notesFolder.create({
-    data: {
-      workspaceId,
-      parentId: null,
-      title: QUICKNOTES_FOLDER_TITLE,
-      position,
-    },
-  });
+  return { notebook, quicknotes };
 }
 
-/** Workspace + default folder for the signed-in account. */
+/** Default notebook (not Quicknotes) for new notes when no folder is chosen. */
+export async function ensureDefaultNotesFolder(workspaceId: string) {
+  return (await syncNotesWorkspaceFolderDefaults(workspaceId)).notebook;
+}
+
+/** Top-level notebook used for Quick Capture (⌘⇧C) saves. */
+export async function ensureQuicknotesFolder(workspaceId: string) {
+  return (await syncNotesWorkspaceFolderDefaults(workspaceId)).quicknotes;
+}
+
+/** Workspace + default Notebook folder for the signed-in account. */
 export async function ensureNotesBootstrap(user: AppUserPrincipal) {
   const { workspace } = await ensurePersonalWorkspaceBoard(user);
-  const defaultFolder = await ensureDefaultNotesFolder(workspace.id);
-  await ensureQuicknotesFolder(workspace.id);
+  const { notebook: defaultFolder } = await syncNotesWorkspaceFolderDefaults(workspace.id);
   return { workspace, defaultFolder };
 }
