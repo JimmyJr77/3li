@@ -9,6 +9,7 @@ import { ensureSeedUsers } from "./lib/auth/seedUsers.js";
 import { loadSessionUser, requireAuth } from "./lib/auth/sessionDb.js";
 import { prisma } from "./lib/db.js";
 import aiRouter from "./routes/ai.js";
+import adminUsersRouter from "./routes/adminUsers.js";
 import authRouter from "./routes/auth.js";
 import brainstormRouter from "./routes/brainstorm.js";
 import chatAppRouter from "./routes/chatApp.js";
@@ -106,6 +107,7 @@ protectedApi.use("/brainstorm", brainstormRouter);
 protectedApi.use("/chat", chatAppRouter);
 protectedApi.use("/task-app", taskAppRouter);
 protectedApi.use("/notes-app", notesAppRouter);
+protectedApi.use("/admin/users", adminUsersRouter);
 
 app.use("/api", protectedApi);
 

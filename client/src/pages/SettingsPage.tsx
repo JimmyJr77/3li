@@ -10,8 +10,10 @@ import {
   MousePointerClick,
   Palette,
   User,
+  Users,
 } from "lucide-react";
 import { ModeToggle } from "@/components/shared/ModeToggle";
+import { AdminUserAccountsSettingsSection } from "@/components/settings/AdminUserAccountsSettingsSection";
 import { AgentContextSettingsCard } from "@/components/settings/AgentContextSettingsCard";
 import { BrandsSettingsCardParts } from "@/components/settings/BrandProjectSettingsSection";
 import { Button } from "@/components/ui/button";
@@ -26,17 +28,17 @@ import {
   type WorkspacePageSettingsId,
 } from "@/config/workspacePageSettings";
 import { useWorkspacePrefs, type SidebarBehavior } from "@/context/WorkspacePrefsContext";
-import { changePassword, fetchMe, logout, patchProfile } from "@/features/auth/api";
+import { changePassword, fetchMe, logout, patchProfile, type AuthUser } from "@/features/auth/api";
 import { formatUsPhoneInput } from "@/lib/phoneUs";
 import { formatApiError } from "@/lib/apiErrorMessage";
 import { cn } from "@/lib/utils";
 
-type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout";
+type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout" | "user-accounts";
 
 type SettingsCategoryId = GeneralSettingsCategoryId | WorkspacePageSettingsId;
 
 const GENERAL_SETTINGS_NAV: {
-  id: GeneralSettingsCategoryId;
+  id: Exclude<GeneralSettingsCategoryId, "user-accounts">;
   label: string;
   icon: LucideIcon;
 }[] = [
@@ -47,19 +49,22 @@ const GENERAL_SETTINGS_NAV: {
   { id: "layout", label: "Workspace layout", icon: LayoutPanelLeft },
 ];
 
+const ADMIN_SETTINGS_NAV_ITEM = {
+  id: "user-accounts" as const satisfies GeneralSettingsCategoryId,
+  label: "User accounts",
+};
+
 function settingsCategoryLabel(id: SettingsCategoryId): string {
+  if (id === "user-accounts") return ADMIN_SETTINGS_NAV_ITEM.label;
   const general = GENERAL_SETTINGS_NAV.find((c) => c.id === id);
   if (general) return general.label;
   const page = WORKSPACE_PAGE_SETTINGS.find((p) => p.id === id);
   return page?.label ?? "Settings";
 }
 
-function isGeneralSettingsCategoryId(id: string): id is GeneralSettingsCategoryId {
-  return GENERAL_SETTINGS_NAV.some((c) => c.id === id);
-}
-
-function isValidSettingsCategoryId(id: string): id is SettingsCategoryId {
-  return isWorkspacePageSettingsId(id) || isGeneralSettingsCategoryId(id);
+function isValidSettingsCategoryId(id: string, isAdmin: boolean): id is SettingsCategoryId {
+  if (id === "user-accounts") return isAdmin;
+  return isWorkspacePageSettingsId(id) || GENERAL_SETTINGS_NAV.some((c) => c.id === id);
 }
 
 function initialsFromProfile(displayName: string, email: string) {
@@ -145,41 +150,34 @@ type AccountDraft = {
   displayName: string;
 };
 
-function emptyAccountDraft(): AccountDraft {
-  return { username: "", email: "", firstName: "", lastName: "", displayName: "" };
+function profileAuthSyncKey(user: AuthUser) {
+  return [
+    user.id,
+    user.username,
+    user.email,
+    user.phone ?? "",
+    user.firstName ?? "",
+    user.lastName ?? "",
+    user.displayName ?? "",
+  ].join("\0");
 }
 
-export function SettingsPage() {
-  const location = useLocation();
-  const navigate = useNavigate();
+function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
   const qc = useQueryClient();
-  const { sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
-  const [category, setCategory] = useState<SettingsCategoryId>("profile");
-  const { data: authUser } = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
-  const [accountDraft, setAccountDraft] = useState<AccountDraft>(emptyAccountDraft);
-  const [phoneDisplay, setPhoneDisplay] = useState("");
+  const navigate = useNavigate();
+  const [accountDraft, setAccountDraft] = useState<AccountDraft>(() => ({
+    username: authUser.username,
+    email: authUser.email,
+    firstName: authUser.firstName ?? "",
+    lastName: authUser.lastName ?? "",
+    displayName: authUser.displayName ?? "",
+  }));
+  const [phoneDisplay, setPhoneDisplay] = useState(() => formatUsPhoneInput(authUser.phone ?? ""));
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
 
-  useEffect(() => {
-    if (!authUser) {
-      setAccountDraft(emptyAccountDraft());
-      setPhoneDisplay("");
-      return;
-    }
-    setAccountDraft({
-      username: authUser.username,
-      email: authUser.email,
-      firstName: authUser.firstName ?? "",
-      lastName: authUser.lastName ?? "",
-      displayName: authUser.displayName ?? "",
-    });
-    setPhoneDisplay(formatUsPhoneInput(authUser.phone ?? ""));
-  }, [authUser]);
-
   const accountDirty = useMemo(() => {
-    if (!authUser) return false;
     const phone = formatUsPhoneInput(phoneDisplay);
     return (
       accountDraft.username.trim() !== authUser.username ||
@@ -244,12 +242,217 @@ export function SettingsPage() {
     },
   });
 
-  useEffect(() => {
+  return (
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div
+          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground"
+          aria-hidden
+        >
+          {initialsFromProfile(accountDraft.displayName, accountDraft.email)}
+        </div>
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="acct-first">First name</Label>
+              <Input
+                id="acct-first"
+                autoComplete="given-name"
+                value={accountDraft.firstName}
+                onChange={(e) => setAccountDraft((d) => ({ ...d, firstName: e.target.value }))}
+                maxLength={80}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="acct-last">Last name</Label>
+              <Input
+                id="acct-last"
+                autoComplete="family-name"
+                value={accountDraft.lastName}
+                onChange={(e) => setAccountDraft((d) => ({ ...d, lastName: e.target.value }))}
+                maxLength={80}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-display">Display name</Label>
+            <Input
+              id="acct-display"
+              autoComplete="name"
+              placeholder="Shown in the product"
+              value={accountDraft.displayName}
+              onChange={(e) => setAccountDraft((d) => ({ ...d, displayName: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-email">Email</Label>
+            <Input
+              id="acct-email"
+              type="email"
+              autoComplete="email"
+              value={accountDraft.email}
+              onChange={(e) => setAccountDraft((d) => ({ ...d, email: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-phone">Mobile phone (US)</Label>
+            <Input
+              id="acct-phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              placeholder="555-123-4567"
+              value={phoneDisplay}
+              onChange={(e) => setPhoneDisplay(formatUsPhoneInput(e.target.value))}
+              aria-describedby="acct-phone-hint"
+            />
+            <p id="acct-phone-hint" className="text-xs text-muted-foreground">
+              Stored as ###-###-#### (10 digits).
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-username">Username</Label>
+            <Input
+              id="acct-username"
+              autoComplete="username"
+              value={accountDraft.username}
+              onChange={(e) => setAccountDraft((d) => ({ ...d, username: e.target.value }))}
+              minLength={3}
+              maxLength={32}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              3–32 characters: lowercase letters, digits, or underscore.
+            </p>
+          </div>
+          {authUser.role === "admin" ? (
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Administrator account</p>
+          ) : null}
+          {profileSaveMut.isError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {formatApiError(profileSaveMut.error, "Could not save profile")}
+            </p>
+          ) : null}
+          {profileSaveMut.isSuccess && !accountDirty ? (
+            <p className="text-sm text-muted-foreground">Profile saved.</p>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            disabled={!accountDirty || profileSaveMut.isPending}
+            onClick={() => profileSaveMut.mutate()}
+          >
+            {profileSaveMut.isPending ? "Saving…" : "Save profile"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-4 border-t border-border pt-6">
+        <div>
+          <p className="text-sm font-medium text-foreground">Password</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Enter your current password, then choose a new one (at least 8 characters).
+          </p>
+        </div>
+        <div className="grid max-w-md gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="acct-cur-pw">Current password</Label>
+            <Input
+              id="acct-cur-pw"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-new-pw">New password</Label>
+            <Input
+              id="acct-new-pw"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              minLength={8}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="acct-new-pw2">Confirm new password</Label>
+            <Input
+              id="acct-new-pw2"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword2}
+              onChange={(e) => setNewPassword2(e.target.value)}
+              minLength={8}
+            />
+          </div>
+          {passwordMut.isError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {formatApiError(passwordMut.error, "Could not change password")}
+            </p>
+          ) : null}
+          {passwordMut.isSuccess ? (
+            <p className="text-sm text-muted-foreground">Password updated.</p>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={
+              passwordMut.isPending ||
+              !currentPassword ||
+              !newPassword ||
+              newPassword.length < 8 ||
+              !newPassword2
+            }
+            onClick={() => passwordMut.mutate()}
+          >
+            {passwordMut.isPending ? "Updating…" : "Update password"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-t border-border pt-6">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={logoutMut.isPending}
+          onClick={() => logoutMut.mutate()}
+        >
+          {logoutMut.isPending ? "Signing out…" : "Sign out"}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+export function SettingsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
+  const { data: authUser } = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
+
+  const deepLinkCategory = useMemo(() => {
     const raw = (location.state as { settingsCategory?: unknown } | null)?.settingsCategory;
-    if (typeof raw === "string" && isValidSettingsCategoryId(raw)) {
-      setCategory(raw);
+    if (typeof raw !== "string") return null;
+    return isValidSettingsCategoryId(raw, authUser?.role === "admin") ? raw : null;
+  }, [location.state, authUser?.role]);
+
+  const [manualCategory, setManualCategory] = useState<SettingsCategoryId>("profile");
+
+  const category: SettingsCategoryId = deepLinkCategory ?? manualCategory;
+
+  const selectCategory = (id: SettingsCategoryId) => {
+    setManualCategory(id);
+    const s = location.state as Record<string, unknown> | null;
+    if (s && typeof s === "object" && "settingsCategory" in s) {
+      const next: Record<string, unknown> = { ...s };
+      delete next.settingsCategory;
+      navigate(".", { replace: true, state: next });
     }
-  }, [location.state]);
+  };
 
   const setMode = (mode: SidebarBehavior) => setSidebarBehavior(mode);
 
@@ -276,6 +479,18 @@ export function SettingsPage() {
               <BrandsSettingsCardParts />
               <AgentContextSettingsCard />
             </div>
+          ) : category === "user-accounts" ? (
+            authUser?.role === "admin" ? (
+              <AdminUserAccountsSettingsSection currentUser={authUser} />
+            ) : (
+              <Card className="w-full">
+                <CardContent className="pt-6">
+                  <p className="text-sm text-muted-foreground">
+                    Administrator access is required to manage user accounts.
+                  </p>
+                </CardContent>
+              </Card>
+            )
           ) : (
           <Card
             className="w-full"
@@ -299,188 +514,7 @@ export function SettingsPage() {
                   {!authUser ? (
                     <p className="text-sm text-muted-foreground">Sign in to manage your account from this page.</p>
                   ) : (
-                    <>
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                        <div
-                          className="flex size-16 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-semibold text-muted-foreground"
-                          aria-hidden
-                        >
-                          {initialsFromProfile(accountDraft.displayName, accountDraft.email)}
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-4">
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label htmlFor="acct-first">First name</Label>
-                              <Input
-                                id="acct-first"
-                                autoComplete="given-name"
-                                value={accountDraft.firstName}
-                                onChange={(e) => setAccountDraft((d) => ({ ...d, firstName: e.target.value }))}
-                                maxLength={80}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="acct-last">Last name</Label>
-                              <Input
-                                id="acct-last"
-                                autoComplete="family-name"
-                                value={accountDraft.lastName}
-                                onChange={(e) => setAccountDraft((d) => ({ ...d, lastName: e.target.value }))}
-                                maxLength={80}
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-display">Display name</Label>
-                            <Input
-                              id="acct-display"
-                              autoComplete="name"
-                              placeholder="Shown in the product"
-                              value={accountDraft.displayName}
-                              onChange={(e) => setAccountDraft((d) => ({ ...d, displayName: e.target.value }))}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-email">Email</Label>
-                            <Input
-                              id="acct-email"
-                              type="email"
-                              autoComplete="email"
-                              value={accountDraft.email}
-                              onChange={(e) => setAccountDraft((d) => ({ ...d, email: e.target.value }))}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-phone">Mobile phone (US)</Label>
-                            <Input
-                              id="acct-phone"
-                              type="tel"
-                              inputMode="numeric"
-                              autoComplete="tel"
-                              placeholder="555-123-4567"
-                              value={phoneDisplay}
-                              onChange={(e) => setPhoneDisplay(formatUsPhoneInput(e.target.value))}
-                              aria-describedby="acct-phone-hint"
-                            />
-                            <p id="acct-phone-hint" className="text-xs text-muted-foreground">
-                              Stored as ###-###-#### (10 digits).
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-username">Username</Label>
-                            <Input
-                              id="acct-username"
-                              autoComplete="username"
-                              value={accountDraft.username}
-                              onChange={(e) => setAccountDraft((d) => ({ ...d, username: e.target.value }))}
-                              minLength={3}
-                              maxLength={32}
-                              className="font-mono text-sm"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              3–32 characters: lowercase letters, digits, or underscore.
-                            </p>
-                          </div>
-                          {authUser.role === "admin" ? (
-                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Administrator account</p>
-                          ) : null}
-                          {profileSaveMut.isError ? (
-                            <p className="text-sm text-destructive" role="alert">
-                              {formatApiError(profileSaveMut.error, "Could not save profile")}
-                            </p>
-                          ) : null}
-                          {profileSaveMut.isSuccess && !accountDirty ? (
-                            <p className="text-sm text-muted-foreground">Profile saved.</p>
-                          ) : null}
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={!accountDirty || profileSaveMut.isPending}
-                            onClick={() => profileSaveMut.mutate()}
-                          >
-                            {profileSaveMut.isPending ? "Saving…" : "Save profile"}
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 border-t border-border pt-6">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Password</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Enter your current password, then choose a new one (at least 8 characters).
-                          </p>
-                        </div>
-                        <div className="grid max-w-md gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-cur-pw">Current password</Label>
-                            <Input
-                              id="acct-cur-pw"
-                              type="password"
-                              autoComplete="current-password"
-                              value={currentPassword}
-                              onChange={(e) => setCurrentPassword(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-new-pw">New password</Label>
-                            <Input
-                              id="acct-new-pw"
-                              type="password"
-                              autoComplete="new-password"
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              minLength={8}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="acct-new-pw2">Confirm new password</Label>
-                            <Input
-                              id="acct-new-pw2"
-                              type="password"
-                              autoComplete="new-password"
-                              value={newPassword2}
-                              onChange={(e) => setNewPassword2(e.target.value)}
-                              minLength={8}
-                            />
-                          </div>
-                          {passwordMut.isError ? (
-                            <p className="text-sm text-destructive" role="alert">
-                              {formatApiError(passwordMut.error, "Could not change password")}
-                            </p>
-                          ) : null}
-                          {passwordMut.isSuccess ? (
-                            <p className="text-sm text-muted-foreground">Password updated.</p>
-                          ) : null}
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={
-                              passwordMut.isPending ||
-                              !currentPassword ||
-                              !newPassword ||
-                              newPassword.length < 8 ||
-                              !newPassword2
-                            }
-                            onClick={() => passwordMut.mutate()}
-                          >
-                            {passwordMut.isPending ? "Updating…" : "Update password"}
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 border-t border-border pt-6">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={logoutMut.isPending}
-                          onClick={() => logoutMut.mutate()}
-                        >
-                          {logoutMut.isPending ? "Signing out…" : "Sign out"}
-                        </Button>
-                      </div>
-                    </>
+                    <ProfileAndAccountCard key={profileAuthSyncKey(authUser)} authUser={authUser} />
                   )}
                 </CardContent>
               </>
@@ -617,7 +651,7 @@ export function SettingsPage() {
               <li key={id} className="shrink-0 lg:w-full">
                 <button
                   type="button"
-                  onClick={() => setCategory(id)}
+                  onClick={() => selectCategory(id)}
                   aria-pressed={category === id}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
@@ -631,6 +665,24 @@ export function SettingsPage() {
                 </button>
               </li>
             ))}
+            {authUser?.role === "admin" ? (
+              <li key={ADMIN_SETTINGS_NAV_ITEM.id} className="shrink-0 lg:w-full">
+                <button
+                  type="button"
+                  onClick={() => selectCategory(ADMIN_SETTINGS_NAV_ITEM.id)}
+                  aria-pressed={category === ADMIN_SETTINGS_NAV_ITEM.id}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                    category === ADMIN_SETTINGS_NAV_ITEM.id
+                      ? "bg-muted font-medium text-foreground shadow-sm ring-1 ring-border"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  )}
+                >
+                  <Users className="size-4 shrink-0 opacity-70" aria-hidden />
+                  <span className="whitespace-nowrap lg:whitespace-normal">{ADMIN_SETTINGS_NAV_ITEM.label}</span>
+                </button>
+              </li>
+            ) : null}
           </ul>
 
           <p className="mb-2 mt-5 hidden text-xs font-medium uppercase tracking-wide text-muted-foreground lg:block">
@@ -641,7 +693,7 @@ export function SettingsPage() {
               <li key={id} className="shrink-0 lg:w-full">
                 <button
                   type="button"
-                  onClick={() => setCategory(id)}
+                  onClick={() => selectCategory(id)}
                   aria-pressed={category === id}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
