@@ -47,7 +47,6 @@ export function LoginPage() {
               type="text"
               autoComplete="username"
               required
-              placeholder="you@company.com or jane_consultant or 555-123-4567"
             />
           </div>
           <div className="space-y-2">
@@ -58,7 +57,6 @@ export function LoginPage() {
               type="password"
               autoComplete="current-password"
               required
-              placeholder="••••••••"
             />
           </div>
           {mutation.isError ? (
