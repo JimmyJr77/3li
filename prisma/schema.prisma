@@ -14,7 +14,12 @@ model AppUser {
   id           String       @id @default(cuid())
   /// Lowercase login id (unique).
   username     String       @unique
+  email        String       @unique
+  /// US mobile stored as ###-###-####; optional only for legacy rows before phone was required.
+  phone        String?      @unique
   passwordHash String
+  firstName    String?
+  lastName     String?
   displayName  String?
   /// "user" | "admin"
   role         String       @default("user")

@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { register } from "@/features/auth/api";
+import { formatUsPhoneInput } from "@/lib/phoneUs";
 
 function registerErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -18,13 +20,21 @@ function registerErrorMessage(err: unknown): string {
 export function RegisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [phoneDisplay, setPhoneDisplay] = useState("");
 
   const mutation = useMutation({
     mutationFn: async (fd: FormData) => {
       const username = String(fd.get("username") ?? "").trim();
       const password = String(fd.get("password") ?? "");
-      const displayName = String(fd.get("displayName") ?? "").trim() || undefined;
-      return register({ username, password, displayName });
+      const email = String(fd.get("email") ?? "").trim();
+      const firstName = String(fd.get("firstName") ?? "").trim();
+      const lastName = String(fd.get("lastName") ?? "").trim();
+      const phone = formatUsPhoneInput(phoneDisplay);
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length !== 10) {
+        throw new Error("Enter a complete US phone number (10 digits).");
+      }
+      return register({ username, password, email, phone, firstName, lastName });
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -38,8 +48,8 @@ export function RegisterPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Choose a username (lowercase letters, numbers, underscore) and a password. You will be signed in
-          automatically.
+          Add your name, contact info, and sign-in details. Phone is stored as a US number (###-###-####). You will be
+          signed in automatically.
         </p>
         <form
           className="mt-8 space-y-6"
@@ -49,15 +59,44 @@ export function RegisterPage() {
             mutation.mutate(new FormData(e.currentTarget));
           }}
         >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="firstName">First name</Label>
+              <Input id="firstName" name="firstName" type="text" autoComplete="given-name" required maxLength={80} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Last name</Label>
+              <Input id="lastName" name="lastName" type="text" autoComplete="family-name" required maxLength={80} />
+            </div>
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="displayName">Display name (optional)</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="displayName"
-              name="displayName"
-              type="text"
-              autoComplete="name"
-              placeholder="Jane Consultant"
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              placeholder="you@company.com"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="phone">Mobile phone (US)</Label>
+            <Input
+              id="phone"
+              name="phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              required
+              placeholder="555-123-4567"
+              value={phoneDisplay}
+              onChange={(e) => setPhoneDisplay(formatUsPhoneInput(e.target.value))}
+              aria-describedby="phone-hint"
+            />
+            <p id="phone-hint" className="text-xs text-muted-foreground">
+              Enter 10 digits; formatting is applied automatically.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>
