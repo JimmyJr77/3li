@@ -10,7 +10,8 @@
     "dev": "concurrently -n client,server -c blue,green \"npm run dev -w client\" \"npm run dev -w server\"",
     "ollama:pull": "ollama pull llama3.2 && ollama pull nomic-embed-text",
     "build": "npm run build -w client && npm run build -w server && cp client/dist/index.html server/dist/spa-index.html",
-    "vercel-build": "prisma generate && if [ -n \"$DATABASE_URL\" ]; then prisma migrate deploy; fi && npm run build -w client && npm run build -w server && cp client/dist/index.html server/dist/spa-index.html && rm -rf public client/public && cp -R client/dist public && cp -R client/dist client/public",
+    "vercel-migrate-if-hosted": "node scripts/vercel-migrate-if-hosted.mjs",
+    "vercel-build": "prisma generate && npm run vercel-migrate-if-hosted && npm run build -w client && npm run build -w server && cp client/dist/index.html server/dist/spa-index.html && rm -rf public client/public && cp -R client/dist public && cp -R client/dist client/public",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push"
