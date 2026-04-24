@@ -78,6 +78,8 @@ export function BrandCenterPage() {
   const workspaceId = activeWorkspaceId;
 
   const [profile, setProfile] = useState<BrandProfile>(() => emptyBrandProfile());
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
   const [rapidInboxTick, setRapidInboxTick] = useState(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   const baselineRef = useRef<string>("");
@@ -112,11 +114,12 @@ export function BrandCenterPage() {
   const dirty = useMemo(() => JSON.stringify(profile) !== baselineRef.current, [profile]);
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const r = brandProfileSchema.safeParse(profile);
+    mutationFn: async (override?: BrandProfile) => {
+      const source = override ?? profileRef.current;
+      const r = brandProfileSchema.safeParse(source);
       if (!r.success) {
         setSaveError(r.error.issues[0]?.message ?? "Check brand fields before saving.");
-        return Promise.reject(new Error("validation"));
+        throw new Error("validation");
       }
       setSaveError(null);
       return saveBrandProfile(workspaceId!, normalizeBrandProfile(r.data));
@@ -141,9 +144,26 @@ export function BrandCenterPage() {
     enabled: Boolean(workspaceId) && profileQuery.isSuccess,
     dirty,
     isPending: saveMutation.isPending,
-    onFlush: () => saveMutation.mutate(),
+    onFlush: () => {
+      void saveMutation.mutate(undefined);
+    },
     resetKey: profile,
   });
+
+  const onSubmitConsultToMain = useCallback(
+    async (draft: BrandProfile) => {
+      const r = brandProfileSchema.safeParse(draft);
+      if (!r.success) {
+        setSaveError(r.error.issues[0]?.message ?? "Check brand fields before saving.");
+        throw new Error("validation");
+      }
+      setSaveError(null);
+      const normalized = normalizeBrandProfile(r.data);
+      setProfile(normalized);
+      await saveMutation.mutateAsync(normalized);
+    },
+    [saveMutation],
+  );
 
   const update = useCallback(<K extends keyof BrandProfile>(key: K, val: BrandProfile[K]) => {
     setProfile((p) => ({ ...p, [key]: val }));
@@ -173,6 +193,7 @@ export function BrandCenterPage() {
               workspaceId={workspaceId}
               brandProfile={profile}
               onApplyProfilePatch={(next) => setProfile(next)}
+              onSubmitConsultToMain={onSubmitConsultToMain}
             />
           </div>
         ) : null}

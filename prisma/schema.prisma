@@ -190,10 +190,41 @@ model Workspace {
   customBoardTemplates CustomBoardTemplate[]
   brainstormProject    Project?
   routingHolds         RoutingHold[]
+  agentSessions        AgentSession[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
   @@index([archivedAt])
+}
+
+/// User-visible history hub for workspace AI agents (except Consultant, which uses ChatThread).
+model AgentSession {
+  id          String              @id @default(cuid())
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Hub key: project_manager | brand_rep | mail_clerk | brainstorm_ai | advisor_agents
+  agentKind   String
+  title       String              @default("Untitled")
+  metadata    Json?
+  archivedAt  DateTime?
+  events      AgentSessionEvent[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([workspaceId, agentKind, updatedAt(sort: Desc)])
+}
+
+model AgentSessionEvent {
+  id        String       @id @default(cuid())
+  sessionId String
+  session   AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  seq       Int
+  type      String
+  payload   Json?
+  createdAt DateTime     @default(now())
+
+  @@unique([sessionId, seq])
+  @@index([sessionId])
 }
 
 /// Unresolved capture queued for later routing (holding pen / Mail Clerk handoff).

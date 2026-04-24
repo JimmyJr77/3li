@@ -17,8 +17,21 @@ import {
   runProjectManagerAgent,
 } from "../lib/openai/surfaceAgents.js";
 import { executeBrainstormCompletion } from "./aiBrainstormHandler.js";
+import { AGENT_KIND_ADVISOR_AGENTS, AGENT_KIND_BRAINSTORM_AI } from "../lib/agentSessions/constants.js";
+import { mailLogDetail } from "../lib/agentSessions/mailLogDetail.js";
+import {
+  logBrainstormAiTurn,
+  logBrandRepTurn,
+  logMailClerkTurn,
+  logProjectManagerTurn,
+} from "../lib/agentSessions/service.js";
 
 const router = Router();
+
+function readAgentSessionId(body: unknown): string | undefined {
+  const b = body as { agentSessionId?: unknown };
+  return typeof b.agentSessionId === "string" && b.agentSessionId.trim() ? b.agentSessionId.trim() : undefined;
+}
 
 router.post("/brainstorm", async (req, res) => {
   try {
@@ -38,7 +51,47 @@ router.post("/brainstorm", async (req, res) => {
       }
     }
     const { result } = await executeBrainstormCompletion(req.body);
-    res.json({ result });
+    const bb = req.body as {
+      workspaceId?: string | null;
+      hubAgentKind?: unknown;
+      brainstormCanvasSessionId?: unknown;
+      prompt?: unknown;
+      mode?: unknown;
+      agentRole?: unknown;
+      agentId?: unknown;
+    };
+    const ws = typeof bb.workspaceId === "string" ? bb.workspaceId : null;
+    const hk = bb.hubAgentKind === AGENT_KIND_BRAINSTORM_AI || bb.hubAgentKind === AGENT_KIND_ADVISOR_AGENTS ? bb.hubAgentKind : null;
+    let agentSessionIdOut: string | undefined;
+    if (ws && hk) {
+      try {
+        const prompt = typeof bb.prompt === "string" ? bb.prompt : "";
+        const modeStr = typeof bb.mode === "string" ? bb.mode : String(bb.mode ?? "");
+        const agentRole =
+          typeof bb.agentRole === "string" ? bb.agentRole : typeof bb.agentId === "string" ? bb.agentId : undefined;
+        const canvasSid =
+          typeof bb.brainstormCanvasSessionId === "string" && bb.brainstormCanvasSessionId.trim() ?
+            bb.brainstormCanvasSessionId.trim()
+          : undefined;
+        const logged = await logBrainstormAiTurn({
+          workspaceId: ws,
+          hubAgentKind: hk,
+          agentSessionId: readAgentSessionId(req.body),
+          prompt,
+          result,
+          mode: modeStr,
+          agentRole,
+          brainstormCanvasSessionId: canvasSid,
+        });
+        agentSessionIdOut = logged.agentSessionId;
+      } catch (logErr) {
+        console.error("[agentSessions] brainstorm log", logErr);
+      }
+    }
+    res.json({
+      result,
+      ...(agentSessionIdOut ? { agentSessionId: agentSessionIdOut } : {}),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PROMPT_REQUIRED") {
@@ -113,11 +166,29 @@ router.post("/agent", async (req, res) => {
           message,
           contextText: body.surfacePayload?.contextText,
         });
+        const wsPm = typeof body.workspaceId === "string" ? body.workspaceId : null;
+        let agentSessionIdPm: string | undefined;
+        if (wsPm) {
+          try {
+            const ctx = body.surfacePayload?.contextText;
+            const logged = await logProjectManagerTurn({
+              workspaceId: wsPm,
+              agentSessionId: readAgentSessionId(body),
+              message,
+              result,
+              contextSnippet: typeof ctx === "string" ? ctx : null,
+            });
+            agentSessionIdPm = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] pm log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: body.agentId ?? "project_manager",
           surfaceType: surface,
           result,
+          ...(agentSessionIdPm ? { agentSessionId: agentSessionIdPm } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -147,11 +218,28 @@ router.post("/agent", async (req, res) => {
           workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : null,
           message,
         });
+        const wsBr = typeof body.workspaceId === "string" ? body.workspaceId : null;
+        let agentSessionIdBr: string | undefined;
+        if (wsBr) {
+          try {
+            const logged = await logBrandRepTurn({
+              workspaceId: wsBr,
+              agentSessionId: readAgentSessionId(body),
+              surfaceType: "brand_rep_review",
+              userMessage: message,
+              assistantText: result,
+            });
+            agentSessionIdBr = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] brand rep review log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: "brand_rep",
           surfaceType: surface,
           result,
+          ...(agentSessionIdBr ? { agentSessionId: agentSessionIdBr } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -184,6 +272,11 @@ router.post("/agent", async (req, res) => {
           consultSectionId?: string;
           transcript?: string;
           brandProfileDraft?: unknown;
+          consultFieldId?: string;
+          consultFieldLabel?: string;
+          consultFieldSnippet?: string;
+          consultFieldFilled?: boolean;
+          consultScratchLog?: unknown;
         };
       };
       const message =
@@ -196,6 +289,21 @@ router.post("/agent", async (req, res) => {
       const transcript = typeof sp.transcript === "string" ? sp.transcript : "";
       const ws = typeof body.workspaceId === "string" ? body.workspaceId : "";
       try {
+        const scratchRaw = sp.consultScratchLog;
+        const consultScratchLog = Array.isArray(scratchRaw)
+          ? scratchRaw
+              .map((row) => {
+                if (!row || typeof row !== "object") return null;
+                const r = row as Record<string, unknown>;
+                const fieldId = typeof r.fieldId === "string" ? r.fieldId.trim() : "";
+                const fieldLabel = typeof r.fieldLabel === "string" ? r.fieldLabel.trim() : "";
+                const note = typeof r.note === "string" ? r.note.trim() : "";
+                if (!fieldId) return null;
+                return { fieldId, fieldLabel, note };
+              })
+              .filter((x): x is { fieldId: string; fieldLabel: string; note: string } => x !== null)
+          : [];
+
         const turn = await runBrandRepCenterSession(openai, {
           workspaceId: ws,
           mode,
@@ -203,13 +311,39 @@ router.post("/agent", async (req, res) => {
           userMessage: message,
           transcript,
           brandProfileDraft: sp.brandProfileDraft,
+          consultFieldId: typeof sp.consultFieldId === "string" ? sp.consultFieldId : null,
+          consultFieldLabel: typeof sp.consultFieldLabel === "string" ? sp.consultFieldLabel : null,
+          consultFieldSnippet: typeof sp.consultFieldSnippet === "string" ? sp.consultFieldSnippet : null,
+          consultFieldFilled: typeof sp.consultFieldFilled === "boolean" ? sp.consultFieldFilled : null,
+          consultScratchLog,
         });
+        let agentSessionIdBc: string | undefined;
+        if (ws) {
+          try {
+            const logged = await logBrandRepTurn({
+              workspaceId: ws,
+              agentSessionId: readAgentSessionId(body),
+              surfaceType: "brand_rep_center",
+              userMessage: message,
+              assistantText: turn.assistantMessage,
+              extras: {
+                consultSectionId,
+                mode,
+                consultFieldId: typeof sp.consultFieldId === "string" ? sp.consultFieldId : null,
+              },
+            });
+            agentSessionIdBc = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] brand rep center log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: "brand_rep",
           surfaceType: surface,
           result: turn.assistantMessage,
           brandRepCenter: turn,
+          ...(agentSessionIdBc ? { agentSessionId: agentSessionIdBc } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -250,12 +384,30 @@ router.post("/agent", async (req, res) => {
           capture,
           instruction,
         });
+        const wsMail = typeof body.workspaceId === "string" ? body.workspaceId : null;
+        let agentSessionIdMail: string | undefined;
+        if (wsMail) {
+          try {
+            const logged = await logMailClerkTurn({
+              workspaceId: wsMail,
+              agentSessionId: readAgentSessionId(body),
+              surfaceType: "mail_clerk_decompose",
+              titleHint: capture || decomposition.executiveSummary,
+              summary: decomposition.executiveSummary,
+              payload: mailLogDetail("mail_clerk_decompose", decomposition, undefined),
+            });
+            agentSessionIdMail = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] mail decompose log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: "mail_clerk",
           surfaceType: surface,
           result: decomposition.executiveSummary,
           decomposition,
+          ...(agentSessionIdMail ? { agentSessionId: agentSessionIdMail } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -322,12 +474,30 @@ router.post("/agent", async (req, res) => {
           instruction,
           originalCapture,
         });
+        const wsRoute = typeof body.workspaceId === "string" ? body.workspaceId : null;
+        let agentSessionIdRoute: string | undefined;
+        if (wsRoute) {
+          try {
+            const logged = await logMailClerkTurn({
+              workspaceId: wsRoute,
+              agentSessionId: readAgentSessionId(body),
+              surfaceType: "mail_clerk_route",
+              titleHint: originalCapture || plan.executiveSummary,
+              summary: plan.executiveSummary,
+              payload: mailLogDetail("mail_clerk_route", undefined, plan),
+            });
+            agentSessionIdRoute = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] mail route log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: "mail_clerk",
           surfaceType: surface,
           result: plan.executiveSummary,
           plan,
+          ...(agentSessionIdRoute ? { agentSessionId: agentSessionIdRoute } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -376,12 +546,30 @@ router.post("/agent", async (req, res) => {
           capture,
           instruction,
         });
+        const wsPlan = typeof body.workspaceId === "string" ? body.workspaceId : null;
+        let agentSessionIdPlan: string | undefined;
+        if (wsPlan) {
+          try {
+            const logged = await logMailClerkTurn({
+              workspaceId: wsPlan,
+              agentSessionId: readAgentSessionId(body),
+              surfaceType: "mail_clerk_plan",
+              titleHint: capture || plan.executiveSummary,
+              summary: plan.executiveSummary,
+              payload: mailLogDetail("mail_clerk_plan", undefined, plan),
+            });
+            agentSessionIdPlan = logged.agentSessionId;
+          } catch (logErr) {
+            console.error("[agentSessions] mail plan log", logErr);
+          }
+        }
         res.json({
           schemaVersion: body.schemaVersion ?? "1.0.0",
           agentId: "mail_clerk",
           surfaceType: surface,
           result: plan.executiveSummary,
           plan,
+          ...(agentSessionIdPlan ? { agentSessionId: agentSessionIdPlan } : {}),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -412,11 +600,52 @@ router.post("/agent", async (req, res) => {
     }
 
     const { result } = await executeBrainstormCompletion(body);
+    const bb2 = body as {
+      workspaceId?: string | null;
+      hubAgentKind?: unknown;
+      brainstormCanvasSessionId?: unknown;
+      prompt?: unknown;
+      mode?: unknown;
+      agentRole?: unknown;
+      agentId?: unknown;
+    };
+    const wsB2 = typeof bb2.workspaceId === "string" ? bb2.workspaceId : null;
+    const hk2 =
+      bb2.hubAgentKind === AGENT_KIND_BRAINSTORM_AI || bb2.hubAgentKind === AGENT_KIND_ADVISOR_AGENTS ?
+        bb2.hubAgentKind
+      : null;
+    let agentSessionIdBs: string | undefined;
+    if (wsB2 && hk2) {
+      try {
+        const promptStr = typeof bb2.prompt === "string" ? bb2.prompt : "";
+        const modeStr2 = typeof bb2.mode === "string" ? bb2.mode : String(bb2.mode ?? "");
+        const agentRole2 =
+          typeof bb2.agentRole === "string" ? bb2.agentRole : typeof bb2.agentId === "string" ? bb2.agentId : undefined;
+        const canvasSid2 =
+          typeof bb2.brainstormCanvasSessionId === "string" && bb2.brainstormCanvasSessionId.trim() ?
+            bb2.brainstormCanvasSessionId.trim()
+          : undefined;
+        const logged = await logBrainstormAiTurn({
+          workspaceId: wsB2,
+          hubAgentKind: hk2,
+          agentSessionId: readAgentSessionId(body),
+          prompt: promptStr,
+          result,
+          mode: modeStr2,
+          agentRole: agentRole2,
+          brainstormCanvasSessionId: canvasSid2,
+        });
+        agentSessionIdBs = logged.agentSessionId;
+      } catch (logErr) {
+        console.error("[agentSessions] agent/brainstorm log", logErr);
+      }
+    }
     res.json({
       schemaVersion: body.schemaVersion ?? "1.0.0",
       agentId: body.agentId ?? null,
       surfaceType: surface,
       result,
+      ...(agentSessionIdBs ? { agentSessionId: agentSessionIdBs } : {}),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";

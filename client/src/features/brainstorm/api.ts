@@ -115,8 +115,12 @@ export async function postBrainstormAI(body: {
   agentRole?: BrainstormAgentRoleApi;
   /** Whole-session synthesis: server uses consultant business-case stack. */
   sessionSynthesis?: boolean;
-}): Promise<{ result: string }> {
-  const { data } = await api.post<{ result: string }>("/api/ai/brainstorm", body);
+  /** When set with workspaceId, server logs to agent hub sessions. */
+  hubAgentKind?: "brainstorm_ai" | "advisor_agents";
+  agentSessionId?: string | null;
+  brainstormCanvasSessionId?: string | null;
+}): Promise<{ result: string; agentSessionId?: string }> {
+  const { data } = await api.post<{ result: string; agentSessionId?: string }>("/api/ai/brainstorm", body);
   return data;
 }
 

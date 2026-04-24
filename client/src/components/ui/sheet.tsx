@@ -4,6 +4,9 @@ import * as React from "react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+
+/** Same Radix `Dialog` namespace as `Sheet`; use for custom layouts (e.g. dual-pane) with `Sheet` root + `SheetPortal`. */
+const SheetDialog = SheetPrimitive
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
@@ -38,7 +41,7 @@ function SheetOverlay({
       data-slot="sheet-overlay"
       className={cn(
         "fixed inset-0 z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        className
+        className,
       )}
       {...props}
     />
@@ -50,14 +53,20 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  overlayClassName,
+  hideOverlay = false,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** Merged into `SheetOverlay` (e.g. z-index when stacking multiple sheets). */
+  overlayClassName?: string
+  /** When true, no backdrop — use for nested / dual-pane shells where another sheet provides the overlay. */
+  hideOverlay?: boolean
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {!hideOverlay ? <SheetOverlay className={overlayClassName} /> : null}
       <SheetPrimitive.Content
         data-slot="sheet-content"
         data-side={side}
@@ -140,8 +149,11 @@ export {
   SheetTrigger,
   SheetClose,
   SheetContent,
+  SheetDialog,
   SheetHeader,
   SheetFooter,
+  SheetOverlay,
+  SheetPortal,
   SheetTitle,
   SheetDescription,
 }

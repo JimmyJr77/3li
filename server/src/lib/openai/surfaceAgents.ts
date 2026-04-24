@@ -191,6 +191,8 @@ export type BrandRepCenterTurnResult = {
   assistantMessage: string;
   /** Partial brand kit fields the user may apply to the editor */
   proposedProfilePatch: Record<string, unknown> | null;
+  /** Legacy; clients use kit Submit instead of in-chat verdict. Prefer false. */
+  consultAwaitingVerdict: boolean;
 };
 
 const BRAND_CENTER_SECTION_PROMPTS: Record<string, string> = {
@@ -245,6 +247,13 @@ export async function runBrandRepCenterSession(
     userMessage: string;
     transcript: string;
     brandProfileDraft?: unknown;
+    /** Single-kit-field walk (blank-by-blank); optional section context for related prompts */
+    consultFieldId?: string | null;
+    consultFieldLabel?: string | null;
+    consultFieldSnippet?: string | null;
+    consultFieldFilled?: boolean | null;
+    /** Per-field scratch from the client; used when compiling `otherBrandConsiderations`. */
+    consultScratchLog?: { fieldId: string; fieldLabel: string; note: string }[];
   },
 ): Promise<BrandRepCenterTurnResult> {
   const wsId = body.workspaceId?.trim();
@@ -271,20 +280,128 @@ export async function runBrandRepCenterSession(
   const sectionKey = BRAND_CENTER_SECTION_PROMPTS[body.consultSectionId] ? body.consultSectionId : "discovery";
   const sectionDirective = BRAND_CENTER_SECTION_PROMPTS[sectionKey] ?? BRAND_CENTER_SECTION_PROMPTS.discovery;
 
+  const fieldId = typeof body.consultFieldId === "string" ? body.consultFieldId.trim() : "";
+  const fieldLabel = typeof body.consultFieldLabel === "string" ? body.consultFieldLabel.trim() : "";
+  const fieldSnippet =
+    typeof body.consultFieldSnippet === "string" ? body.consultFieldSnippet.trim().slice(0, 4_000) : "";
+  const fieldFilled = body.consultFieldFilled === true;
+
+  const scratchLog = Array.isArray(body.consultScratchLog) ? body.consultScratchLog : [];
+  const scratchLogText =
+    scratchLog.length > 0
+      ? scratchLog
+          .map((e) => `- **${e.fieldLabel || e.fieldId}** (\`${e.fieldId}\`): ${e.note || "(no note)"}`)
+          .join("\n")
+          .slice(0, 8_000)
+      : "";
+
+  const isGenerateTurn = body.userMessage.trim() === "__GENERATE_FIELD__";
+
+  const identityNameBranch =
+    fieldId === "identity.displayName" || fieldId === "identity.legalName"
+      ? fieldFilled
+        ? `This is a **name** field with text already present. **Verify** only: ask for a brief affirmation or correction; do **not** re-run a full “what is your name?” interview.`
+        : `This **name** field is empty. Ask plainly for the value; when the user answers, propose a concise \`proposedProfilePatch\` for this path only.`
+      : "";
+
+  const genericNonNameRules =
+    fieldId &&
+    fieldId !== "identity.displayName" &&
+    fieldId !== "identity.legalName" &&
+    fieldId !== "otherBrandConsiderations"
+      ? [
+          `If this field is **pre-filled**, review the user’s text and ask **at least one** focused follow-up that deepens **this specific field** (not a generic brand question).`,
+          `Stay strictly on the **current field**. Read the full transcript and **do not repeat** a question whose intent already appears in an earlier turn of this walk.`,
+          `Continue Q&A until you can propose kit-ready copy; then include it in \`proposedProfilePatch\` for this field only.`,
+        ].join("\n\n")
+      : "";
+
+  const otherConsiderationsBlock =
+    fieldId === "otherBrandConsiderations"
+      ? scratchLogText
+        ? [
+            `SPECIAL — "otherBrandConsiderations" (compile from scratch + chat).`,
+            `The client sent a **consult scratch log** from earlier fields (notes the user jotted while other kit fields were discussed). Treat it as authoritative context alongside the transcript and the JSON draft.`,
+            `## Consult scratch log (earlier fields)\n${scratchLogText}`,
+            `Your job: **compile** the scratch log + conversation + existing draft text into one cohesive \`otherBrandConsiderations\` string (bullets or short paragraphs). Merge with themes already in the draft; resolve duplicates; keep tone professional. Prefer a substantive \`proposedProfilePatch.otherBrandConsiderations\` when you can improve or extend the kit.`,
+          ].join("\n\n")
+        : [
+            `SPECIAL — "otherBrandConsiderations" is the kit's open-ended bucket (partnerships, ops, sensitivities, naming constraints, politics, co-brand rules, internal vocabulary, risks, edge cases).`,
+            `Spend **more** effort here than on a typical single line: cross-reference themes from the rest of the draft (JSON), ask follow-ups, invite examples and nuance, and help them produce a **longer, amplifying** answer (tight bullets or short paragraphs). If the text is thin or generic, push for specifics.`,
+            `proposedProfilePatch: prefer a substantive \`otherBrandConsiderations\` string when you can improve or extend what they have; still null if you only need more input first.`,
+          ].join("\n\n")
+      : "";
+
+  const fieldByFieldGenerateBlock =
+    fieldId && fieldLabel && isGenerateTurn
+      ? [
+          `FIELD-BY-FIELD — **GENERATE** for this field only (\`${fieldId}\`, "${fieldLabel}"). Latest user message: \`__GENERATE_FIELD__\`.`,
+          `The UI **merges your \`proposedProfilePatch\` into the working draft immediately** after this response — this turn is for **materializing kit text**, not conversation.`,
+          `**Do not ask the user anything** — no clarifying questions, no follow-up prompts, no numbered lists of questions. **assistantMessage**: at most **2 short sentences** stating what you placed in the patch (or that you inferred from context).`,
+          `**First choice:** If your **immediately previous assistant message** already contained concrete suggested wording for this field (even informal), convert it into a valid, nested \`proposedProfilePatch\` for **this field only** (polish; preserve intent).`,
+          `**Otherwise:** Produce the best defensible kit-ready \`proposedProfilePatch\` for this field from the transcript, JSON draft, and saved kit — **infer** rather than asking for more input.`,
+          `\`proposedProfilePatch\` must be **non-null** whenever any reasonable kit-ready value can be justified from context. Use null only if the field value is literally unknowable from everything provided.`,
+          fieldId === "otherBrandConsiderations" && scratchLogText
+            ? `## Consult scratch log\n${scratchLogText}\nFold relevant scratch lines into \`otherBrandConsiderations\` in the patch.`
+            : fieldId === "otherBrandConsiderations"
+              ? `For \`otherBrandConsiderations\`, output a substantive string from chat + draft even when thin — still no questions to the user.`
+              : "",
+          `**consultAwaitingVerdict** must be **false**.`,
+          `Related Brand OS section (tone only): ${sectionDirective}`,
+          fieldSnippet
+            ? `## Current value in their working draft for this field\n${fieldSnippet}`
+            : `## Current value in their working draft for this field\n(empty)`,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : "";
+
+  const fieldByFieldBlock =
+    fieldId && fieldLabel
+      ? isGenerateTurn
+        ? fieldByFieldGenerateBlock
+        : [
+            `FIELD-BY-FIELD CONSULTATION (one kit field only). The user works through the kit in order; you must stay on the single current field.`,
+            `SCOPE: Do **not** steer this walk toward visual identity (hex colors, typography, layout), logo lockups or usage mechanics, photography/illustration direction, or any binary/logo assets — users refine those directly in Brand Center. Stay on strategy, audience, narrative, voice, goals, channels, legal text, and the catch-all field.`,
+            `Current field id (kit path): "${fieldId}". Human label: "${fieldLabel}".`,
+            fieldFilled
+              ? `This field is **pre-filled** in their draft. Use their text to ask sharper questions: refine, deepen, challenge gently, or help them articulate more clearly.`
+              : `This field is **empty** in their draft. Collaborate with the user to develop a strong answer through questions; then propose concise kit-ready text when appropriate.`,
+            identityNameBranch,
+            genericNonNameRules,
+            otherConsiderationsBlock,
+            `proposedProfilePatch: include only keys relevant to THIS field (partial nested objects OK). Use null if you are only asking questions or no concrete change yet.`,
+            `**consultAwaitingVerdict** must be **false** on every turn. The user approves copy with **Submit to Brand Center** in the UI (not Accept / Try again / Skip in chat).`,
+            `Related Brand OS section context (for tone only; stay scoped to this one field): ${sectionDirective}`,
+            fieldSnippet
+              ? `## Current value in their working draft for this field\n${fieldSnippet}`
+              : `## Current value in their working draft for this field\n(empty)`,
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+        : "";
+
   const isAsk = body.mode === "ask";
   const systemParts = [
     `You are the Brand Rep Agent — a senior brand strategist and creative director. You know brand strategy, positioning, naming, narrative, voice, visual identity basics, and go-to-market context across B2B and consumer categories.`,
     `PRIMARY DIALOGUE for this session: Brand Center — the full brand kit the user is editing on that page (JSON draft of all fields below, plus the chat transcript). Treat that kit as the substantive workspace you are helping shape. Do not assume visibility into other apps (boards, captures, notes) unless the user pastes them into the conversation.`,
     `You are direct, expert, and constructive. When the user is vague or off-strategy, say so and explain why; offer a sharper alternative.`,
     isAsk
-      ? `Mode: OPEN Q&A. Answer the user's question about brand development, this workspace, or their kit. Do not output proposedProfilePatch — set it to null always.`
-      : `Mode: GUIDED CONSULTATION. Current section: "${sectionKey}".\n${sectionDirective}`,
-    `Output JSON ONLY with this exact shape: {"assistantMessage":"string","proposedProfilePatch":null or object}`,
+      ? `Mode: OPEN Q&A. Answer the user's question about brand development, this workspace, or their kit. Do not output proposedProfilePatch — set it to null always. consultAwaitingVerdict must be false or omitted.`
+      : fieldByFieldBlock
+        ? `Mode: GUIDED CONSULTATION — FIELD-BY-FIELD.\n\n${fieldByFieldBlock}`
+        : `Mode: GUIDED CONSULTATION (legacy section-wide). Current section: "${sectionKey}".\n${sectionDirective}`,
+    `Output JSON ONLY with this exact shape: {"assistantMessage":"string","proposedProfilePatch":null or object,"consultAwaitingVerdict":false}`,
     `Rules for proposedProfilePatch (consult mode only):`,
     `- Only include keys you intend to set: identity, purpose, values, audience, positioning, voice, visual, goals, messaging, story, channels, legal, assets, otherBrandConsiderations (string) — nested object partials are OK where applicable.`,
     `- Nest fields correctly: e.g. mission and vision go under "purpose" (not top-level); displayName under "identity". Wrong shapes may be dropped on apply.`,
     `- Strings must be kit-ready (concise, professional). Do not include logoPrimaryDataUrl or any base64.`,
-    `- If you are only asking questions or need more input, set proposedProfilePatch to null.`,
+    !isAsk && isGenerateTurn && fieldId
+      ? `- **GENERATE (\`__GENERATE_FIELD__\`):** \`proposedProfilePatch\` must be non-null whenever a defensible kit value exists; prioritize crystallizing your **last assistant turn’s concrete suggestion** into valid patch shape. \`assistantMessage\`: no questions to the user. Null only if the field is unknowable from all context.`
+      : !isAsk
+        ? `- If you are only asking questions or need more input, set proposedProfilePatch to null.`
+        : null,
+    `- consultAwaitingVerdict: always **false** in consult mode (field-by-field or legacy).`,
     teamBlock,
     userBlock,
     savedKitBlock ? `## Saved brand kit on server (authoritative baseline)\n${savedKitBlock}` : `## Saved brand kit on server: (empty — you are helping build it from conversation.)`,
@@ -334,7 +451,9 @@ export async function runBrandRepCenterSession(
     if (proposed && Object.keys(proposed).length === 0) proposed = null;
   }
 
-  return { assistantMessage, proposedProfilePatch: proposed };
+  const consultAwaitingVerdict = false;
+
+  return { assistantMessage, proposedProfilePatch: proposed, consultAwaitingVerdict };
 }
 
 /** Mail Clerk: propose how to split inbound capture across destinations using workspace routing index. */

@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Goal, Inbox, Lightbulb, MessageSquare, StickyNote, Zap } from "lucide-react";
-import { RapidRouterIcon } from "@/components/shared/RapidRouterIcon";
+import { Inbox } from "lucide-react";
 import { WorkspaceDashboardHomeGrid } from "@/components/workspace/WorkspaceDashboardHomeGrid";
 import { ComingSoonCard } from "@/components/shared/ComingSoonCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useMailroomRouting } from "@/context/MailroomRoutingContext";
+import { DashboardAgentHubShell } from "@/features/agents/DashboardAgentHubShell";
 import { fetchRoutingHolds } from "@/features/taskflow/api";
 
 export function DashboardPage() {
@@ -26,44 +26,21 @@ export function DashboardPage() {
 
       <Card className="mt-6 border-dashed">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Agent quick actions</CardTitle>
-          <CardDescription>Jump to workspace agents and routing from anywhere.</CardDescription>
+          <CardTitle className="text-base">Agents</CardTitle>
+          <CardDescription>
+            Open an agent to review saved sessions on the left and history on the right. Use{" "}
+            <button
+              type="button"
+              className="font-medium text-foreground underline underline-offset-4"
+              onClick={() => openMailroom()}
+            >
+              Mailroom
+            </button>{" "}
+            for the guided routing checklist.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => openMailroom()}>
-            <Zap className="mr-1.5 size-3.5" aria-hidden />
-            Mailroom
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/app/rapid-router">
-              <RapidRouterIcon className="mr-1.5 size-3.5" />
-              Rapid Router
-            </Link>
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/app/chat">
-              <MessageSquare className="mr-1.5 size-3.5" aria-hidden />
-              Consultant
-            </Link>
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/app/brand-center">
-              <Goal className="mr-1.5 size-3.5" aria-hidden />
-              Brand Center
-            </Link>
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/app/notes">
-              <StickyNote className="mr-1.5 size-3.5" aria-hidden />
-              Notebooks
-            </Link>
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/app/brainstorm">
-              <Lightbulb className="mr-1.5 size-3.5" aria-hidden />
-              Brainstorm
-            </Link>
-          </Button>
+        <CardContent>
+          <DashboardAgentHubShell workspaceId={activeWorkspaceId} />
         </CardContent>
       </Card>
 
@@ -93,7 +70,11 @@ export function DashboardPage() {
       <section className="mt-14">
         <h2 className="text-lg font-semibold">Product roadmap</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Highlights from Phase 2 and Phase 3 — see <Link to="/solutions" className="underline underline-offset-4">Solutions</Link> for the full picture.
+          Highlights from Phase 2 and Phase 3 — see{" "}
+          <Link to="/solutions" className="underline underline-offset-4">
+            Solutions
+          </Link>{" "}
+          for the full picture.
         </p>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <ComingSoonCard

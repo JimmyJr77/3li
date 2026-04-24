@@ -15,7 +15,7 @@ import {
   StickyNote,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { RapidRouterIcon } from "@/components/shared/RapidRouterIcon";
 import { Button } from "@/components/ui/button";
@@ -185,6 +185,11 @@ export function RapidRouterPage() {
   const [mailClerkRoutingOpen, setMailClerkRoutingOpen] = useState(false);
   const [manualRoutingPanelOpen, setManualRoutingPanelOpen] = useState(false);
   const [holdingPenOpen, setHoldingPenOpen] = useState(false);
+  const mailHubSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    mailHubSessionRef.current = null;
+  }, [activeWorkspaceId]);
 
   const redTeamContext = useMemo(() => {
     const parts = [text.trim(), ...stickies.map((s) => s.body.trim())].filter(Boolean);
@@ -418,7 +423,9 @@ export function RapidRouterPage() {
         workspaceId: activeWorkspaceId,
         capture,
         instruction: mailInstruction.trim() || undefined,
+        agentSessionId: mailHubSessionRef.current,
       });
+      if (res.agentSessionId) mailHubSessionRef.current = res.agentSessionId;
       if (!res.decomposition?.actionItems?.length) throw new Error("no-decomposition");
       return res.decomposition;
     },
@@ -453,7 +460,9 @@ export function RapidRouterPage() {
         actionItems,
         instruction: mailInstruction.trim() || undefined,
         originalCapture: text.trim(),
+        agentSessionId: mailHubSessionRef.current,
       });
+      if (res.agentSessionId) mailHubSessionRef.current = res.agentSessionId;
       if (!res.plan?.chunks?.length) throw new Error("no-plan");
       return res.plan;
     },

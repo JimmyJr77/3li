@@ -63,6 +63,7 @@ export function PMAgentSheet({ workspaceId, contextText, surfaceLabel }: PMAgent
   const [open, setOpen] = useState(false);
   const [goal, setGoal] = useState("");
   const [output, setOutput] = useState("");
+  const [agentSessionId, setAgentSessionId] = useState<string | null>(null);
   const [panelWidth, setPanelWidth] = useState(SHEET_WIDTH_DEFAULT);
   const panelWidthRef = useRef(panelWidth);
   panelWidthRef.current = panelWidth;
@@ -108,14 +109,22 @@ export function PMAgentSheet({ workspaceId, contextText, surfaceLabel }: PMAgent
     window.addEventListener("mouseup", onUp);
   }, []);
 
+  useEffect(() => {
+    if (!open) setAgentSessionId(null);
+  }, [open]);
+
   const mut = useMutation({
     mutationFn: () =>
       postProjectManagerAgent({
         workspaceId: workspaceId!,
         message: goal.trim() || "Help me plan the next steps for this workspace context.",
         contextText,
+        agentSessionId,
       }),
-    onSuccess: (d) => setOutput(d.result),
+    onSuccess: (d) => {
+      setOutput(d.result);
+      if (d.agentSessionId) setAgentSessionId(d.agentSessionId);
+    },
   });
 
   if (!workspaceId) return null;

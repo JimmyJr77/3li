@@ -121,6 +121,11 @@ export function BrainstormAIPanel({
   const outputPaneHeightRef = useRef(outputPaneHeight);
   const layoutRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const hubSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    hubSessionIdRef.current = null;
+  }, [sessionId, workspaceId]);
 
   useEffect(() => {
     outputPaneHeightRef.current = outputPaneHeight;
@@ -206,9 +211,13 @@ export function BrainstormAIPanel({
         workspaceId,
         agentRole: "red_team",
         context: vars.context,
+        hubAgentKind: "brainstorm_ai",
+        agentSessionId: hubSessionIdRef.current,
+        brainstormCanvasSessionId: sessionId ?? null,
       });
     },
     onSuccess: (data, vars) => {
+      if (data.agentSessionId) hubSessionIdRef.current = data.agentSessionId;
       const visible = consumeModelReply(data.result);
       if (vars.logUserEntry) {
         appendSessionExchange(vars.logUserEntry.heading, vars.logUserEntry.text);
@@ -229,9 +238,13 @@ export function BrainstormAIPanel({
         agentRole: "consultant",
         sessionSynthesis: true,
         context: vars.context,
+        hubAgentKind: "brainstorm_ai",
+        agentSessionId: hubSessionIdRef.current,
+        brainstormCanvasSessionId: sessionId ?? null,
       });
     },
     onSuccess: (data, vars) => {
+      if (data.agentSessionId) hubSessionIdRef.current = data.agentSessionId;
       const visible = consumeModelReply(data.result);
       appendSessionExchange(`User — consultant (${vars.label})`, vars.prompt.slice(0, 2000));
       appendSessionExchange("Consultant (business case)", visible);
