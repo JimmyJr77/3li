@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import {
   fetchContextInstructions,
   patchContextInstructions,
   type ContextInstructionsDto,
 } from "@/features/taskflow/api";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -45,13 +45,30 @@ export function AgentContextSettingsCard() {
     },
   });
 
+  const dirty = useMemo(
+    () =>
+      Boolean(
+        q.data &&
+          (team !== q.data.teamContextInstructions || user !== q.data.userContextInstructions),
+      ),
+    [q.data, team, user],
+  );
+
+  useDebouncedAutosave({
+    enabled: Boolean(activeWorkspaceId) && Boolean(q.data),
+    dirty,
+    isPending: mut.isPending,
+    onFlush: () => mut.mutate({ teamContextInstructions: team, userContextInstructions: user }),
+    resetKey: [team, user],
+  });
+
+  useEffect(() => {
+    if (dirty) mut.reset();
+  }, [dirty, mut]);
+
   if (!activeWorkspaceId) {
     return null;
   }
-
-  const dirty =
-    q.data &&
-    (team !== q.data.teamContextInstructions || user !== q.data.userContextInstructions);
 
   return (
     <Card>
@@ -62,7 +79,8 @@ export function AgentContextSettingsCard() {
         </CardTitle>
         <CardDescription>
           Team rules override individual preferences for the Consultant Agent and other LLM calls. Applies to{" "}
-          <span className="font-medium text-foreground">{activeWorkspace?.name ?? "this workspace"}</span>.
+          <span className="font-medium text-foreground">{activeWorkspace?.name ?? "this workspace"}</span>. Changes save
+          automatically after you stop typing.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -101,21 +119,23 @@ export function AgentContextSettingsCard() {
                 placeholder="How you like to run meetings, preferred frameworks, personal checklists…"
               />
             </div>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                disabled={!dirty || mut.isPending}
-                onClick={() => mut.mutate({ teamContextInstructions: team, userContextInstructions: user })}
-              >
-                {mut.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
-                  "Save context"
-                )}
-              </Button>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {mut.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+                  Saving…
+                </span>
+              ) : null}
+              {!mut.isPending && dirty ? <span>Unsaved changes — will save automatically.</span> : null}
+              {!dirty && !mut.isPending && mut.isSuccess ? (
+                <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <Check className="size-4 shrink-0" aria-hidden />
+                  All changes saved
+                </span>
+              ) : null}
+              {mut.isError ? (
+                <span className="text-destructive">Could not save. Check your connection.</span>
+              ) : null}
             </div>
           </>
         )}

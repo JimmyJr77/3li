@@ -1,6 +1,14 @@
 import type { BrandProfile } from "@/features/brand/types";
 import { normalizeBrandProfile } from "@/features/brand/types";
 
+/** Deep-merge partial brand kit JSON records (e.g. stacked Brand Rep suggestions). */
+export function mergeBrandProfilePatchRecords(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  return mergeDeep({ ...base }, patch);
+}
+
 function mergeDeep(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(patch)) {

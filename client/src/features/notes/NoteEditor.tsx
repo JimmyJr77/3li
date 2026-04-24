@@ -3,6 +3,7 @@ import type { Slice } from "@tiptap/pm/model";
 import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
 import { patchNote, type PatchNoteBody } from "./api";
 import { extractPreviewFromDoc } from "./extractPreview";
@@ -241,7 +242,7 @@ export function NoteEditor({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         void flushSave(json, preview);
-      }, 750);
+      }, AUTOSAVE_DEBOUNCE_MS);
     },
     [flushSave],
   );

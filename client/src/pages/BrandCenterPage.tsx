@@ -14,6 +14,7 @@ import {
 } from "@/features/brand/types";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { BrandRepAgentSheet } from "@/features/agents/BrandRepAgentSheet";
+import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,6 +79,7 @@ export function BrandCenterPage() {
 
   const [profile, setProfile] = useState<BrandProfile>(() => emptyBrandProfile());
   const [rapidInboxTick, setRapidInboxTick] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const baselineRef = useRef<string>("");
 
   const rapidEntries = useMemo(
@@ -113,12 +115,14 @@ export function BrandCenterPage() {
     mutationFn: () => {
       const r = brandProfileSchema.safeParse(profile);
       if (!r.success) {
-        window.alert(r.error.issues[0]?.message ?? "Check brand fields before saving.");
+        setSaveError(r.error.issues[0]?.message ?? "Check brand fields before saving.");
         return Promise.reject(new Error("validation"));
       }
+      setSaveError(null);
       return saveBrandProfile(workspaceId!, normalizeBrandProfile(r.data));
     },
     onSuccess: (data) => {
+      setSaveError(null);
       const n = data.brandProfile ? normalizeBrandProfile(data.brandProfile) : emptyBrandProfile();
       baselineRef.current = JSON.stringify(n);
       setProfile(n);
@@ -126,6 +130,19 @@ export function BrandCenterPage() {
       void qc.invalidateQueries({ queryKey: ["brand-kit-ai-text", workspaceId] });
       void qc.invalidateQueries({ queryKey: ["workspaces"] });
     },
+    onError: (e: Error) => {
+      if (e.message !== "validation") {
+        setSaveError("Could not save. Check your connection and try again.");
+      }
+    },
+  });
+
+  useDebouncedAutosave({
+    enabled: Boolean(workspaceId) && profileQuery.isSuccess,
+    dirty,
+    isPending: saveMutation.isPending,
+    onFlush: () => saveMutation.mutate(),
+    resetKey: profile,
   });
 
   const update = useCallback(<K extends keyof BrandProfile>(key: K, val: BrandProfile[K]) => {
@@ -145,6 +162,10 @@ export function BrandCenterPage() {
             This kit is the source of truth for the active brand: it applies across that brand&apos;s whole workspace
             (boards, tasks, notebooks, and more), not the other way around.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Think of this page as a <span className="font-medium text-foreground">brand operating system input layer</span>
+            — structured context that feeds agents and execution, not just a static style guide.
+          </p>
         </div>
         {workspaceId ? (
           <div className="shrink-0 pt-1">
@@ -156,22 +177,6 @@ export function BrandCenterPage() {
           </div>
         ) : null}
       </div>
-
-      <CollapsibleSection
-        title="Your brand and workspace"
-        description="How Brand Center lines up with the sidebar and delivery work."
-        defaultOpen
-      >
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Use <strong className="font-medium text-foreground">My brands</strong> in the sidebar to switch which client or
-          company you are working for. The name shown prefers your{" "}
-          <strong className="font-medium text-foreground">Display / brand name</strong> from this kit when saved; otherwise
-          it uses the workspace name. Each row is one <strong className="font-medium text-foreground">brand</strong> with
-          a single <strong className="font-medium text-foreground">workspace</strong> (the full ecosystem for that client).{" "}
-          <strong className="font-medium text-foreground">Project spaces</strong> inside the workspace group project boards
-          and related delivery work; this kit applies to the whole brand workspace.
-        </p>
-      </CollapsibleSection>
 
       {wsLoading && (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -201,7 +206,7 @@ export function BrandCenterPage() {
         <div className="flex flex-col gap-6">
           <CollapsibleSection
             title="Core identity"
-            description="How the brand introduces itself — names, tagline, and sector."
+            description="How the brand introduces itself — names, tagline, and sector. Consider: person vs company vs hybrid; public vs legal names; sub-brands; geography scale (local → global); lifecycle (new / rebrand / mature)."
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Display / brand name">
@@ -255,7 +260,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Purpose" description="Mission, vision, and principles that anchor decisions.">
+          <CollapsibleSection
+            title="Purpose"
+            description="Mission, vision, and principles that anchor decisions. Consider: why beyond profit; problem you solve; transformation for customers; what success looks like for them; long-range vision; what would be lost if the brand disappeared."
+          >
             <Field label="Mission">
               <textarea
                   className={textareaClass}
@@ -303,7 +311,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Audience & positioning" description="Who you serve and how you win.">
+          <CollapsibleSection
+            title="Audience & positioning"
+            description="Who you serve and how you win. Consider: demographics + psychographics; pains, fears, desires; motivations; trusted brands; secondary vs bad-fit customers; niche; UVP; premium vs mid vs mass; competitor strengths and gaps."
+          >
             <Field label="Ideal customer / audience summary">
               <textarea
                   className={textareaClass}
@@ -381,7 +392,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Voice & tone" description="How the brand sounds in writing and speech.">
+          <CollapsibleSection
+            title="Voice & tone"
+            description="How the brand sounds in writing and speech. Consider: core principles you will not violate; personality; emotions to evoke vs avoid; tone; vocabulary; humor; beginner vs expert register."
+          >
             <Field label="Personality">
               <textarea
                   className={textareaClass}
@@ -442,55 +456,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Visual system" description="Colors and type — reference for AI-assisted content and decks.">
-            <div className="grid gap-4 sm:grid-cols-3">
-              {(["primaryColor", "secondaryColor", "accentColor"] as const).map((key) => (
-                <Field key={key} label={key === "primaryColor" ? "Primary" : key === "secondaryColor" ? "Secondary" : "Accent"}>
-                  <div className="flex gap-2">
-                    <Input
-                      className="font-mono text-xs"
-                      value={profile.visual?.[key] ?? ""}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setProfile((p) => ({
-                          ...p,
-                          visual: { ...p.visual, [key]: e.target.value },
-                        }))
-                      }
-                      placeholder="#0F172A"
-                    />
-                    <input
-                      type="color"
-                      aria-label={`Pick ${key}`}
-                      className="h-9 w-12 cursor-pointer rounded border border-input bg-background p-0.5"
-                      value={/^#[0-9a-f]{6}$/i.test(profile.visual?.[key] ?? "") ? profile.visual![key]! : "#6366f1"}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        setProfile((p) => ({
-                          ...p,
-                          visual: { ...p.visual, [key]: e.target.value },
-                        }))
-                      }
-                    />
-                  </div>
-                </Field>
-              ))}
-            </div>
-            <Field label="Typography & layout notes">
-              <textarea
-                  className={textareaClass}
-                rows={2}
-                value={profile.visual?.typographyNotes ?? ""}
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                  setProfile((p) => ({
-                    ...p,
-                    visual: { ...p.visual, typographyNotes: e.target.value },
-                  }))
-                }
-                placeholder="Fonts, spacing, grid — whatever your team agrees on"
-              />
-            </Field>
-          </CollapsibleSection>
-
-          <CollapsibleSection title="Goals & outcomes" description="What success looks like — business and brand metrics.">
+          <CollapsibleSection
+            title="Goals & outcomes"
+            description="What success looks like — business and brand metrics. Consider: 90-day vs 1–5 year goals; KPIs; quantitative success vs failure signals; milestones and growth constraints."
+          >
             <Field label="Business goals">
               <textarea
                   className={textareaClass}
@@ -533,7 +502,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Messaging & proof" description="Claims you can stand behind.">
+          <CollapsibleSection
+            title="Messaging & proof"
+            description="Claims you can stand behind. Consider: tagline or hook; 3–5 pillars; proof angles; origin and defining moments; role of the customer in your story; social proof."
+          >
             <Field label="Key messages / pillars">
               <textarea
                   className={textareaClass}
@@ -589,7 +561,10 @@ export function BrandCenterPage() {
             </Field>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Channels & legal" description="Where the brand shows up and compliance guardrails.">
+          <CollapsibleSection
+            title="Go-to-market, channels & legal"
+            description="Where the brand shows up, how you grow, and compliance. Consider: offerings and flagship; pricing narrative; journey and drop-offs; platforms and content cadence; sales funnel and objections; campaigns and paid media; first impressions and service level; trademark and disclaimers."
+          >
             <Field label="Channels & touchpoints">
               <textarea
                   className={textareaClass}
@@ -727,8 +702,59 @@ export function BrandCenterPage() {
           </CollapsibleSection>
 
           <CollapsibleSection
+            title="Visual system"
+            description="Colors and type — reference for AI-assisted content and decks. Consider: overall design style; photography or illustration direction; iconography; visuals that are off-limits."
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
+              {(["primaryColor", "secondaryColor", "accentColor"] as const).map((key) => (
+                <Field key={key} label={key === "primaryColor" ? "Primary" : key === "secondaryColor" ? "Secondary" : "Accent"}>
+                  <div className="flex gap-2">
+                    <Input
+                      className="font-mono text-xs"
+                      value={profile.visual?.[key] ?? ""}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        setProfile((p) => ({
+                          ...p,
+                          visual: { ...p.visual, [key]: e.target.value },
+                        }))
+                      }
+                      placeholder="#0F172A"
+                    />
+                    <input
+                      type="color"
+                      aria-label={`Pick ${key}`}
+                      className="h-9 w-12 cursor-pointer rounded border border-input bg-background p-0.5"
+                      value={/^#[0-9a-f]{6}$/i.test(profile.visual?.[key] ?? "") ? profile.visual![key]! : "#6366f1"}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        setProfile((p) => ({
+                          ...p,
+                          visual: { ...p.visual, [key]: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                </Field>
+              ))}
+            </div>
+            <Field label="Typography & layout notes">
+              <textarea
+                className={textareaClass}
+                rows={2}
+                value={profile.visual?.typographyNotes ?? ""}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
+                  setProfile((p) => ({
+                    ...p,
+                    visual: { ...p.visual, typographyNotes: e.target.value },
+                  }))
+                }
+                placeholder="Fonts, spacing, grid — whatever your team agrees on"
+              />
+            </Field>
+          </CollapsibleSection>
+
+          <CollapsibleSection
             title="Other brand considerations"
-            description="Anything that should influence the brand and AI outputs but does not fit the sections above — sensitivities, naming constraints, partnerships, regulatory notes, or internal context. You or the Brand Rep Agent can maintain this."
+            description="Catch-all for sensitivities, partnerships, ops realities, governance, and risks not captured above. Consider: partners and alliances; internal tools/processes; brand approval rules; past mistakes; reputational landmines."
             defaultOpen={false}
           >
             <Field
@@ -797,29 +823,22 @@ export function BrandCenterPage() {
           </CollapsibleSection>
 
           <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur">
-            <Button
-              type="button"
-              disabled={!dirty || saveMutation.isPending}
-              onClick={() => saveMutation.mutate()}
-            >
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                <>
-                  <Check className="mr-2 size-4" />
-                  Save brand kit
-                </>
-              )}
-            </Button>
-            {saveMutation.isSuccess && !dirty && !saveMutation.isPending ? (
-              <span className="text-sm text-muted-foreground">Saved.</span>
+            {saveMutation.isPending ? (
+              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+                Saving…
+              </span>
             ) : null}
-            {saveMutation.isError ? (
-              <span className="text-sm text-destructive">Save failed. Try again.</span>
+            {!saveMutation.isPending && dirty ? (
+              <span className="text-sm text-muted-foreground">Unsaved changes — will save automatically.</span>
             ) : null}
+            {!dirty && !saveMutation.isPending && saveMutation.isSuccess ? (
+              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Check className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                All changes saved
+              </span>
+            ) : null}
+            {saveError ? <span className="text-sm text-destructive">{saveError}</span> : null}
           </div>
         </div>
       )}

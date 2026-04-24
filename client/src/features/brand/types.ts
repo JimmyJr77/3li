@@ -62,6 +62,11 @@ export type BrandProfile = {
   };
   /** Catch-all: sensitivities, naming notes, partnerships, risks, or anything that does not fit other sections */
   otherBrandConsiderations?: string;
+  /**
+   * Brand-scoped rules for AI (autonomy, human-in-the-loop, tone floor/ceiling, forbidden moves).
+   * Complements Settings → Agent context (team/user); this ships with the brand kit to downstream agents.
+   */
+  aiBrandGuidance?: string;
 };
 
 export function emptyBrandProfile(): BrandProfile {
@@ -80,6 +85,7 @@ export function emptyBrandProfile(): BrandProfile {
     legal: {},
     assets: {},
     otherBrandConsiderations: "",
+    aiBrandGuidance: "",
   };
 }
 
@@ -106,5 +112,6 @@ export function normalizeBrandProfile(raw: unknown): BrandProfile {
     assets: { ...base.assets, ...(typeof o.assets === "object" && o.assets && !Array.isArray(o.assets) ? o.assets : {}) },
     otherBrandConsiderations:
       typeof o.otherBrandConsiderations === "string" ? o.otherBrandConsiderations : base.otherBrandConsiderations,
+    aiBrandGuidance: typeof o.aiBrandGuidance === "string" ? o.aiBrandGuidance : base.aiBrandGuidance,
   };
 }

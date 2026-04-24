@@ -10,6 +10,7 @@ import { normalizeBrainstormNode, useBrainstormStore } from "@/features/brainsto
 import type { BrainstormEdge, BrainstormFlowNode, TextFlowNode } from "@/features/brainstorm/types";
 import { isIdeaNode } from "@/features/brainstorm/types";
 import { Button } from "@/components/ui/button";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
 
 function normalizeEdgesFromApi(edges: BrainstormSessionResponse["edges"]): BrainstormEdge[] {
@@ -177,7 +178,7 @@ export function BrainstormWorkspace({
           onSaveStatusChangeRef.current?.("error");
         }
       })();
-    }, 1500);
+    }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [nodes, edges, sessionId, workspaceId]);
 

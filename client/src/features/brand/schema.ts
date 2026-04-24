@@ -99,6 +99,7 @@ export const brandProfileSchema = z
           .partial()
           .optional(),
         otherBrandConsiderations: text,
+        aiBrandGuidance: text,
       })
       .passthrough(),
   ])

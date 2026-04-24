@@ -5,8 +5,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
+  Check,
   Keyboard,
   LayoutPanelLeft,
+  Loader2,
   MousePointerClick,
   Palette,
   User,
@@ -31,6 +33,7 @@ import { useWorkspacePrefs, type SidebarBehavior } from "@/context/WorkspacePref
 import { changePassword, fetchMe, logout, patchProfile, type AuthUser } from "@/features/auth/api";
 import { formatUsPhoneInput } from "@/lib/phoneUs";
 import { formatApiError } from "@/lib/apiErrorMessage";
+import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { cn } from "@/lib/utils";
 
 type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout" | "user-accounts";
@@ -210,6 +213,27 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
     },
   });
 
+  const profileDraftKey = useMemo(
+    () =>
+      JSON.stringify({
+        ...accountDraft,
+        phone: formatUsPhoneInput(phoneDisplay),
+      }),
+    [accountDraft, phoneDisplay],
+  );
+
+  const profileAutosavePrereqs =
+    formatUsPhoneInput(phoneDisplay).replace(/\D/g, "").length === 10 &&
+    accountDraft.username.trim().length >= 3;
+
+  useDebouncedAutosave({
+    enabled: profileAutosavePrereqs,
+    dirty: accountDirty,
+    isPending: profileSaveMut.isPending,
+    onFlush: () => profileSaveMut.mutate(),
+    resetKey: profileDraftKey,
+  });
+
   const passwordMut = useMutation({
     mutationFn: async () => {
       if (newPassword !== newPassword2) {
@@ -333,17 +357,26 @@ function ProfileAndAccountCard({ authUser }: { authUser: AuthUser }) {
               {formatApiError(profileSaveMut.error, "Could not save profile")}
             </p>
           ) : null}
-          {profileSaveMut.isSuccess && !accountDirty ? (
-            <p className="text-sm text-muted-foreground">Profile saved.</p>
+          {profileSaveMut.isPending ? (
+            <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+              Saving…
+            </p>
           ) : null}
-          <Button
-            type="button"
-            size="sm"
-            disabled={!accountDirty || profileSaveMut.isPending}
-            onClick={() => profileSaveMut.mutate()}
-          >
-            {profileSaveMut.isPending ? "Saving…" : "Save profile"}
-          </Button>
+          {!profileSaveMut.isPending && accountDirty && profileAutosavePrereqs ? (
+            <p className="text-sm text-muted-foreground">Unsaved changes — will save automatically.</p>
+          ) : null}
+          {!profileSaveMut.isPending && accountDirty && !profileAutosavePrereqs ? (
+            <p className="text-sm text-muted-foreground">
+              Complete a valid US phone (10 digits) and username (3+ characters) to autosave.
+            </p>
+          ) : null}
+          {profileSaveMut.isSuccess && !accountDirty ? (
+            <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Check className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              Profile saved
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -510,8 +543,8 @@ export function SettingsPage() {
                     Profile &amp; account
                   </CardTitle>
                   <CardDescription>
-                    These fields are stored with your login. Save changes when you are done editing. Password changes
-                    apply immediately and keep you signed in on this device.
+                    These fields are stored with your login and autosave while you edit (after a short pause). Password
+                    changes apply immediately when you submit the password form and keep you signed in on this device.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-8">

@@ -6,7 +6,7 @@ import {
   postBrandRepReview,
   type BrandRepCenterPayload,
 } from "@/features/agents/api";
-import { mergeBrandProfilePatch } from "@/features/brand/mergeBrandProfilePatch";
+import { mergeBrandProfilePatch, mergeBrandProfilePatchRecords } from "@/features/brand/mergeBrandProfilePatch";
 import type { BrandProfile } from "@/features/brand/types";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -29,22 +29,33 @@ const textareaClass =
 
 const CONSULT_SECTIONS = [
   { id: "discovery", label: "Discovery" },
-  { id: "core_identity", label: "Core identity" },
-  { id: "purpose", label: "Purpose & values" },
+  { id: "identity_structure", label: "Identity & structure" },
+  { id: "purpose_mission", label: "Purpose & mission" },
   { id: "audience_positioning", label: "Audience & positioning" },
-  { id: "voice_tone", label: "Voice & tone" },
+  { id: "voice_comms", label: "Voice & DNA" },
+  { id: "messaging_narrative", label: "Messaging & story" },
   { id: "visual_system", label: "Visual system" },
-  { id: "goals_outcomes", label: "Goals & outcomes" },
-  { id: "messaging_proof", label: "Messaging & proof" },
-  { id: "channels_legal", label: "Channels & legal" },
+  { id: "goals_and_metrics", label: "Goals & metrics" },
+  { id: "gtm_cx", label: "Go-to-market & CX" },
+  { id: "partners_ecosystem_ops", label: "Partners & operations" },
+  { id: "governance_risk_legal", label: "Governance & risk" },
   { id: "assets_logos", label: "Logos & imagery" },
-  { id: "other_considerations", label: "Other brand considerations" },
+  { id: "other_considerations", label: "Other considerations" },
   { id: "recap", label: "Recap" },
 ] as const;
 
 type ConsultSectionId = (typeof CONSULT_SECTIONS)[number]["id"];
 
 type ChatLine = { role: "user" | "assistant"; text: string };
+
+function mergePendingProfilePatches(
+  prev: Record<string, unknown> | null,
+  incoming: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!incoming || Object.keys(incoming).length === 0) return prev;
+  if (!prev || Object.keys(prev).length === 0) return incoming;
+  return mergeBrandProfilePatchRecords(prev, incoming);
+}
 
 function formatTranscript(lines: ChatLine[]): string {
   return lines
@@ -165,12 +176,10 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
         mode: "consult",
         userMessage: "__START__",
         transcriptLines: [],
-        consultSectionId: "discovery",
+        consultSectionId: CONSULT_SECTIONS[0]!.id,
       });
       setConsultLines([{ role: "assistant", text: payload.assistantMessage }]);
-      if (payload.proposedProfilePatch && Object.keys(payload.proposedProfilePatch).length > 0) {
-        setPendingPatch(payload.proposedProfilePatch);
-      }
+      setPendingPatch((prevPatch) => mergePendingProfilePatches(prevPatch, payload.proposedProfilePatch ?? null));
     } catch {
       setConsultLines([]);
     }
@@ -201,7 +210,6 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
     setConsultDraft("");
     const userLine: ChatLine = { role: "user", text: t };
     setConsultLines((prev) => [...prev, userLine]);
-    setPendingPatch(null);
     try {
       const payload = await centerPending.mutateAsync({
         mode: "consult",
@@ -210,9 +218,7 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
         consultSectionId: consultSection.id as ConsultSectionId,
       });
       setConsultLines((prev) => [...prev, { role: "assistant", text: payload.assistantMessage }]);
-      if (payload.proposedProfilePatch && Object.keys(payload.proposedProfilePatch).length > 0) {
-        setPendingPatch(payload.proposedProfilePatch);
-      }
+      setPendingPatch((prevPatch) => mergePendingProfilePatches(prevPatch, payload.proposedProfilePatch ?? null));
     } catch {
       setConsultLines((prev) => prev.slice(0, -1));
     }
@@ -225,7 +231,6 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
     const nextSection = CONSULT_SECTIONS[nextIdx]!;
     const priorTranscript = consultLines;
     setConsultSectionIdx(nextIdx);
-    setPendingPatch(null);
     const bridge: ChatLine = {
       role: "user",
       text: `Let's move on to the next part of the brand kit: **${nextSection.label}**. Open this section with what you need from me.`,
@@ -239,9 +244,7 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
         consultSectionId: nextSection.id as ConsultSectionId,
       });
       setConsultLines((prev) => [...prev, { role: "assistant", text: payload.assistantMessage }]);
-      if (payload.proposedProfilePatch && Object.keys(payload.proposedProfilePatch).length > 0) {
-        setPendingPatch(payload.proposedProfilePatch);
-      }
+      setPendingPatch((prevPatch) => mergePendingProfilePatches(prevPatch, payload.proposedProfilePatch ?? null));
     } catch {
       setConsultLines((prev) => prev.slice(0, -1));
       setConsultSectionIdx(prevIdx);
@@ -298,24 +301,18 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
           <GripVertical className="size-4 text-muted-foreground opacity-70" aria-hidden />
         </div>
 
-        <SheetHeader className="gap-2 border-b border-border/60 px-6 pb-5 pl-10 pr-7 pt-6 sm:px-8 sm:pb-6 sm:pl-12 sm:pr-10 sm:pt-7">
+        <SheetHeader className="gap-3 border-b border-border/60 px-6 pb-7 pl-10 pr-7 pt-6 sm:gap-3.5 sm:px-8 sm:pb-9 sm:pl-12 sm:pr-10 sm:pt-7">
           <SheetTitle className="text-lg">Brand Rep Agent</SheetTitle>
           <SheetDescription className="text-sm leading-relaxed">
-            Brand strategy, positioning, voice, and kit building. The agent treats the <strong>Brand Center form</strong>{" "}
+            Brand strategy, positioning, voice, and kit building — structured as a <strong>brand operating system</strong>{" "}
+            walkthrough so the kit can feed agents and execution. The agent treats the <strong>Brand Center form</strong>{" "}
             (all kit fields on this page, including your unsaved edits) as the primary workspace dialogue, plus what you
             type in the chat here.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 px-6 pb-8 pl-10 pr-7 sm:gap-7 sm:px-8 sm:pb-10 sm:pl-12 sm:pr-10">
-        <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm leading-relaxed text-foreground">
-          <span className="font-medium">Primary dialogue</span>{" "}
-          <span className="text-muted-foreground">
-            — every section of your brand kit on this page (identity through other considerations). Consultation and
-            suggestions apply there; Review copy uses only what you paste against the <em>saved</em> kit on the server.
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-muted/30 p-1.5">
+        <div className="flex flex-col gap-6 px-6 pb-8 pl-10 pr-7 pt-5 sm:gap-7 sm:px-8 sm:pb-10 sm:pl-12 sm:pr-10 sm:pt-6">
+        <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-muted/30 p-2 sm:p-2.5">
           {tabBtn("consult", "Consultation")}
           {tabBtn("ask", "Ask a question")}
           {tabBtn("review", "Review copy")}
@@ -399,8 +396,8 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
               </div>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              The agent walks the kit with you: questions and patches refer to the Brand Center fields on this page (your
-              live draft). You can edit everything afterward and save when ready.
+              The agent walks a <strong>Brand OS</strong>-style path: each step groups related strategy topics and maps
+              them to the fields on this page (your live draft). You can edit everything afterward; the page autosaves.
             </p>
             <div className="max-h-[40vh] min-h-[140px] flex-1 space-y-3 overflow-y-auto overscroll-y-contain rounded-xl border border-border bg-muted/20 p-4 text-sm sm:max-h-[48vh] sm:p-5">
               {consultLines.length === 0 ? (
@@ -431,7 +428,9 @@ export function BrandRepAgentSheet({ workspaceId, brandProfile, onApplyProfilePa
               <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm sm:p-5">
                 <p className="font-medium text-foreground">Suggested kit updates</p>
                 <p className="mt-2 leading-relaxed text-muted-foreground">
-                  Applies to the form on the left (merge). Review and save the kit when you are satisfied.
+                  Applies to the form on the left (merge). Use <strong>Apply to Brand Center</strong> — replying in the chat
+                  alone does not fill the fields. Suggested updates stay here until you apply or dismiss, even while you
+                  continue the conversation.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button type="button" size="default" onClick={applyPendingPatch}>

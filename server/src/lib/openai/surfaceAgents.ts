@@ -1,5 +1,6 @@
 import type { OpenAI } from "openai";
 import { chatModel } from "../ai/models.js";
+import { coerceBrandProfilePatch } from "../brandProfilePatchCoerce.js";
 import { formatBrandProfileForPrompt } from "../brandProfileFormat.js";
 import { loadBrandProfileJsonForWorkspaceId } from "../brandProfileFromWorkspace.js";
 import { formatTeamUserBlocksForPrompt, loadContextInstructionsForWorkspace } from "../contextInstructions.js";
@@ -193,28 +194,42 @@ export type BrandRepCenterTurnResult = {
 };
 
 const BRAND_CENTER_SECTION_PROMPTS: Record<string, string> = {
-  discovery: `You are in DISCOVERY. Open with one broad, inviting question so the founder or marketer explains the brand in their own words: who they serve, the promise, personality, and what makes them different. Listen; you may ask ONE sharp follow-up if critical gaps remain. Offer respectful pushback if positioning sounds fuzzy or self-contradictory. When you have a workable picture, you may optionally include proposedProfilePatch with only fields you are confident about from this conversation (often identity.displayName, identity.industry, audience.summary). Leave proposedProfilePatch null if still too early.`,
-  core_identity: `Focus CORE IDENTITY: display/brand name, legal name if relevant, tagline, industry/category. Ask what you still need; then propose concise kit-ready copy in proposedProfilePatch under "identity" (and only keys you are improving). Push back on generic or misleading category labels.`,
-  purpose: `Focus PURPOSE: mission, vision, values (array of short strings). Ask clarifying questions; propose proposedProfilePatch with purpose and/or values when ready. Challenge empty platitudes — push for specificity.`,
-  audience_positioning: `Focus AUDIENCE & POSITIONING: ideal customer summary, segments/personas, geography, market category, differentiators, competitors. Use industry expertise. proposedProfilePatch may include audience, positioning.`,
-  voice_tone: `Focus VOICE & TONE: personality, do/don't lists, vocabulary. proposedProfilePatch uses key "voice". Be opinionated about tone that fits the audience.`,
-  visual_system: `Focus VISUAL SYSTEM: primary/secondary/accent hex colors if they have them, typography notes. Never invent logoPrimaryDataUrl or image data — text only. proposedProfilePatch uses key "visual".`,
-  goals_outcomes: `Focus GOALS & OUTCOMES: business goals, marketing goals, metrics. proposedProfilePatch uses key "goals".`,
-  messaging_proof: `Focus MESSAGING & PROOF: key messages/pillars, proof points, origin narrative, social proof. proposedProfilePatch may include messaging and/or story.`,
-  channels_legal: `Focus CHANNELS & LEGAL: channels string, trademark/usage notes, disclaimers. proposedProfilePatch may include channels (string), legal.`,
-  assets_logos: `Focus LOGOS & IMAGERY: logo usage notes, secondary lockup notes, photography direction — text only, no binary. proposedProfilePatch uses key "assets" without logoPrimaryDataUrl.`,
-  other_considerations: `Focus OTHER BRAND CONSIDERATIONS: a catch-all for sensitivities (topics to avoid), stakeholder politics, naming constraints, partnerships/co-brand rules, regulatory or industry nuances, internal vocabulary, or anything that should influence messaging but does not fit other kit sections. Ask what else matters; propose proposedProfilePatch with top-level key "otherBrandConsiderations" (one cohesive string, bullet lines OK).`,
-  recap: `You are in RECAP. Summarize what was captured, call out any remaining risks or inconsistencies, and remind them to Save brand kit. proposedProfilePatch should be null unless fixing a small obvious error.`,
+  discovery: `DISCOVERY / orientation (Brand OS). Open with one broad question: who you serve, the promise, personality, what makes you different. Also surface lightly: Is this a person brand, company, or hybrid? Founder-led? Sub-brands or programs? New vs rebrand vs established? You may ask ONE sharp follow-up if gaps are critical. Push back on fuzzy positioning. proposedProfilePatch only when confident — often identity.displayName, identity.industry, audience.summary; leave null if still too early.`,
+  identity_structure: `IDENTITY & STRUCTURE. Cover: public vs legal name(s); sub-brands/verticals if any; ownership (high level); geography scope (local → global); lifecycle stage (idea → maturity). Ask only what changes the kit. proposedProfilePatch: identity (displayName, legalName, tagline, industry); optionally audience.geography for markets. No invented legal facts.`,
+  purpose_mission: `PURPOSE & MISSION CORE. Why exist beyond revenue? Problem solved? Transformation for customers? What does success look like for them? Mission + 5–10y vision? What would the world lose if the brand vanished? Challenge platitudes. proposedProfilePatch: purpose (mission, vision), values (short strings).`,
+  audience_positioning: `AUDIENCE & MARKET + NICHE / COMPETITIVE (merged). Primary audience (demographics + psychographics): pains, fears, desires, motivations; where they spend time; brands they trust; secondary audience; perfect vs bad-fit customer. Niche, category, direct/indirect competitors; what competitors do well / fail at; why choose you; UVP; premium vs mid vs mass (as positioning prose). proposedProfilePatch: audience, positioning.`,
+  voice_comms: `BRAND DNA + VOICE & COMMS (merged). Core values / principles you will not violate; personality; “if the brand were a person” behavior; emotions to evoke vs avoid; tone (formal/conversational/etc.); words/phrases to use or ban; beginner vs expert register; humor rules. proposedProfilePatch: voice (personality, dos, donts, vocabulary); values if you are refining value statements.`,
+  messaging_narrative: `MESSAGING, HOOKS & STORY (merged). Tagline or core hook; 3–5 messaging pillars; proof angles. Narrative: origin, defining moments, challenges overcome, future story, role of the customer in the story. proposedProfilePatch: identity.tagline if refining hook; messaging (keyMessages, proofPoints); story (origin, socialProof).`,
+  visual_system: `VISUAL SYSTEM. Logo variations (text notes only), palette (primary/secondary/accent hex if known), typography hierarchy, photography style (e.g. lifestyle vs cinematic), overall design style (minimal/bold/corporate/edgy), iconography; visuals that are forbidden. Never output logoPrimaryDataUrl or base64. proposedProfilePatch: visual; assets.photoDirection or notes fields as text only.`,
+  goals_and_metrics: `METRICS, GOALS & GROWTH DIRECTION (merged). Short-term (90d) and long-term (1–5y) goals; KPIs that matter; quantitative success vs failure signals; next milestones; markets to expand; planned offerings; constraints/resources for scale. Do not invent numbers — only capture what the user states. proposedProfilePatch: goals (business, marketing, metrics).`,
+  gtm_cx: `OFFERINGS, CX, CONTENT, SALES & CONVERSION (merged). Products/services; flagship; pricing strategy (narrative, not legal advice); customer outcomes; delivery differentiation; journey stages and typical drop-offs. Channels/platforms, content types, cadence, what performs, content goals, key campaigns, paid media if any. How people convert; funnel; objections; closing patterns; ethics around scarcity/urgency/exclusivity. proposedProfilePatch: channels (string, bullet lists OK), goals (marketing/business as needed), messaging if hooks tied to conversion.`,
+  partners_ecosystem_ops: `PARTNERSHIPS, ECOSYSTEM & OPERATIONAL MODEL (merged). Key partners; alliances; influencers/ambassadors; aligned orgs; partnerships that would accelerate growth. Internal: how work runs, tools/systems, standardized processes, inefficiencies, what must stay consistent across teams/locations. proposedProfilePatch: otherBrandConsiderations (primary bucket) and optionally channels for partner-facing touchpoints.`,
+  governance_risk_legal: `GOVERNANCE, RISK & LEGAL (merged). Brand non-negotiables; what needs brand approval vs can decentralize; past brand mistakes; what would damage the brand long-term. Risks (financial, reputational, operational); regulatory/legal considerations the user mentions; dependencies; external shocks. Not a lawyer — capture user-stated constraints. proposedProfilePatch: legal (trademark, disclaimers), otherBrandConsiderations for governance/risk narrative.`,
+  assets_logos: `LOGOS & IMAGERY (usage). Primary/secondary lockup notes, clear space, color variants, photography/illustration direction — text only, no binary. proposedProfilePatch: assets without logoPrimaryDataUrl.`,
+  other_considerations: `OTHER / CATCH-ALL. Anything still missing for AI and teams: sensitivities, naming constraints, politics, co-brand rules, internal vocabulary, edge cases not captured above. proposedProfilePatch: otherBrandConsiderations (one cohesive string, bullets OK).`,
+  recap: `RECAP. Summarize what was captured across the Brand OS walkthrough, flag inconsistencies or risks, remind them the kit autosaves when edited and feeds agents via the formatted brand block. proposedProfilePatch null unless fixing a small obvious error.`,
 };
 
 function sanitizeBrandProfilePatch(patch: unknown): Record<string, unknown> | null {
-  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
-  const o = { ...(patch as Record<string, unknown>) };
+  let cur: unknown = patch;
+  if (typeof cur === "string") {
+    const t = cur.trim();
+    if (!t) return null;
+    try {
+      cur = JSON.parse(t) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!cur || typeof cur !== "object" || Array.isArray(cur)) return null;
+  let o = { ...(cur as Record<string, unknown>) };
   if (o.assets && typeof o.assets === "object" && !Array.isArray(o.assets)) {
     const a = { ...(o.assets as Record<string, unknown>) };
     delete a.logoPrimaryDataUrl;
     o.assets = a;
   }
+  o = coerceBrandProfilePatch(o);
+  if (!Object.keys(o).length) return null;
   return o;
 }
 
@@ -267,6 +282,7 @@ export async function runBrandRepCenterSession(
     `Output JSON ONLY with this exact shape: {"assistantMessage":"string","proposedProfilePatch":null or object}`,
     `Rules for proposedProfilePatch (consult mode only):`,
     `- Only include keys you intend to set: identity, purpose, values, audience, positioning, voice, visual, goals, messaging, story, channels, legal, assets, otherBrandConsiderations (string) — nested object partials are OK where applicable.`,
+    `- Nest fields correctly: e.g. mission and vision go under "purpose" (not top-level); displayName under "identity". Wrong shapes may be dropped on apply.`,
     `- Strings must be kit-ready (concise, professional). Do not include logoPrimaryDataUrl or any base64.`,
     `- If you are only asking questions or need more input, set proposedProfilePatch to null.`,
     teamBlock,

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Archive, ArchiveRestore, Check, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
 import {
   Sheet,
@@ -102,6 +103,29 @@ export function TaskDetailSheet({
       if (archived) onOpenChange(false);
     },
   });
+
+  const dirty = useMemo(() => {
+    if (!task || boardArchived) return false;
+    const taskDue = task.dueDate ? task.dueDate.slice(0, 16) : "";
+    return (
+      title !== task.title ||
+      description !== (task.description ?? "") ||
+      priority !== task.priority ||
+      dueDate !== taskDue
+    );
+  }, [task, boardArchived, title, description, priority, dueDate]);
+
+  useDebouncedAutosave({
+    enabled: Boolean(task) && !boardArchived,
+    dirty,
+    isPending: saveMutation.isPending,
+    onFlush: () => saveMutation.mutate(),
+    resetKey: [title, description, priority, dueDate],
+  });
+
+  useEffect(() => {
+    if (dirty) saveMutation.reset();
+  }, [dirty, saveMutation]);
 
   if (!task) return null;
 
@@ -206,15 +230,26 @@ export function TaskDetailSheet({
             </div>
           </div>
 
-          <Button
-            type="button"
-            size="sm"
-            className="w-fit"
-            onClick={() => saveMutation.mutate()}
-            disabled={sheetLocked || saveMutation.isPending}
-          >
-            Save changes
-          </Button>
+          {!sheetLocked ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {saveMutation.isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+                  Saving…
+                </span>
+              ) : null}
+              {!saveMutation.isPending && dirty ? <span>Unsaved changes — will save automatically.</span> : null}
+              {!dirty && !saveMutation.isPending && saveMutation.isSuccess ? (
+                <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <Check className="size-4 shrink-0" aria-hidden />
+                  All changes saved
+                </span>
+              ) : null}
+              {saveMutation.isError ? (
+                <span className="text-destructive">Could not save. Check your connection.</span>
+              ) : null}
+            </div>
+          ) : null}
 
           {!sheetLocked ? (
             <>
