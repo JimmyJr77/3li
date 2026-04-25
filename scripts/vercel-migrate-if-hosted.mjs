@@ -27,9 +27,43 @@ const migrateUrl = prismaMigrateDatabaseUrl(url);
 if (migrateUrl !== url) {
   console.log("[vercel-build] Using direct (non-pooler) connection for prisma migrate deploy.");
 }
-const r = spawnSync("npx", ["prisma", "migrate", "deploy"], {
-  stdio: "inherit",
-  shell: true,
-  env: { ...process.env, DATABASE_URL: migrateUrl },
-});
-process.exit(typeof r.status === "number" ? r.status : 1);
+
+const migrateEnv = { ...process.env, DATABASE_URL: migrateUrl };
+
+/** One-shot recovery: an older deploy failed this migration before SQL was idempotent (P3018). Prisma then refuses all deploys (P3009) until `migrate resolve`. */
+const STUCK_FAILED_MIGRATION = "20260426120000_project_space_is_default";
+
+function migrateDeploy() {
+  const r = spawnSync("npx", ["prisma", "migrate", "deploy"], {
+    shell: true,
+    env: migrateEnv,
+    encoding: "utf8",
+    stdio: ["inherit", "pipe", "pipe"],
+  });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+  if (out.trim()) console.log(out.trimEnd());
+  return { status: typeof r.status === "number" ? r.status : 1, out };
+}
+
+let { status, out } = migrateDeploy();
+
+if (
+  status !== 0 &&
+  out.includes("P3009") &&
+  out.includes(`\`${STUCK_FAILED_MIGRATION}\``)
+) {
+  console.log(
+    `[vercel-build] P3009: clearing failed migration "${STUCK_FAILED_MIGRATION}" so deploy can re-run (idempotent SQL is in repo).`,
+  );
+  const resolveRb = spawnSync(
+    "npx",
+    ["prisma", "migrate", "resolve", "--rolled-back", STUCK_FAILED_MIGRATION],
+    { shell: true, env: migrateEnv, stdio: "inherit" },
+  );
+  if (resolveRb.status !== 0) {
+    process.exit(typeof resolveRb.status === "number" ? resolveRb.status : 1);
+  }
+  ({ status, out } = migrateDeploy());
+}
+
+process.exit(status);
