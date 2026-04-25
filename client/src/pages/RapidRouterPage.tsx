@@ -1260,7 +1260,9 @@ export function RapidRouterPage() {
                         ) : null}
                         <p className="text-sm text-muted-foreground">
                           {mailActionRows.length} candidate{mailActionRows.length === 1 ? "" : "s"} — select, edit, or
-                          uncheck rows before step 2. Unchecked rows are not sent to Mail Clerk for routing.
+                          uncheck rows before step 2. Unchecked rows are not sent to Mail Clerk for routing. Use{" "}
+                          <span className="font-medium text-foreground">Remove selected</span> to drop checked lines
+                          from this list.
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-2">
@@ -1279,6 +1281,19 @@ export function RapidRouterPage() {
                           onClick={() => setMailActionRows((rows) => rows.map((r) => ({ ...r, selected: false })))}
                         >
                           Deselect all
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={!mailActionRows.some((r) => r.selected)}
+                          onClick={() => {
+                            setMailActionRows((rows) => rows.filter((r) => !r.selected));
+                            setPlanChunkError(null);
+                          }}
+                        >
+                          <Trash2 className="mr-1.5 size-3.5" aria-hidden />
+                          Remove selected
                         </Button>
                       </div>
                     </div>

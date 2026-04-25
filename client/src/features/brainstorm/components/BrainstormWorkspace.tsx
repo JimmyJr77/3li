@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { consumeBrainstormNoteImport, ideaNodeFromBrainstormNoteImport } from "@/features/brainstorm/brainstormNoteImport";
 import { BrainstormAgentsSheet } from "@/features/brainstorm/components/BrainstormAgentsSheet";
@@ -9,6 +9,7 @@ import type { BrainstormSaveStatus } from "@/features/brainstorm/saveStatus";
 import { normalizeBrainstormNode, useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import type { BrainstormEdge, BrainstormFlowNode, TextFlowNode } from "@/features/brainstorm/types";
 import { isIdeaNode } from "@/features/brainstorm/types";
+import { normalizeExtentForContainerChildren } from "@/features/brainstorm/utils/nodeLayout";
 import { Button } from "@/components/ui/button";
 import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,7 @@ function mapSessionFromApi(data: BrainstormSessionResponse): {
 } {
   const normalized = (data.nodes as BrainstormFlowNode[]).map(normalizeBrainstormNode);
   return {
-    nodes: normalizeRootTextNodesForMeasurement(normalized),
+    nodes: normalizeRootTextNodesForMeasurement(normalizeExtentForContainerChildren(normalized)),
     edges: normalizeEdgesFromApi(data.edges),
   };
 }
@@ -60,12 +61,14 @@ export function BrainstormWorkspace({
   header,
   onSaveStatusChange,
 }: BrainstormWorkspaceProps) {
+  const queryClient = useQueryClient();
   const sessionQuery = useQuery({
     queryKey: ["brainstorm", "session", workspaceId, sessionId],
     queryFn: () => fetchBrainstormSessionById(sessionId, workspaceId),
     enabled: Boolean(sessionId),
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
+    /** After save we invalidate; keep modest stale time so revisiting the board refetches from the server. */
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   const nodes = useBrainstormStore((s) => s.nodes);
@@ -145,6 +148,17 @@ export function BrainstormWorkspace({
     if (pending) {
       mapped = [...mapped, ideaNodeFromBrainstormNoteImport(pending, mapped.filter(isIdeaNode).length)];
     }
+    const selectedIds = new Set(
+      useBrainstormStore.getState().nodes.filter((n) => n.selected).map((n) => n.id),
+    );
+    if (selectedIds.size > 0) {
+      mapped = mapped.map((n) => ({
+        ...n,
+        selected: selectedIds.has(n.id),
+      }));
+    } else {
+      mapped = mapped.map((n) => ({ ...n, selected: false }));
+    }
     resetCanvas(mapped, rawEdges);
     hydratedRef.current = true;
     lastPersistedRef.current = null;
@@ -172,6 +186,9 @@ export function BrainstormWorkspace({
         try {
           await saveBrainstormCanvas(sessionId, workspaceId, { nodes, edges });
           lastPersistedRef.current = JSON.stringify({ nodes, edges });
+          await queryClient.invalidateQueries({
+            queryKey: ["brainstorm", "session", workspaceId, sessionId],
+          });
           onSaveStatusChangeRef.current?.("saved");
           window.setTimeout(() => onSaveStatusChangeRef.current?.("idle"), 2200);
         } catch {
@@ -180,7 +197,7 @@ export function BrainstormWorkspace({
       })();
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [nodes, edges, sessionId, workspaceId]);
+  }, [nodes, edges, sessionId, workspaceId, queryClient]);
 
   useEffect(() => {
     if (!presentationMode) return;

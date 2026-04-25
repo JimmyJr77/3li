@@ -410,17 +410,38 @@ export function setNodeParent(
   if (!n) return nodes;
   const abs = absolutePosition(nodes, nodeId);
   if (newParentId) {
+    const parentNode = nodes.find((x) => x.id === newParentId);
     const pAbs = absolutePosition(nodes, newParentId);
-    const next: BrainstormFlowNode = {
+    const draft = {
       ...n,
       parentId: newParentId,
-      extent: "parent" as const,
       position: { x: abs.x - pAbs.x, y: abs.y - pAbs.y },
-    } as BrainstormFlowNode;
-    return nodes.map((x) => (x.id === nodeId ? next : x));
+    } as Record<string, unknown>;
+    // Shapes keep children clipped to the frame; container frames are grouping zones — allow drag-out to ungroup.
+    if (parentNode?.type === "shape") {
+      draft.extent = "parent";
+    } else {
+      delete draft.extent;
+    }
+    return nodes.map((x) => (x.id === nodeId ? (draft as BrainstormFlowNode) : x));
   }
   const stripped = stripParent(n, abs);
   return nodes.map((x) => (x.id === nodeId ? stripped : x));
+}
+
+/**
+ * Clears React Flow `extent: "parent"` for nodes whose parent is a container so they can be dragged outside the frame.
+ * (Legacy sessions or older clients may have stored this combination.)
+ */
+export function normalizeExtentForContainerChildren(nodes: BrainstormFlowNode[]): BrainstormFlowNode[] {
+  return nodes.map((n) => {
+    if (!n.parentId || n.extent !== "parent") return n;
+    const p = nodes.find((x) => x.id === n.parentId);
+    if (p?.type !== "container") return n;
+    const draft = { ...n } as Record<string, unknown>;
+    delete draft.extent;
+    return draft as BrainstormFlowNode;
+  });
 }
 
 /** After a drag, snap non-container nodes into/out of containers by overlap. */

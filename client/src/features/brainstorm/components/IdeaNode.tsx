@@ -1,12 +1,11 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { useSearchParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
-import { nodeCaptionPropsFromData, type IdeaFlowNode } from "@/features/brainstorm/types";
+import type { IdeaFlowNode } from "@/features/brainstorm/types";
 import {
   clearRoutedGlow,
   useRoutedBrainstormGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
-import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeChromeTextColorStyle, nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
@@ -36,10 +35,7 @@ export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
       )}
     >
       <Handle type="target" position={Position.Top} className="!size-2.5 !bg-muted-foreground" />
-      <NodeCaptionWrapper
-        {...nodeCaptionPropsFromData(data)}
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-      >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="w-full shrink-0 rounded-lg border-2 border-border bg-card p-3 shadow-sm" style={nodeChromeToStyle(data)}>
           <div
             className={cn("space-y-2 select-none", !(data.color?.trim()) && "text-foreground")}
@@ -55,7 +51,7 @@ export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
                 <p className="mt-0.5 whitespace-pre-wrap text-xs leading-snug opacity-90">{data.description}</p>
               </div>
             ) : null}
-            <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap gap-2 text-[10px]">
               <span className="rounded border border-border/80 px-1.5 py-0.5">{data.status}</span>
               <span className="rounded border border-border/80 px-1.5 py-0.5">{data.priority}</span>
             </div>
@@ -64,7 +60,7 @@ export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
             ) : null}
           </div>
         </div>
-      </NodeCaptionWrapper>
+      </div>
       <Handle type="source" position={Position.Bottom} className="!size-2.5 !bg-muted-foreground" />
     </div>
   );

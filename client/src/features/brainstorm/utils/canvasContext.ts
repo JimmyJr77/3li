@@ -80,15 +80,11 @@ export function buildSelectedNodeSummary(
   }
   let body: string | undefined;
   if (isIdeaNode(node)) {
-    const inside = (node.data.captionText ?? "").trim();
-    const outside = (node.data.outsideCaptionText ?? "").trim();
     const parts = [
       `Title: ${node.data.title}`,
       node.data.description ? `Notes: ${node.data.description}` : "",
       `Status: ${node.data.status}, Priority: ${node.data.priority}`,
       node.data.tags.length ? `Tags: ${node.data.tags.join(", ")}` : "",
-      inside ? `Text on card: ${inside}` : "",
-      outside ? `Outside label: ${outside}` : "",
     ].filter(Boolean);
     body = parts.join("\n");
   } else if (node.type === "shape") {

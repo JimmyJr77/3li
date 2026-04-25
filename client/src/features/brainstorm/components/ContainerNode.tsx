@@ -44,7 +44,7 @@ export function ContainerNode({ id, data, selected }: NodeProps<ContainerFlowNod
       <div
         ref={rootRef}
         className={cn(
-          "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg",
+          "flex h-full w-full min-h-0 min-w-0 flex-col overflow-visible rounded-lg",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
         )}
       >

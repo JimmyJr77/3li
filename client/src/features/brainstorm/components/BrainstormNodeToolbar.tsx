@@ -12,8 +12,9 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -32,6 +33,7 @@ import type {
   TableFlowNode,
 } from "@/features/brainstorm/types";
 import { isIdeaNode } from "@/features/brainstorm/types";
+import { nodeChromeTextColorStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { plainTextToStudioHtml } from "@/features/brainstorm/utils/studioText";
 import { presetsForWireframeLibrary, type WireframeLibrary } from "@/features/brainstorm/wireframePresets";
 
@@ -191,6 +193,9 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
     </Button>
   );
 
+  /** Idea cards use Title / Notes in the Idea block only (no caption / alignment UI). */
+  if (isIdeaNode(node)) return null;
+
   return (
     <div className="space-y-3">
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Text on artifact</p>
@@ -295,13 +300,34 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
 
 function IdeaSection({ node }: { node: IdeaFlowNode }) {
   const updateIdeaData = useBrainstormStore((s) => s.updateIdeaData);
+  const tagsSerialized = node.data.tags.join(", ");
+  const [tagsDraft, setTagsDraft] = useState(tagsSerialized);
+  const tagsFieldFocusedRef = useRef(false);
+
+  useEffect(() => {
+    setTagsDraft(tagsSerialized);
+    tagsFieldFocusedRef.current = false;
+  }, [node.id]);
+
+  useEffect(() => {
+    if (tagsFieldFocusedRef.current) return;
+    setTagsDraft(tagsSerialized);
+  }, [tagsSerialized]);
+
+  const ideaTextStyle = nodeChromeTextColorStyle(node.data);
+  const hasIdeaTextColor = Boolean(node.data.color?.trim());
+  const tintedControl = cn(
+    "nodrag nopan",
+    !hasIdeaTextColor && "text-foreground",
+  );
   return (
     <div className="space-y-2">
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Idea</p>
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">Title</Label>
         <Input
-          className="nodrag nopan h-8 text-xs"
+          className={cn("h-8 text-xs", tintedControl)}
+          style={ideaTextStyle}
           value={node.data.title}
           onChange={(e) => updateIdeaData(node.id, { title: e.target.value })}
         />
@@ -309,7 +335,11 @@ function IdeaSection({ node }: { node: IdeaFlowNode }) {
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">Notes</Label>
         <textarea
-          className="nodrag nopan min-h-[4rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+          className={cn(
+            "min-h-[4rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs",
+            tintedControl,
+          )}
+          style={ideaTextStyle}
           value={node.data.description}
           onChange={(e) => updateIdeaData(node.id, { description: e.target.value })}
         />
@@ -317,24 +347,31 @@ function IdeaSection({ node }: { node: IdeaFlowNode }) {
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">Tags</Label>
         <Input
-          className="nodrag nopan h-8 text-xs"
-          value={node.data.tags.join(", ")}
+          className={cn("h-8 text-xs", tintedControl)}
+          style={ideaTextStyle}
+          value={tagsDraft}
           placeholder="comma, separated"
-          onChange={(e) =>
-            updateIdeaData(node.id, {
-              tags: e.target.value
-                .split(",")
-                .map((t) => t.trim())
-                .filter(Boolean),
-            })
-          }
+          onFocus={() => {
+            tagsFieldFocusedRef.current = true;
+          }}
+          onBlur={() => {
+            tagsFieldFocusedRef.current = false;
+            const parsed = tagsDraft
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean);
+            updateIdeaData(node.id, { tags: parsed });
+            setTagsDraft(parsed.join(", "));
+          }}
+          onChange={(e) => setTagsDraft(e.target.value)}
         />
       </div>
       <div className="flex flex-wrap gap-2">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-muted-foreground">Status</span>
           <select
-            className="nodrag nopan h-8 rounded-md border border-input bg-background px-1 text-xs"
+            className={cn("h-8 rounded-md border border-input bg-background px-1 text-xs", tintedControl)}
+            style={ideaTextStyle}
             value={node.data.status}
             onChange={(e) =>
               updateIdeaData(node.id, { status: e.target.value as (typeof ideaStatuses)[number] })
@@ -350,7 +387,8 @@ function IdeaSection({ node }: { node: IdeaFlowNode }) {
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-muted-foreground">Priority</span>
           <select
-            className="nodrag nopan h-8 rounded-md border border-input bg-background px-1 text-xs"
+            className={cn("h-8 rounded-md border border-input bg-background px-1 text-xs", tintedControl)}
+            style={ideaTextStyle}
             value={node.data.priority}
             onChange={(e) =>
               updateIdeaData(node.id, { priority: e.target.value as (typeof ideaPriorities)[number] })

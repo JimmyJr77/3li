@@ -44,6 +44,7 @@ import {
   ancestorDepth,
   applyZReorderToNodes,
   groupSelectionIntoShape,
+  normalizeExtentForContainerChildren,
   organizeNodesVerticalByType,
   reparentFloatingNodesAfterDrag,
   sortParentBeforeChildren,
@@ -400,7 +401,8 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
 
   reparentAfterNodeDrag: (draggedNodeIds) => {
     if (draggedNodeIds.length === 0) return;
-    const next = reparentFloatingNodesAfterDrag(get().nodes, draggedNodeIds);
+    const pre = normalizeExtentForContainerChildren(get().nodes);
+    const next = reparentFloatingNodesAfterDrag(pre, draggedNodeIds);
     set({ nodes: next });
   },
 
@@ -539,12 +541,19 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     const id = crypto.randomUUID();
     const pos = opts?.position ?? { x: 140 + Math.random() * 40, y: 120 + Math.random() * 40 };
     const parentId = opts?.parentId;
+    const parent = parentId ? get().nodes.find((n) => n.id === parentId) : undefined;
+    const extentParent = parent?.type === "shape" ? ("parent" as const) : undefined;
     const node: TextFlowNode = {
       id,
       type: "text",
       position: pos,
       ...(parentId
-        ? { parentId, extent: "parent" as const, width: 200, height: 120 }
+        ? {
+            parentId,
+            ...(extentParent ? { extent: extentParent } : {}),
+            width: 200,
+            height: 120,
+          }
         : { width: 220, height: 108 }),
       data: defaultTextData(),
     };

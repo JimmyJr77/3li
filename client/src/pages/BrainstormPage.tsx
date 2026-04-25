@@ -71,7 +71,9 @@ export function BrainstormPage() {
       p.set("session", id);
       return p;
     });
-    queryClient.invalidateQueries({ queryKey: ["brainstorm", "session", id] });
+    if (activeWorkspaceId) {
+      void queryClient.invalidateQueries({ queryKey: ["brainstorm", "session", activeWorkspaceId, id] });
+    }
   };
 
   const listLoading = listQuery.isPending && !listQuery.data;

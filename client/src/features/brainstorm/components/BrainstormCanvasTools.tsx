@@ -1,4 +1,4 @@
-import { BoxSelect, ImagePlus, Maximize2, Plus, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
+import { BoxSelect, ImagePlus, Lightbulb, Maximize2, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -36,7 +36,7 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
       </p>
       <div className={cn("flex gap-2", presentation ? "flex-col" : "flex-wrap")}>
         <Button type="button" size="sm" variant="secondary" className={btn} onClick={() => addIdeaNode()}>
-          <Plus className="size-4" />
+          <Lightbulb className="size-4" />
           Add idea
         </Button>
         <Button
