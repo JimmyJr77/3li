@@ -254,6 +254,10 @@ model ProjectSpace {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
   position    Int       @default(0)
+  /// The first / primary project space for a workspace; cannot be archived or deleted. Name is user-editable.
+  isDefault   Boolean   @default(false)
+  /// Optional delivery-thread context for PM / settings (user-editable).
+  purpose     String?   @db.Text
   archivedAt  DateTime?
   boards      Board[]
   createdAt   DateTime  @default(now())
@@ -261,6 +265,7 @@ model ProjectSpace {
 
   @@index([workspaceId])
   @@index([workspaceId, archivedAt])
+  @@index([workspaceId, isDefault])
 }
 
 /// User-defined board column layouts (per signed-in user), merged with built-in templates in the UI.

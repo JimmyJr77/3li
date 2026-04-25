@@ -63,6 +63,10 @@ export type ProjectSpaceSummaryDto = {
   id: string;
   name: string;
   position: number;
+  /** True for the one primary project space per brand workspace (created on first use); cannot be archived. */
+  isDefault?: boolean;
+  /** Optional delivery-thread / PM context. */
+  purpose?: string | null;
   boards: { id: string; name: string; position: number }[];
 };
 

@@ -195,12 +195,18 @@ export type BoardTemplateSummary = {
   workspaceName: string | null;
 };
 
-export async function fetchBoardTemplates(): Promise<BoardTemplateSummary[]> {
-  const { data } = await api.get<BoardTemplateSummary[]>("/api/task-app/board-templates");
+/** Built-in templates are always returned; pass `workspaceId` to also load custom templates for that brand. */
+export async function fetchBoardTemplates(
+  workspaceId: string | null | undefined,
+): Promise<BoardTemplateSummary[]> {
+  const { data } = await api.get<BoardTemplateSummary[]>("/api/task-app/board-templates", {
+    params: workspaceId ? { workspaceId } : undefined,
+  });
   return data;
 }
 
 export async function createCustomBoardTemplate(body: {
+  workspaceId: string;
   name: string;
   description?: string;
   lists: { title: string; key?: string | null }[];
@@ -209,10 +215,34 @@ export async function createCustomBoardTemplate(body: {
   return data;
 }
 
+export type BoardTemplateDetail = {
+  id: string;
+  name: string;
+  description: string;
+  isBuiltin: boolean;
+  lists: { title: string; key: string | null }[];
+  workspaceId: string | null;
+};
+
+export async function fetchBoardTemplate(templateId: string): Promise<BoardTemplateDetail> {
+  const { data } = await api.get<BoardTemplateDetail>(`/api/task-app/board-templates/${templateId}`);
+  return data;
+}
+
+export async function patchCustomBoardTemplate(
+  templateId: string,
+  body: { name?: string; description?: string; lists?: { title: string; key?: string | null }[] },
+): Promise<BoardTemplateSummary> {
+  const { data } = await api.patch<BoardTemplateSummary>(`/api/task-app/board-templates/${templateId}`, body);
+  return data;
+}
+
 export type ProjectSpaceDto = {
   id: string;
   name: string;
   position: number;
+  isDefault?: boolean;
+  purpose?: string | null;
   boards: { id: string; name: string; position: number }[];
 };
 
@@ -226,10 +256,19 @@ export async function createProjectSpace(workspaceId: string, name: string): Pro
 
 export async function patchProjectSpace(
   projectSpaceId: string,
-  body: { name?: string; archived?: boolean },
+  body: { name?: string; archived?: boolean; purpose?: string | null },
 ): Promise<ProjectSpaceDto> {
   const { data } = await api.patch<ProjectSpaceDto>(`/api/task-app/project-spaces/${projectSpaceId}`, body);
   return data;
+}
+
+export type CloseProjectSpaceDisposition = "transferBoardsToDefault" | "archiveBoards";
+
+export async function deleteProjectSpace(
+  projectSpaceId: string,
+  disposition: CloseProjectSpaceDisposition,
+): Promise<void> {
+  await api.delete(`/api/task-app/project-spaces/${projectSpaceId}`, { data: { disposition } });
 }
 
 export async function createBrand(name: string): Promise<BrandTreeDto> {

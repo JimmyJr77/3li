@@ -43,11 +43,16 @@ export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
 
   let projectSpace = await prisma.projectSpace.findFirst({
     where: { workspaceId: workspace.id, archivedAt: null },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ isDefault: "desc" }, { position: "asc" }, { createdAt: "asc" }],
   });
   if (!projectSpace) {
     projectSpace = await prisma.projectSpace.create({
-      data: { workspaceId: workspace.id, name: "Primary project space", position: 0 },
+      data: {
+        workspaceId: workspace.id,
+        name: "Primary project space",
+        position: 0,
+        isDefault: true,
+      },
     });
   }
 

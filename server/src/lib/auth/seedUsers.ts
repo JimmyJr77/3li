@@ -1,30 +1,39 @@
 import { prisma } from "../db.js";
 import { ensurePersonalWorkspaceBoard } from "../taskDefaults.js";
 import { normalizeEmail } from "./identifiers.js";
-import { hashPassword } from "./password.js";
+import { hashPassword, verifyPassword } from "./password.js";
 
 const SEED_ADMIN_USERNAME = "admin";
+const LOCAL_DEV_DEFAULT_ADMIN_PASSWORD = "admin";
 const JIMMY_USERNAME = "jimmyobrien";
 const JIMMY_EMAIL = normalizeEmail("team.threelionsindustries@gmail.com");
 const JIMMY_PHONE = "619-838-5897";
 
 export async function ensureSeedUsers(): Promise<void> {
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim();
+  const isDev = process.env.NODE_ENV === "development";
+  const seedAdminPasswordFromEnv = process.env.SEED_ADMIN_PASSWORD?.trim();
+  /** In development, `admin` / `admin` (override with `SEED_ADMIN_PASSWORD`). In production, only env. */
+  const adminPlainPassword = seedAdminPasswordFromEnv || (isDev ? LOCAL_DEV_DEFAULT_ADMIN_PASSWORD : undefined);
   const jimmyPassword = process.env.SEED_JIMMY_PASSWORD?.trim();
 
   let admin = await prisma.appUser.findUnique({ where: { username: SEED_ADMIN_USERNAME } });
   if (!admin) {
-    if (!adminPassword) {
+    if (!adminPlainPassword) {
       console.warn(
         "[seed] No `admin` user yet. Set SEED_ADMIN_PASSWORD in .env and restart to create the default admin account.",
       );
     } else {
+      if (isDev && !seedAdminPasswordFromEnv) {
+        console.log(
+          `[seed] Creating local dev admin (username "${SEED_ADMIN_USERNAME}", password "${LOCAL_DEV_DEFAULT_ADMIN_PASSWORD}"). Set SEED_ADMIN_PASSWORD to use a different password for new installs.`,
+        );
+      }
       admin = await prisma.appUser.create({
         data: {
           username: SEED_ADMIN_USERNAME,
           email: `${SEED_ADMIN_USERNAME}@legacy.internal`,
           phone: null,
-          passwordHash: await hashPassword(adminPassword),
+          passwordHash: await hashPassword(adminPlainPassword),
           firstName: "System",
           lastName: "Administrator",
           displayName: "System Administrator",
@@ -43,8 +52,11 @@ export async function ensureSeedUsers(): Promise<void> {
     if (admin.role !== "admin") {
       updates.role = "admin";
     }
-    if (adminPassword) {
-      updates.passwordHash = await hashPassword(adminPassword);
+    if (
+      adminPlainPassword &&
+      !(await verifyPassword(adminPlainPassword, admin.passwordHash))
+    ) {
+      updates.passwordHash = await hashPassword(adminPlainPassword);
     }
     if (!admin.firstName?.trim()) {
       updates.firstName = "System";

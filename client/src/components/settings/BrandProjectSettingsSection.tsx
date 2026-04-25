@@ -193,16 +193,18 @@ function ProjectSpaceBlock({
   projectSpaceId,
   name,
   boards,
+  isDefault,
 }: {
   projectSpaceId: string;
   name: string;
   boards: { id: string; name: string; position: number }[];
+  isDefault?: boolean;
 }) {
   return (
     <li className="rounded-xl border border-border bg-muted/20 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project space</p>
-        <ArchiveProjectSpaceButton projectSpaceId={projectSpaceId} label={name} />
+        {!isDefault ? <ArchiveProjectSpaceButton projectSpaceId={projectSpaceId} label={name} /> : null}
       </div>
 
       <div className="mt-3 space-y-2">
@@ -955,6 +957,7 @@ export function WorkspaceProjectSpacesSettingsBody() {
                     projectSpaceId={ps.id}
                     name={ps.name}
                     boards={ps.boards}
+                    isDefault={ps.isDefault}
                   />
                 ))}
               </ul>

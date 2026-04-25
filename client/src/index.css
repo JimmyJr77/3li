@@ -496,54 +496,58 @@ html.rainbow-explosion [data-slot="card"]:nth-child(16n + 16 of [data-slot="card
   font-weight: 600;
 }
 
-/* Boards page: template + workspace cards hover “float” + shadow pulse */
-@keyframes boards-draggable-card-float {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-    box-shadow:
-      0 1px 3px 0 rgb(0 0 0 / 0.06),
-      0 1px 2px -1px rgb(0 0 0 / 0.06);
-  }
-  33% {
-    transform: translateY(-3px) rotate(-0.45deg);
-    box-shadow:
-      0 12px 22px -8px rgb(0 0 0 / 0.14),
-      0 6px 10px -6px rgb(0 0 0 / 0.1);
-  }
-  66% {
-    transform: translateY(-2px) rotate(0.45deg);
-    box-shadow:
-      0 10px 18px -6px rgb(0 0 0 / 0.12),
-      0 4px 8px -5px rgb(0 0 0 / 0.08);
-  }
-}
-
-/* Workspace board rows: float in isolation so parent workspace header hover doesn’t move them */
+/* Boards page: static hover lift (no oscillation) */
 .workspace-board-chip {
   isolation: isolate;
 }
 
 .boards-draggable-card,
-.template-card-draggable {
+.template-card-draggable,
+.project-space-boards-card {
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
     opacity 0.2s ease;
 }
 
-.boards-draggable-card:hover:not(.boards-draggable-card--dragging):not(:active),
-.template-card-draggable:hover:not(.boards-draggable-card--dragging):not(:active) {
-  animation: boards-draggable-card-float 2.4s ease-in-out infinite;
+/* Project space card: lift the whole card unless a board row chip is hovered */
+.project-space-boards-card:hover:not(:has(.workspace-board-chip:hover)):not(.boards-draggable-card--dragging):not(
+    :active
+  ) {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 22px -8px rgb(0 0 0 / 0.12),
+    0 6px 10px -6px rgb(0 0 0 / 0.08);
 }
 
-.boards-draggable-card:active:not(.boards-draggable-card--dragging),
-.template-card-draggable:active:not(.boards-draggable-card--dragging) {
-  transform: translateY(-6px) scale(1.01);
+/* Board row chip: lift only the row (parent card rule is disabled via :has above) */
+.workspace-board-chip.boards-draggable-card:hover:not(.boards-draggable-card--dragging):not(:active) {
+  transform: translateY(-2px);
   box-shadow:
-    0 22px 40px -12px rgb(0 0 0 / 0.22),
-    0 12px 20px -10px rgb(0 0 0 / 0.14);
-  animation: none;
+    0 10px 20px -8px rgb(0 0 0 / 0.14),
+    0 4px 8px -4px rgb(0 0 0 / 0.1);
+}
+
+/* Template grid cards */
+.template-card-draggable:hover:not(.boards-draggable-card--dragging):not(:active) {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 22px -8px rgb(0 0 0 / 0.12),
+    0 6px 10px -6px rgb(0 0 0 / 0.08);
+}
+
+.template-card-draggable:active:not(.boards-draggable-card--dragging) {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow:
+    0 18px 34px -10px rgb(0 0 0 / 0.18),
+    0 8px 14px -8px rgb(0 0 0 / 0.12);
+}
+
+.workspace-board-chip.boards-draggable-card:active:not(.boards-draggable-card--dragging) {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow:
+    0 18px 34px -10px rgb(0 0 0 / 0.18),
+    0 8px 14px -8px rgb(0 0 0 / 0.12);
 }
 
 .boards-draggable-card--dragging,
@@ -553,17 +557,22 @@ html.rainbow-explosion [data-slot="card"]:nth-child(16n + 16 of [data-slot="card
     0 28px 50px -14px rgb(0 0 0 / 0.28),
     0 16px 28px -12px rgb(0 0 0 / 0.18);
   opacity: 0.92;
-  animation: none !important;
   cursor: grabbing;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boards-draggable-card:hover:not(.boards-draggable-card--dragging):not(:active),
+  .project-space-boards-card:hover:not(:has(.workspace-board-chip:hover)):not(.boards-draggable-card--dragging):not(
+      :active
+    ),
+  .workspace-board-chip.boards-draggable-card:hover:not(.boards-draggable-card--dragging):not(:active),
   .template-card-draggable:hover:not(.boards-draggable-card--dragging):not(:active) {
-    animation: none;
+    transform: none;
+    box-shadow:
+      0 1px 3px 0 rgb(0 0 0 / 0.06),
+      0 1px 2px -1px rgb(0 0 0 / 0.06);
   }
-  .boards-draggable-card:active:not(.boards-draggable-card--dragging),
-  .template-card-draggable:active:not(.boards-draggable-card--dragging) {
+  .template-card-draggable:active:not(.boards-draggable-card--dragging),
+  .workspace-board-chip.boards-draggable-card:active:not(.boards-draggable-card--dragging) {
     transform: none;
   }
 }

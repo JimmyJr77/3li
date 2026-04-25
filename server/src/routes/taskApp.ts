@@ -141,7 +141,7 @@ function parseTemplateListsPayload(raw: unknown): BoardTemplateList[] | null {
 
 async function resolveWorkspaceTemplate(
   user: AppUserPrincipal,
-  _workspaceId: string,
+  workspaceId: string,
   templateId: string,
 ): Promise<{ templateName: string; lists: BoardTemplateList[] } | null> {
   const builtin = BOARD_TEMPLATES.find((t) => t.id === templateId);
@@ -152,18 +152,16 @@ async function resolveWorkspaceTemplate(
     where: { id: templateId },
   });
   if (!row) return null;
-  if (row.createdByUserId) {
-    if (row.createdByUserId !== user.id) {
+  if (row.workspaceId) {
+    if (row.workspaceId !== workspaceId) {
       return null;
     }
-  } else {
-    if (!row.workspaceId) {
-      return null;
-    }
-    const ok = await assertWorkspaceAccess(user, row.workspaceId);
-    if (!ok) {
-      return null;
-    }
+  } else if (row.createdByUserId !== user.id) {
+    return null;
+  }
+  const ok = await assertWorkspaceAccess(user, workspaceId);
+  if (!ok) {
+    return null;
   }
   const lists = parseTemplateListsPayload(row.lists);
   if (!lists) return null;
@@ -312,6 +310,8 @@ router.get("/workspaces", async (req, res) => {
             id: true,
             name: true,
             position: true,
+            isDefault: true,
+            purpose: true,
             boards: {
               where: { archivedAt: null },
               orderBy: { position: "asc" },
@@ -887,23 +887,41 @@ router.get("/board-templates", async (req, res) => {
       workspaceId: null as string | null,
       workspaceName: null as string | null,
     }));
-    const customs = await prisma.customBoardTemplate.findMany({
-      where: { createdByUserId: req.appUser!.id },
-      orderBy: { createdAt: "desc" },
-      include: { workspace: { select: { name: true } } },
-    });
-    const customSummaries = customs.map((c) => {
-      const lists = parseTemplateListsPayload(c.lists);
-      return {
-        id: c.id,
-        name: c.name,
-        description: c.description,
-        listCount: lists?.length ?? 0,
-        isBuiltin: false as const,
-        workspaceId: c.workspaceId,
-        workspaceName: c.workspace?.name ?? null,
-      };
-    });
+    const rawWs = req.query.workspaceId;
+    const workspaceId = typeof rawWs === "string" && rawWs.trim() ? rawWs.trim() : null;
+    let customSummaries: {
+      id: string;
+      name: string;
+      description: string;
+      listCount: number;
+      isBuiltin: false;
+      workspaceId: string | null;
+      workspaceName: string | null;
+    }[] = [];
+    if (workspaceId) {
+      const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      const customs = await prisma.customBoardTemplate.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        include: { workspace: { select: { name: true } } },
+      });
+      customSummaries = customs.map((c) => {
+        const lists = parseTemplateListsPayload(c.lists);
+        return {
+          id: c.id,
+          name: c.name,
+          description: c.description,
+          listCount: lists?.length ?? 0,
+          isBuiltin: false as const,
+          workspaceId: c.workspaceId,
+          workspaceName: c.workspace?.name ?? null,
+        };
+      });
+    }
     res.json([...builtins, ...customSummaries]);
   } catch (e) {
     console.error(e);
@@ -911,11 +929,72 @@ router.get("/board-templates", async (req, res) => {
   }
 });
 
+router.get("/board-templates/:templateId", async (req, res) => {
+  try {
+    const templateId = req.params.templateId;
+    const built = BOARD_TEMPLATES.find((t) => t.id === templateId);
+    if (built) {
+      res.json({
+        id: built.id,
+        name: built.name,
+        description: built.description,
+        isBuiltin: true,
+        lists: built.lists,
+        workspaceId: null,
+      });
+      return;
+    }
+    const row = await prisma.customBoardTemplate.findUnique({ where: { id: templateId } });
+    if (!row) {
+      res.status(404).json({ error: "Template not found" });
+      return;
+    }
+    const u = req.appUser!;
+    if (row.workspaceId) {
+      const ok = await assertWorkspaceAccess(u, row.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (row.createdByUserId) {
+      if (row.createdByUserId !== u.id && u.role !== "admin") {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (u.role !== "admin") {
+      res.status(403).json({ error: "Only an administrator can view legacy templates" });
+      return;
+    }
+    const lists = parseTemplateListsPayload(row.lists) ?? [];
+    res.json({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      isBuiltin: false,
+      lists,
+      workspaceId: row.workspaceId,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load template" });
+  }
+});
+
 router.post("/board-templates", async (req, res) => {
   try {
-    const body = req.body as { name?: string; description?: string; lists?: unknown };
+    const body = req.body as { workspaceId?: string; name?: string; description?: string; lists?: unknown };
+    const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+    if (!workspaceId) {
+      res.status(400).json({ error: "workspaceId is required" });
+      return;
+    }
     if (!body.name?.trim()) {
       res.status(400).json({ error: "name is required" });
+      return;
+    }
+    const ok = await assertWorkspaceAccess(req.appUser!, workspaceId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     const lists = parseTemplateListsPayload(body.lists);
@@ -926,11 +1005,12 @@ router.post("/board-templates", async (req, res) => {
     const created = await prisma.customBoardTemplate.create({
       data: {
         createdByUserId: req.appUser!.id,
-        workspaceId: null,
+        workspaceId,
         name: body.name.trim(),
         description: body.description?.trim() ?? "",
         lists: lists as unknown as Prisma.InputJsonValue,
       },
+      include: { workspace: { select: { name: true } } },
     });
     res.status(201).json({
       id: created.id,
@@ -938,12 +1018,86 @@ router.post("/board-templates", async (req, res) => {
       description: created.description,
       listCount: lists.length,
       isBuiltin: false,
-      workspaceId: null as string | null,
-      workspaceName: null as string | null,
+      workspaceId: created.workspaceId,
+      workspaceName: created.workspace?.name ?? null,
     });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to create template" });
+  }
+});
+
+router.patch("/board-templates/:templateId", async (req, res) => {
+  try {
+    const templateId = req.params.templateId;
+    if (BOARD_TEMPLATES.some((t) => t.id === templateId)) {
+      res.status(400).json({ error: "Built-in templates cannot be edited" });
+      return;
+    }
+    const row = await prisma.customBoardTemplate.findUnique({ where: { id: templateId } });
+    if (!row) {
+      res.status(404).json({ error: "Template not found" });
+      return;
+    }
+    const u = req.appUser!;
+    if (row.workspaceId) {
+      const ok = await assertWorkspaceAccess(u, row.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (row.createdByUserId) {
+      if (row.createdByUserId !== u.id && u.role !== "admin") {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (u.role !== "admin") {
+      res.status(403).json({ error: "Only an administrator can edit legacy templates" });
+      return;
+    }
+    const body = req.body as { name?: string; description?: string; lists?: unknown };
+    const data: Prisma.CustomBoardTemplateUpdateInput = {};
+    if (body.name !== undefined) {
+      const n = String(body.name).trim();
+      if (!n) {
+        res.status(400).json({ error: "name cannot be empty" });
+        return;
+      }
+      data.name = n;
+    }
+    if (body.description !== undefined) {
+      data.description = String(body.description ?? "").trim();
+    }
+    if (body.lists !== undefined) {
+      const lists = parseTemplateListsPayload(body.lists);
+      if (!lists) {
+        res.status(400).json({ error: "lists must be a non-empty array of { title, key? }" });
+        return;
+      }
+      data.lists = lists as unknown as Prisma.InputJsonValue;
+    }
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: "At least one of name, description, lists is required" });
+      return;
+    }
+    const updated = await prisma.customBoardTemplate.update({
+      where: { id: templateId },
+      data,
+      include: { workspace: { select: { name: true } } },
+    });
+    const lists = parseTemplateListsPayload(updated.lists);
+    res.json({
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+      listCount: lists?.length ?? 0,
+      isBuiltin: false,
+      workspaceId: updated.workspaceId,
+      workspaceName: updated.workspace?.name ?? null,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to update template" });
   }
 });
 
@@ -960,7 +1114,13 @@ router.delete("/board-templates/:templateId", async (req, res) => {
       return;
     }
     const u = req.appUser!;
-    if (row.createdByUserId) {
+    if (row.workspaceId) {
+      const ok = await assertWorkspaceAccess(u, row.workspaceId);
+      if (!ok) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (row.createdByUserId) {
       if (row.createdByUserId !== u.id && u.role !== "admin") {
         res.status(403).json({ error: "Forbidden" });
         return;
@@ -998,11 +1158,13 @@ router.post("/workspaces/:workspaceId/project-spaces", async (req, res) => {
     });
     const position = (maxPos._max.position ?? -1) + 1;
     const ps = await prisma.projectSpace.create({
-      data: { workspaceId, name: parsed.name, position },
+      data: { workspaceId, name: parsed.name, position, isDefault: false },
       select: {
         id: true,
         name: true,
         position: true,
+        isDefault: true,
+        purpose: true,
         boards: {
           where: { archivedAt: null },
           orderBy: { position: "asc" },
@@ -1017,10 +1179,25 @@ router.post("/workspaces/:workspaceId/project-spaces", async (req, res) => {
   }
 });
 
+const PROJECT_SPACE_PURPOSE_MAX = 20_000;
+
+function normalizeProjectSpacePurpose(
+  raw: unknown,
+): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (raw === null) return { ok: true, value: null };
+  if (typeof raw !== "string") return { ok: false, error: "purpose must be a string or null" };
+  const t = raw.trim();
+  if (t.length > PROJECT_SPACE_PURPOSE_MAX) {
+    return { ok: false, error: `purpose must be at most ${PROJECT_SPACE_PURPOSE_MAX} characters` };
+  }
+  return { ok: true, value: t ? t : null };
+}
+
 router.patch("/project-spaces/:projectSpaceId", async (req, res) => {
   try {
     const projectSpaceId = req.params.projectSpaceId;
-    const body = req.body as { name?: string; archived?: boolean };
+    const body = req.body as { name?: string; archived?: boolean; purpose?: unknown | null };
     const existing = await prisma.projectSpace.findUnique({ where: { id: projectSpaceId } });
     if (!existing) {
       res.status(404).json({ error: "Project space not found" });
@@ -1037,7 +1214,24 @@ router.patch("/project-spaces/:projectSpaceId", async (req, res) => {
         data: { name: parsed.name },
       });
     }
+    if (body.purpose !== undefined) {
+      const p = normalizeProjectSpacePurpose(body.purpose);
+      if (!p.ok) {
+        res.status(400).json({ error: p.error });
+        return;
+      }
+      if (p.value !== undefined) {
+        await prisma.projectSpace.update({
+          where: { id: projectSpaceId },
+          data: { purpose: p.value },
+        });
+      }
+    }
     if (body.archived === true) {
+      if (existing.isDefault) {
+        res.status(400).json({ error: "The primary project space for this brand cannot be archived" });
+        return;
+      }
       await prisma.projectSpace.update({
         where: { id: projectSpaceId },
         data: { archivedAt: new Date() },
@@ -1060,6 +1254,8 @@ router.patch("/project-spaces/:projectSpaceId", async (req, res) => {
         name: true,
         position: true,
         workspaceId: true,
+        isDefault: true,
+        purpose: true,
         boards: {
           where: { archivedAt: null },
           orderBy: { position: "asc" },
@@ -1071,6 +1267,94 @@ router.patch("/project-spaces/:projectSpaceId", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to update project space" });
+  }
+});
+
+type CloseProjectSpaceDisposition = "transferBoardsToDefault" | "archiveBoards";
+
+/** Close a non-default project space: either move active boards to the default space or archive them, then archive this space. */
+router.delete("/project-spaces/:projectSpaceId", async (req, res) => {
+  try {
+    const projectSpaceId = req.params.projectSpaceId;
+    const rawDisposition = (req.body as { disposition?: unknown })?.disposition;
+    const disposition: CloseProjectSpaceDisposition | undefined =
+      rawDisposition === "transferBoardsToDefault" || rawDisposition === "archiveBoards" ? rawDisposition : undefined;
+    if (!disposition) {
+      res
+        .status(400)
+        .json({ error: "body.disposition must be 'transferBoardsToDefault' or 'archiveBoards'" });
+      return;
+    }
+
+    const space = await prisma.projectSpace.findUnique({ where: { id: projectSpaceId } });
+    if (!space) {
+      res.status(404).json({ error: "Project space not found" });
+      return;
+    }
+    if (space.archivedAt !== null) {
+      res.status(400).json({ error: "Project space is already archived" });
+      return;
+    }
+    if (space.isDefault) {
+      res.status(400).json({ error: "The primary project space for this brand cannot be deleted" });
+      return;
+    }
+
+    if (disposition === "archiveBoards") {
+      const now = new Date();
+      await prisma.$transaction([
+        prisma.board.updateMany({
+          where: { projectSpaceId, archivedAt: null },
+          data: { archivedAt: now },
+        }),
+        prisma.projectSpace.update({
+          where: { id: projectSpaceId },
+          data: { archivedAt: now },
+        }),
+      ]);
+      res.json({ ok: true });
+      return;
+    }
+
+    const defaultSpace = await prisma.projectSpace.findFirst({
+      where: { workspaceId: space.workspaceId, isDefault: true, archivedAt: null },
+    });
+    if (!defaultSpace) {
+      res.status(500).json({ error: "No default project space for this workspace" });
+      return;
+    }
+    if (defaultSpace.id === projectSpaceId) {
+      res.status(400).json({ error: "Invalid project space" });
+      return;
+    }
+
+    const toMove = await prisma.board.findMany({
+      where: { projectSpaceId, archivedAt: null },
+      orderBy: { position: "asc" },
+      select: { id: true },
+    });
+    const maxOnTarget = await prisma.board.aggregate({
+      where: { projectSpaceId: defaultSpace.id, archivedAt: null },
+      _max: { position: true },
+    });
+    let pos = (maxOnTarget._max.position ?? -1) + 1;
+    await prisma.$transaction(async (tx) => {
+      for (const b of toMove) {
+        await tx.board.update({
+          where: { id: b.id },
+          data: { projectSpaceId: defaultSpace.id, position: pos },
+        });
+        pos += 1;
+      }
+      await tx.projectSpace.update({
+        where: { id: projectSpaceId },
+        data: { archivedAt: new Date() },
+      });
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to delete project space" });
   }
 });
 
@@ -1116,6 +1400,8 @@ router.patch("/workspaces/:workspaceId", async (req, res) => {
             id: true,
             name: true,
             position: true,
+            isDefault: true,
+            purpose: true,
             boards: {
               where: { archivedAt: null },
               orderBy: { position: "asc" },
@@ -1220,6 +1506,8 @@ router.get("/brands", async (req, res) => {
                 id: true,
                 name: true,
                 position: true,
+                isDefault: true,
+                purpose: true,
                 boards: {
                   where: { archivedAt: null },
                   orderBy: { position: "asc" },
@@ -1578,7 +1866,7 @@ router.post("/brands", async (req, res) => {
           create: {
             name: workspaceTitle,
             projectSpaces: {
-              create: { name: parsed.name, position: 0 },
+              create: { name: parsed.name, position: 0, isDefault: true },
             },
           },
         },
@@ -1601,6 +1889,8 @@ router.post("/brands", async (req, res) => {
                 id: true,
                 name: true,
                 position: true,
+                isDefault: true,
+                purpose: true,
                 boards: {
                   where: { archivedAt: null },
                   orderBy: { position: "asc" },
@@ -1715,6 +2005,8 @@ router.patch("/brands/:brandId", async (req, res) => {
                 id: true,
                 name: true,
                 position: true,
+                isDefault: true,
+                purpose: true,
                 archivedAt: true,
                 boards: {
                   where: { archivedAt: null },
@@ -1822,7 +2114,7 @@ router.post("/workspaces/:workspaceId/boards/from-template", async (req, res) =>
         })
       : await prisma.projectSpace.findFirst({
           where: { workspaceId, archivedAt: null },
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          orderBy: [{ isDefault: "desc" }, { position: "asc" }, { createdAt: "asc" }],
         });
     if (!ps) {
       res.status(400).json({ error: "No project space in this workspace" });

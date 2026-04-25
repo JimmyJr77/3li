@@ -1063,8 +1063,8 @@ export function RapidRouterPage() {
     <div className="flex w-full flex-col gap-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-2">
-          <RapidRouterIcon className="size-7 shrink-0 text-muted-foreground" />
-          <h1 className="text-2xl font-semibold tracking-tight">Rapid Router</h1>
+        <RapidRouterIcon className="size-7 shrink-0 text-muted-foreground" />
+        <h1 className="text-2xl font-semibold tracking-tight">Rapid Router</h1>
         </div>
         {activeWorkspaceId ? (
           <div className="shrink-0 sm:pt-0.5">
