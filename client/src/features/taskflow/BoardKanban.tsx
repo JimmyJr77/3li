@@ -21,7 +21,20 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, EllipsisVertical, GripVertical, MoreHorizontal, Pin, PinOff, Settings2, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  EllipsisVertical,
+  GripVertical,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Plus,
+  Settings2,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -46,13 +59,15 @@ import {
   createBoardTask,
   deleteBoardList,
   fetchBoardSubBoardPreferences,
+  fetchBoardUserPreferences,
   patchBoardList,
   patchSubBoardPreference,
   patchTask,
   reorderBoardLists,
 } from "./api";
+import { ProjectBoardSettingsPanel } from "./ProjectBoardSettingsPanel";
 import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
-import type { BoardDto, BoardListDto, SubBoardPreferenceDto, TaskFlowTask } from "./types";
+import type { BoardDto, BoardListDto, BoardUserPreferenceDto, SubBoardPreferenceDto, TaskFlowTask } from "./types";
 import {
   laneKey,
   normalizeTrackerStatus,
@@ -68,6 +83,7 @@ import {
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
 
 const SB_PREFIX = "board-subboard:";
 const PIN_PREFIX = "board-pinned-subboard:";
@@ -123,8 +139,11 @@ function mergeLaneItems(subBoards: BoardListDto[]): Record<string, string[]> {
 function visibleStatusesForSubBoard(
   subBoardId: string,
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
+  boardUserPref?: BoardUserPreferenceDto,
 ): TrackerStatus[] {
-  const hidden = new Set(prefBySubBoard[subBoardId]?.hiddenTrackerStatuses ?? []);
+  const subHidden = prefBySubBoard[subBoardId]?.hiddenTrackerStatuses ?? [];
+  const boardHidden = boardUserPref?.defaultHiddenTrackerStatuses ?? [];
+  const hidden = new Set<TrackerStatus>([...boardHidden, ...subHidden]);
   const visible = TRACKER_STATUSES.filter((s) => !hidden.has(s));
   return visible.length > 0 ? visible : ["BACKLOG"];
 }
@@ -132,20 +151,28 @@ function visibleStatusesForSubBoard(
 function cardColorForSubBoard(
   subBoardId: string,
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
+  boardUserPref?: BoardUserPreferenceDto,
 ): string | undefined {
-  return prefBySubBoard[subBoardId]?.ticketCardColor ?? undefined;
+  const c = prefBySubBoard[subBoardId]?.ticketCardColor ?? boardUserPref?.defaultTicketCardColor ?? null;
+  return c ?? undefined;
 }
 
 /** Fills defaults when the user has no saved row yet for this sub-board. */
 function normalizedSubBoardPref(
   subBoardId: string,
   row?: SubBoardPreferenceDto,
+  boardUserPref?: BoardUserPreferenceDto,
 ): SubBoardPreferenceDto {
+  const checkboxFromRow = row?.completeCheckboxVisibleByDefault;
+  const checkboxMerged =
+    checkboxFromRow !== undefined
+      ? checkboxFromRow !== false
+      : boardUserPref?.defaultCompleteCheckboxVisible !== false;
   return {
     subBoardId,
     ticketCardColor: row?.ticketCardColor ?? null,
     cardFaceLayout: row?.cardFaceLayout === "minimal" ? "minimal" : "standard",
-    completeCheckboxVisibleByDefault: row?.completeCheckboxVisibleByDefault !== false,
+    completeCheckboxVisibleByDefault: checkboxMerged,
     hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
     updatedAt: row?.updatedAt ?? null,
   };
@@ -481,7 +508,7 @@ function SortableSubBoardTab({
       style={style}
       onClick={onActivate}
       className={cn(
-        "relative flex min-w-[140px] max-w-[220px] shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-all",
+        "relative flex min-h-[44px] min-w-0 flex-1 basis-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-all",
         isActive && "bg-background text-foreground shadow-sm ring-1 ring-primary/30",
         !isActive && "text-muted-foreground hover:bg-background/70 hover:text-foreground",
         isDragging && "z-20 opacity-95 shadow-lg",
@@ -515,6 +542,79 @@ function SortableSubBoardTab({
   );
 }
 
+function LaneTrackerHeader({
+  label,
+  laneId,
+  onQuickAdd,
+  placeholder,
+}: {
+  label: string;
+  laneId: string;
+  onQuickAdd: (laneId: string, title: string) => void;
+  placeholder: string;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (adding) queueMicrotask(() => inputRef.current?.focus());
+  }, [adding]);
+
+  const submit = () => {
+    const t = draft.trim();
+    if (!t) return;
+    onQuickAdd(laneId, t);
+    setDraft("");
+    setAdding(false);
+  };
+
+  return (
+    <>
+      <div className="mb-1.5 flex min-h-7 items-center justify-between gap-2 px-0.5">
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+          aria-label={`Add ticket in ${label}`}
+          onClick={() => setAdding((v) => !v)}
+        >
+          <Plus className="size-4" />
+        </Button>
+      </div>
+      {adding ? (
+        <div className="mb-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === "Escape") {
+                setDraft("");
+                setAdding(false);
+              }
+            }}
+            onBlur={() => {
+              if (!draft.trim()) setAdding(false);
+            }}
+            placeholder={placeholder}
+            className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function TrackerLane({
   laneId,
   label,
@@ -543,13 +643,15 @@ function TrackerLane({
   subBoardPref: SubBoardPreferenceDto;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
-  const [draft, setDraft] = useState("");
 
   return (
-    <div className="flex w-64 shrink-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
-      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
+    <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
+      <LaneTrackerHeader
+        label={label}
+        laneId={laneId}
+        onQuickAdd={onQuickAdd}
+        placeholder={quickAddPlaceholder}
+      />
       <div
         ref={setNodeRef}
         className={cn(
@@ -576,21 +678,6 @@ function TrackerLane({
           })}
         </SortableContext>
       </div>
-      <div className="mt-2 border-t border-border/60 pt-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && draft.trim()) {
-              onQuickAdd(laneId, draft.trim());
-              setDraft("");
-            }
-          }}
-          placeholder={quickAddPlaceholder}
-          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
-        />
-      </div>
     </div>
   );
 }
@@ -601,6 +688,9 @@ type BoardKanbanProps = {
   onAddSubBoard?: () => void;
   /** When filters/search are active, drag-and-drop is disabled so positions stay consistent. */
   dragDisabled?: boolean;
+  /** Archive action (confirm in parent). Shown in the project board ⋮ menu when the board is active. */
+  onArchiveBoard?: () => void;
+  boardArchived?: boolean;
 };
 
 function ReadOnlyTrackerGrid({
@@ -608,56 +698,30 @@ function ReadOnlyTrackerGrid({
   activeSub,
   onOpenTask,
   onQuickAdd,
-  onTitleCommit,
   onToggleComplete,
-  canDeleteSubBoard,
-  deleteBusy,
-  onRequestDelete,
   sendMutation,
   visibleStatuses,
   cardColor,
   prefBySubBoard,
+  boardUserPref,
 }: {
   board: BoardDto;
   activeSub: BoardListDto;
   onOpenTask: (t: TaskFlowTask) => void;
   onQuickAdd: (laneId: string, title: string) => void;
-  onTitleCommit: (subBoardId: string, title: string) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  canDeleteSubBoard: boolean;
-  deleteBusy: boolean;
-  onRequestDelete: (list: BoardListDto) => void;
   sendMutation: { isPending: boolean; mutate: (p: { taskId: string; subBoardId: string }) => void };
   visibleStatuses: TrackerStatus[];
   cardColor?: string;
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
+  boardUserPref?: BoardUserPreferenceDto;
 }) {
   const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const byLane = buildLaneItems(activeSub);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <SubBoardTitleInput
-          subBoardId={activeSub.id}
-          title={activeSub.title}
-          onCommit={onTitleCommit}
-        />
-        {canDeleteSubBoard ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 text-muted-foreground hover:text-destructive"
-            disabled={deleteBusy}
-            aria-label={`Delete sub-board ${activeSub.title}`}
-            onClick={() => onRequestDelete(activeSub)}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        ) : null}
-      </div>
-      <div className="flex gap-2 overflow-x-auto pb-2">
+    <div className="w-full min-w-0 space-y-3">
+      <div className="flex w-full min-w-0 gap-2 pb-2">
         {visibleStatuses.map((st) => (
           <ReadOnlyLaneInner
             key={st}
@@ -672,6 +736,7 @@ function ReadOnlyTrackerGrid({
             onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
             cardColor={cardColor}
             prefBySubBoard={prefBySubBoard}
+            boardUserPref={boardUserPref}
           />
         ))}
       </div>
@@ -691,6 +756,7 @@ function ReadOnlyLaneInner({
   onSendTo,
   cardColor,
   prefBySubBoard,
+  boardUserPref,
 }: {
   laneId: string;
   label: string;
@@ -703,15 +769,18 @@ function ReadOnlyLaneInner({
   onSendTo: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
+  boardUserPref?: BoardUserPreferenceDto;
 }) {
-  const [draft, setDraft] = useState("");
   const laneSubBoardId = parseLaneKey(laneId)?.subBoardId ?? "";
-  const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId]);
+  const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId], boardUserPref);
   return (
-    <div className="flex w-64 shrink-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
-      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
+    <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
+      <LaneTrackerHeader
+        label={label}
+        laneId={laneId}
+        onQuickAdd={onQuickAdd}
+        placeholder="Add a ticket…"
+      />
       <div className="flex min-h-[100px] flex-col gap-2 rounded-lg p-1">
         {taskIds.map((id) => {
           const task = taskMap.get(id);
@@ -729,21 +798,6 @@ function ReadOnlyLaneInner({
             />
           );
         })}
-      </div>
-      <div className="mt-2 border-t border-border/60 pt-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && draft.trim()) {
-              onQuickAdd(laneId, draft.trim());
-              setDraft("");
-            }
-          }}
-          placeholder="Add a ticket…"
-          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
-        />
       </div>
     </div>
   );
@@ -765,6 +819,10 @@ function SubBoardPrefsEditor({
   savePref,
   brandId,
   boardId,
+  canDeleteSubBoard,
+  deleteBusy,
+  onRequestDelete,
+  onTitleCommit,
 }: {
   editorSubBoard: BoardListDto;
   pinnedSubBoardIds: string[];
@@ -781,6 +839,10 @@ function SubBoardPrefsEditor({
   savePref: (payload: SubBoardPrefSavePayload) => void;
   brandId?: string | null;
   boardId?: string;
+  canDeleteSubBoard: boolean;
+  deleteBusy: boolean;
+  onRequestDelete: (list: BoardListDto) => void;
+  onTitleCommit: (subBoardId: string, title: string) => void;
 }) {
   const flush = (overrides?: Partial<SubBoardPrefSavePayload>) => {
     savePref({
@@ -794,7 +856,28 @@ function SubBoardPrefsEditor({
   };
 
   return (
-    <div className="space-y-4 py-4 pl-3 pr-1">
+    <div className="space-y-4 px-5 py-4 pb-10 pl-10 pr-6 pt-2 sm:px-7 sm:pl-12 sm:pr-8">
+      <div className="space-y-3 border-b border-border/60 pb-4">
+        <p className="text-sm font-medium">Sub-board name</p>
+        <SubBoardTitleInput
+          subBoardId={editorSubBoard.id}
+          title={editorSubBoard.title}
+          onCommit={onTitleCommit}
+        />
+        {canDeleteSubBoard ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={deleteBusy}
+            onClick={() => onRequestDelete(editorSubBoard)}
+          >
+            <Trash2 className="mr-1 size-3.5" />
+            Delete this sub-board
+          </Button>
+        ) : null}
+      </div>
       <div className="space-y-2">
         <p className="text-sm font-medium">Pinned secondary view</p>
         <Button
@@ -950,7 +1033,7 @@ function PlainSubBoardStrip({
   const canScroll = orderedLists.length > 1;
 
   return (
-    <div className="relative mb-4 flex items-center gap-2">
+    <div className="relative mb-4 flex w-full min-w-0 items-center gap-2">
       <Button
         type="button"
         variant="outline"
@@ -967,12 +1050,12 @@ function PlainSubBoardStrip({
       >
         <ChevronLeft className="size-4" />
       </Button>
-      <div className="flex min-h-[44px] flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-muted/30 px-2 py-1.5 [scrollbar-width:thin]">
+      <div className="flex min-h-[44px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 px-2 py-1.5">
         {orderedLists.map((list) => (
           <div
             key={list.id}
             className={cn(
-              "flex min-w-[120px] max-w-[220px] shrink-0 items-center gap-1 rounded-lg px-2 py-1",
+              "flex min-w-0 flex-1 basis-0 items-center gap-1 rounded-lg px-2 py-1",
               list.id === activeSubId
                 ? "bg-background text-foreground shadow-sm ring-1 ring-primary/30"
                 : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
@@ -1052,7 +1135,7 @@ function SubBoardCarouselStrip({
   const canScroll = orderedLists.length > 1;
 
   return (
-    <div className="relative mb-4 flex items-center gap-2">
+    <div className="relative mb-4 flex w-full min-w-0 items-center gap-2">
       <Button
         type="button"
         variant="outline"
@@ -1070,7 +1153,7 @@ function SubBoardCarouselStrip({
         <ChevronLeft className="size-4" />
       </Button>
       <SortableContext items={listOrder.map(sbDragId)} strategy={horizontalListSortingStrategy}>
-        <div className="flex min-h-[52px] flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-muted/30 px-2 py-1.5 [scrollbar-width:thin]">
+        <div className="flex min-h-[52px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 px-2 py-1.5">
           {orderedLists.map((list) => (
             <SortableSubBoardTab
               key={list.id}
@@ -1153,7 +1236,10 @@ function SortablePinnedPanel({
     <section
       ref={setNodeRef}
       style={style}
-      className={cn("space-y-2 rounded-xl border bg-background/70 p-3", isDragging && "opacity-70")}
+      className={cn(
+        "w-full min-w-0 space-y-2 rounded-xl border bg-background/70 p-3",
+        isDragging && "opacity-70",
+      )}
     >
       <div className="flex items-center gap-2">
         <button
@@ -1182,21 +1268,70 @@ function SortablePinnedPanel({
   );
 }
 
-function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) {
+function BoardKanbanFiltered({
+  board,
+  onOpenTask,
+  onAddSubBoard,
+  onArchiveBoard,
+  boardArchived = false,
+}: BoardKanbanProps) {
   const queryClient = useQueryClient();
   const canDeleteSubBoard = board.lists.length > 1;
   const [activeSubId, setActiveSubId] = useState(() => board.lists[0]?.id ?? "");
   const [pinnedSubBoardIds, setPinnedSubBoardIds] = useState<string[]>([]);
+  const [boardSettingsOpen, setBoardSettingsOpen] = useState(false);
+
+  const boardPrefsQuery = useQuery({
+    queryKey: ["board-user-prefs", board.id],
+    queryFn: () => fetchBoardUserPreferences(board.id),
+  });
+  const boardUserPref = boardPrefsQuery.data;
+
+  const hiddenSubSet = useMemo(
+    () => new Set(boardUserPref?.hiddenSubBoardIds ?? []),
+    [boardUserPref?.hiddenSubBoardIds],
+  );
+
+  const visibleListsOrdered = useMemo(
+    () => board.lists.filter((l) => !hiddenSubSet.has(l.id)),
+    [board.lists, hiddenSubSet],
+  );
+
+  const listOrderVisible = useMemo(() => visibleListsOrdered.map((l) => l.id), [visibleListsOrdered]);
 
   useEffect(() => {
-    if (!board.lists.some((l) => l.id === activeSubId) && board.lists[0]) {
-      setActiveSubId(board.lists[0].id);
-    }
-  }, [board, activeSubId]);
+    setPinnedSubBoardIds((prev) => prev.filter((id) => !hiddenSubSet.has(id)));
+  }, [hiddenSubSet]);
 
-  const activeSub = board.lists.find((l) => l.id === activeSubId) ?? board.lists[0];
-  if (!activeSub) {
+  useEffect(() => {
+    if (!board.lists.some((l) => l.id === activeSubId)) {
+      const first = visibleListsOrdered[0] ?? board.lists[0];
+      if (first) setActiveSubId(first.id);
+    }
+  }, [board, activeSubId, visibleListsOrdered]);
+
+  useEffect(() => {
+    if (hiddenSubSet.has(activeSubId)) {
+      const first = visibleListsOrdered[0];
+      if (first) setActiveSubId(first.id);
+    }
+  }, [activeSubId, hiddenSubSet, visibleListsOrdered]);
+
+  const activeSub =
+    board.lists.find((l) => l.id === activeSubId && !hiddenSubSet.has(l.id)) ??
+    visibleListsOrdered[0] ??
+    board.lists[0] ??
+    null;
+
+  if (!board.lists.length) {
     return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
+  }
+  if (!activeSub || !visibleListsOrdered.length) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No sub-boards are visible. Open project board settings (sliders icon) and enable at least one.
+      </p>
+    );
   }
   const pinnedSubBoards = pinnedSubBoardIds
     .map((id) => board.lists.find((l) => l.id === id))
@@ -1207,6 +1342,9 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+
+  const subBoardSheetSizing = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
+  const boardSettingsSheetSizing = useResizableRightAppSheetWidth({ open: boardSettingsOpen });
 
   const prefQuery = useQuery({
     queryKey: ["sub-board-prefs", board.id],
@@ -1227,10 +1365,10 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
 
   const createMutation = useMutation({
     mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
-      const tail = laneId.split("|")[1] as TrackerStatus | undefined;
-      const trackerStatus =
-        tail && (TRACKER_STATUSES as readonly string[]).includes(tail) ? tail : "BACKLOG";
-      return createBoardTask(board.id, { title, subBoardId: activeSub.id, trackerStatus });
+      const parsed = parseLaneKey(laneId);
+      const subBoardId = parsed?.subBoardId ?? activeSub.id;
+      const trackerStatus = parsed?.status ?? "BACKLOG";
+      return createBoardTask(board.id, { title, subBoardId, trackerStatus });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["board", board.id] });
@@ -1259,6 +1397,7 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+      queryClient.invalidateQueries({ queryKey: ["board-user-prefs", board.id] });
     },
   });
 
@@ -1303,9 +1442,8 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
     deleteListMutation.mutate(list.id);
   };
 
-  const listOrder = board.lists.map((l) => l.id);
-  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard);
-  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard);
+  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
+  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
   const editorSubBoard = editorSubBoardId
     ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
     : null;
@@ -1320,30 +1458,54 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
   }, [editorSubBoardId, prefBySubBoard]);
 
   return (
-    <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
-      <div className="flex items-center justify-between">
+    <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Project board
         </p>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
-              <EllipsisVertical className="size-4" />
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!boardArchived ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground"
+              aria-label="Project board settings"
+              onClick={() => setBoardSettingsOpen(true)}
+            >
+              <SlidersHorizontal className="size-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
+                <EllipsisVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+              {onArchiveBoard && !boardArchived ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    onArchiveBoard();
+                  }}
+                >
+                  <Archive className="mr-2 size-4" />
+                  Archive board
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
       <p className="text-xs text-muted-foreground">
         Filters are on — drag-and-drop is paused. Clear filters to move tickets.
       </p>
       <SubBoardCarouselStrip
-        orderedLists={board.lists}
+        orderedLists={visibleListsOrdered}
         activeSubId={activeSub.id}
         onSelect={setActiveSubId}
-        listOrder={listOrder}
+        listOrder={listOrderVisible}
         sortable={false}
         onEditSubBoard={setEditorSubBoardId}
       />
@@ -1352,22 +1514,19 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
         activeSub={activeSub}
         onOpenTask={onOpenTask}
         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-        onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
         onToggleComplete={(t) => toggleMutation.mutate(t)}
-        canDeleteSubBoard={canDeleteSubBoard}
-        deleteBusy={deleteListMutation.isPending}
-        onRequestDelete={requestDeleteSubBoard}
         sendMutation={sendMutation}
         visibleStatuses={activeVisibleStatuses}
         cardColor={activeCardColor}
         prefBySubBoard={prefBySubBoard}
+        boardUserPref={boardUserPref}
       />
       <div className="space-y-3">
         <PinnedDropZone draggingSubBoard={false} />
         {pinnedSubBoards.map((sb) => {
           const byLane = buildLaneItems(sb);
           return (
-            <section key={sb.id} className="space-y-2 rounded-xl border bg-background/70 p-3">
+            <section key={sb.id} className="w-full min-w-0 space-y-2 rounded-xl border bg-background/70 p-3">
               <div className="flex items-center justify-between">
                 <p className="min-w-0 truncate text-sm font-semibold">{sb.title}</p>
                 <Button
@@ -1381,8 +1540,8 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
                   Unpin
                 </Button>
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {visibleStatusesForSubBoard(sb.id, prefBySubBoard).map((st) => (
+              <div className="flex w-full min-w-0 gap-2 pb-1">
+                {visibleStatusesForSubBoard(sb.id, prefBySubBoard, boardUserPref).map((st) => (
                   <ReadOnlyLaneInner
                     key={`${sb.id}-${st}`}
                     laneId={laneKey(sb.id, st)}
@@ -1394,8 +1553,9 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
                     onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
                     sendTargets={sendTargets}
                     onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
-                    cardColor={cardColorForSubBoard(sb.id, prefBySubBoard)}
+                    cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
                     prefBySubBoard={prefBySubBoard}
+                    boardUserPref={boardUserPref}
                   />
                 ))}
               </div>
@@ -1404,8 +1564,13 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
         })}
       </div>
       <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-md">
-          <SheetHeader>
+        <SheetContent
+          side="right"
+          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          style={subBoardSheetSizing.sheetWidthStyle}
+        >
+          <RightAppSheetResizeHandle onMouseDown={subBoardSheetSizing.startResize} />
+          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
             <SheetTitle>Sub-board options</SheetTitle>
             <SheetDescription>
               {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
@@ -1428,15 +1593,41 @@ function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanPr
               savePref={(p) => prefMutation.mutate(p)}
               brandId={board.brandId}
               boardId={board.id}
+              canDeleteSubBoard={canDeleteSubBoard}
+              deleteBusy={deleteListMutation.isPending}
+              onRequestDelete={requestDeleteSubBoard}
+              onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
             />
           ) : null}
+        </SheetContent>
+      </Sheet>
+      <Sheet open={boardSettingsOpen} onOpenChange={setBoardSettingsOpen}>
+        <SheetContent
+          side="right"
+          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          style={boardSettingsSheetSizing.sheetWidthStyle}
+        >
+          <RightAppSheetResizeHandle onMouseDown={boardSettingsSheetSizing.startResize} />
+          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+            <SheetTitle>Project board settings</SheetTitle>
+            <SheetDescription>
+              Defaults for every sub-board on this board. Sub-board options can still override.
+            </SheetDescription>
+          </SheetHeader>
+          {boardPrefsQuery.data ? (
+            <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
+          ) : (
+            <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
+              Loading preferences…
+            </p>
+          )}
         </SheetContent>
       </Sheet>
     </section>
   );
 }
 
-function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) {
+function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boardArchived = false }: BoardKanbanProps) {
   const queryClient = useQueryClient();
   const canDeleteSubBoard = board.lists.length > 1;
 
@@ -1444,14 +1635,65 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
   const [activeSubId, setActiveSubId] = useState(() => board.lists[0]?.id ?? "");
   const [pinnedSubBoardIds, setPinnedSubBoardIds] = useState<string[]>([]);
   const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
+  const [boardSettingsOpen, setBoardSettingsOpen] = useState(false);
   const [editorColorDraft, setEditorColorDraft] = useState("");
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+
+  const subBoardSheetSizingDnd = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
+  const boardSettingsSheetSizingDnd = useResizableRightAppSheetWidth({ open: boardSettingsOpen });
+
+  const boardPrefsQuery = useQuery({
+    queryKey: ["board-user-prefs", board.id],
+    queryFn: () => fetchBoardUserPreferences(board.id),
+  });
+  const boardUserPref = boardPrefsQuery.data;
+
+  const hiddenSubSet = useMemo(
+    () => new Set(boardUserPref?.hiddenSubBoardIds ?? []),
+    [boardUserPref?.hiddenSubBoardIds],
+  );
+
+  const listById = useMemo(() => new Map(board.lists.map((l) => [l.id, l])), [board.lists]);
+
+  const orderedLists = useMemo(() => {
+    const out: BoardListDto[] = [];
+    for (const id of listOrder) {
+      const l = listById.get(id);
+      if (l) out.push(l);
+    }
+    return out;
+  }, [listOrder, listById]);
+
+  const visibleListsOrdered = useMemo(
+    () => orderedLists.filter((l) => !hiddenSubSet.has(l.id)),
+    [orderedLists, hiddenSubSet],
+  );
+
+  const listOrderVisible = useMemo(() => visibleListsOrdered.map((l) => l.id), [visibleListsOrdered]);
+
+  const stripSortable = hiddenSubSet.size === 0;
+
+  useEffect(() => {
+    setPinnedSubBoardIds((prev) => prev.filter((id) => !hiddenSubSet.has(id)));
+  }, [hiddenSubSet]);
+
+  useEffect(() => {
+    if (hiddenSubSet.has(activeSubId)) {
+      const first = visibleListsOrdered[0];
+      if (first) setActiveSubId(first.id);
+    }
+  }, [activeSubId, hiddenSubSet, visibleListsOrdered]);
+
   const activeSub = useMemo(() => {
-    const sub = board.lists.find((l) => l.id === activeSubId) ?? board.lists[0];
-    return sub ?? null;
-  }, [board.lists, activeSubId]);
+    const sub =
+      board.lists.find((l) => l.id === activeSubId && !hiddenSubSet.has(l.id)) ??
+      visibleListsOrdered[0] ??
+      board.lists[0] ??
+      null;
+    return sub;
+  }, [board.lists, activeSubId, hiddenSubSet, visibleListsOrdered]);
 
   const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -1463,7 +1705,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
 
   const taskMap = useMemo(() => buildTaskMap(board), [board]);
 
-  const listById = useMemo(() => new Map(board.lists.map((l) => [l.id, l])), [board.lists]);
   const pinnedSubBoards = useMemo(
     () =>
       pinnedSubBoardIds
@@ -1485,15 +1726,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
     for (const row of prefQuery.data ?? []) map[row.subBoardId] = row;
     return map;
   }, [prefQuery.data]);
-
-  const orderedLists = useMemo(() => {
-    const out: BoardListDto[] = [];
-    for (const id of listOrder) {
-      const l = listById.get(id);
-      if (l) out.push(l);
-    }
-    return out;
-  }, [listOrder, listById]);
 
   useEffect(() => {
     const nextOrder = board.lists.map((l) => l.id);
@@ -1559,12 +1791,15 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
 
   const createMutation = useMutation({
     mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
-      const parsed = laneId.split("|");
-      const subBoardId = parsed[0];
-      const st = parsed[1] as TrackerStatus | undefined;
-      const trackerStatus =
-        st && (TRACKER_STATUSES as readonly string[]).includes(st) ? st : "BACKLOG";
-      return createBoardTask(board.id, { title, subBoardId, trackerStatus });
+      const parsed = parseLaneKey(laneId);
+      if (!parsed) {
+        return createBoardTask(board.id, { title, subBoardId: activeSub!.id, trackerStatus: "BACKLOG" });
+      }
+      return createBoardTask(board.id, {
+        title,
+        subBoardId: parsed.subBoardId,
+        trackerStatus: parsed.status,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["board", board.id] });
@@ -1593,6 +1828,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+      queryClient.invalidateQueries({ queryKey: ["board-user-prefs", board.id] });
     },
   });
 
@@ -1780,13 +2016,20 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
   const activeSbPrefix = activeId?.startsWith(SB_PREFIX) ? activeId.slice(SB_PREFIX.length) : null;
   const activeTabList = activeSbPrefix ? listById.get(activeSbPrefix) : undefined;
 
-  if (!activeSub) {
+  if (!board.lists.length) {
     return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
+  }
+  if (!activeSub || !visibleListsOrdered.length) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No sub-boards are visible. Open project board settings (sliders icon) and enable at least one.
+      </p>
+    );
   }
 
   const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
-  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard);
-  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard);
+  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
+  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
   const editorSubBoard = editorSubBoardId
     ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
     : null;
@@ -1808,51 +2051,51 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
-        <div className="flex items-center justify-between">
+      <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Project board
           </p>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
-                <EllipsisVertical className="size-4" />
+          <div className="flex shrink-0 items-center gap-0.5">
+            {!boardArchived ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                aria-label="Project board settings"
+                onClick={() => setBoardSettingsOpen(true)}
+              >
+                <SlidersHorizontal className="size-4" />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
+                  <EllipsisVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+                {onArchiveBoard && !boardArchived ? (
+                  <DropdownMenuItem onSelect={() => onArchiveBoard()}>
+                    <Archive className="mr-2 size-4" />
+                    Archive board
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
         <SubBoardCarouselStrip
-          orderedLists={orderedLists}
+          orderedLists={visibleListsOrdered}
           activeSubId={activeSub.id}
           onSelect={setActiveSubId}
-          listOrder={listOrder}
-          sortable
+          listOrder={listOrderVisible}
+          sortable={stripSortable}
           onEditSubBoard={setEditorSubBoardId}
         />
-        <div className="mb-1 flex flex-wrap items-center gap-3">
-          <SubBoardTitleInput
-            subBoardId={activeSub.id}
-            title={activeSub.title}
-            onCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
-          />
-          {canDeleteSubBoard ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              disabled={deleteListMutation.isPending}
-              aria-label={`Delete sub-board ${activeSub.title}`}
-              onClick={() => requestDeleteSubBoard(activeSub)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          ) : null}
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        <div className="flex w-full min-w-0 gap-2 pb-2">
           {activeVisibleStatuses.map((st) => {
             const lid = laneKey(activeSub.id, st);
             return (
@@ -1869,13 +2112,13 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
                 sendTargets={sendTargets}
                 onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
                 cardColor={activeCardColor}
-                subBoardPref={normalizedSubBoardPref(activeSub.id, prefBySubBoard[activeSub.id])}
+                subBoardPref={normalizedSubBoardPref(activeSub.id, prefBySubBoard[activeSub.id], boardUserPref)}
               />
             );
           })}
         </div>
       </section>
-      <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+      <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Pinned sub-board views
@@ -1892,8 +2135,8 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
           <div className="space-y-3">
             {pinnedSubBoards.map((sb) => (
               <SortablePinnedPanel key={sb.id} subBoard={sb} onUnpin={unpinSubBoard}>
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {visibleStatusesForSubBoard(sb.id, prefBySubBoard).map((st) => {
+                <div className="flex w-full min-w-0 gap-2 pb-1">
+                  {visibleStatusesForSubBoard(sb.id, prefBySubBoard, boardUserPref).map((st) => {
                     const lid = laneKey(sb.id, st);
                     return (
                       <TrackerLane
@@ -1908,8 +2151,8 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
                         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
                         sendTargets={sendTargets}
                         onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
-                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard)}
-                        subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id])}
+                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
+                        subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id], boardUserPref)}
                       />
                     );
                   })}
@@ -1920,8 +2163,13 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
         </SortableContext>
       </section>
       <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-md">
-          <SheetHeader>
+        <SheetContent
+          side="right"
+          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          style={subBoardSheetSizingDnd.sheetWidthStyle}
+        >
+          <RightAppSheetResizeHandle onMouseDown={subBoardSheetSizingDnd.startResize} />
+          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
             <SheetTitle>Sub-board options</SheetTitle>
             <SheetDescription>
               {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
@@ -1944,8 +2192,34 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) 
               savePref={(p) => prefMutation.mutate(p)}
               brandId={board.brandId}
               boardId={board.id}
+              canDeleteSubBoard={canDeleteSubBoard}
+              deleteBusy={deleteListMutation.isPending}
+              onRequestDelete={requestDeleteSubBoard}
+              onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
             />
           ) : null}
+        </SheetContent>
+      </Sheet>
+      <Sheet open={boardSettingsOpen} onOpenChange={setBoardSettingsOpen}>
+        <SheetContent
+          side="right"
+          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          style={boardSettingsSheetSizingDnd.sheetWidthStyle}
+        >
+          <RightAppSheetResizeHandle onMouseDown={boardSettingsSheetSizingDnd.startResize} />
+          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+            <SheetTitle>Project board settings</SheetTitle>
+            <SheetDescription>
+              Defaults for every sub-board on this board. Sub-board options can still override.
+            </SheetDescription>
+          </SheetHeader>
+          {boardPrefsQuery.data ? (
+            <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
+          ) : (
+            <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
+              Loading preferences…
+            </p>
+          )}
         </SheetContent>
       </Sheet>
       <DragOverlay dropAnimation={dropAnimation}>

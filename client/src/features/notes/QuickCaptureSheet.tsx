@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
+import { cn } from "@/lib/utils";
 import { getBrandContextForAI } from "@/features/brand/brandKitContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,7 @@ export function QuickCaptureSheet({
   contextSummary?: string;
 }) {
   const qc = useQueryClient();
+  const { startResize, sheetWidthStyle } = useResizableRightAppSheetWidth({ open });
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
 
@@ -102,8 +105,13 @@ export function QuickCaptureSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
-        <SheetHeader>
+      <SheetContent
+        side="right"
+        className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+        style={sheetWidthStyle}
+      >
+        <RightAppSheetResizeHandle onMouseDown={startResize} />
+        <SheetHeader className="p-4 pl-10 sm:pl-12">
           <SheetTitle>Quick capture</SheetTitle>
           <SheetDescription>
             Jot a title and body. Saves into the <span className="font-medium text-foreground">Quicknotes</span>{" "}
@@ -115,7 +123,7 @@ export function QuickCaptureSheet({
             kit for this workspace, plus optional quick snippets from Rapid Router on this device.
           </SheetDescription>
         </SheetHeader>
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-2">
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-2 pl-10 sm:pl-12">
           {contextSummary ? (
             <p className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground/90">Saving into:</span> {contextSummary}
@@ -167,7 +175,7 @@ export function QuickCaptureSheet({
             />
           </div>
         </div>
-        <SheetFooter className="gap-2 border-t border-border px-4 py-4 sm:flex-row sm:justify-end">
+        <SheetFooter className="gap-2 border-t border-border px-4 py-4 pl-10 sm:flex-row sm:justify-end sm:pl-12">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

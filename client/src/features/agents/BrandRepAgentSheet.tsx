@@ -43,11 +43,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-
-const SHEET_WIDTH_STORAGE_KEY = "brandRepAgentSheetWidthPx";
-const SHEET_WIDTH_DEFAULT = 640;
-const SHEET_WIDTH_MIN = 380;
-const SHEET_WIDTH_MAX = 1200;
+import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
+import { cn } from "@/lib/utils";
 
 const KIT_SPLIT_STORAGE_KEY = "brandConsultSplitKitWidthPx";
 const KIT_SPLIT_DEFAULT = 400;
@@ -142,19 +139,12 @@ export function BrandRepAgentSheet({
   const [open, setOpen] = useState(false);
   /** Mobile / narrow: flip between consultation chat and inline kit fields (no left portal). */
   const [mobileConsultFace, setMobileConsultFace] = useState<"chat" | "kit">("chat");
-  const [panelWidth, setPanelWidth] = useState(SHEET_WIDTH_DEFAULT);
+  const { panelWidthPx, panelWidthRef, startResize, sheetWidthStyle } = useResizableRightAppSheetWidth({ open });
   const [kitSplitWidth, setKitSplitWidth] = useState(KIT_SPLIT_DEFAULT);
-  const panelWidthRef = useRef(panelWidth);
-  panelWidthRef.current = panelWidth;
   const kitSplitWidthRef = useRef(kitSplitWidth);
   kitSplitWidthRef.current = kitSplitWidth;
   /** Ref on `DismissableLayerBranch` root (portaled kit pane). */
   const consultKitPaneRef = useRef<HTMLDivElement | null>(null);
-
-  const panelWidthPx = useMemo(() => {
-    const w = Number.isFinite(panelWidth) && panelWidth > 0 ? panelWidth : SHEET_WIDTH_DEFAULT;
-    return Math.min(SHEET_WIDTH_MAX, Math.max(SHEET_WIDTH_MIN, w));
-  }, [panelWidth]);
 
   const kitSplitWidthPx = useMemo(() => {
     const w = Number.isFinite(kitSplitWidth) && kitSplitWidth > 0 ? kitSplitWidth : KIT_SPLIT_DEFAULT;
@@ -169,18 +159,6 @@ export function BrandRepAgentSheet({
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(SHEET_WIDTH_STORAGE_KEY);
-      const n = raw ? Number.parseInt(raw, 10) : NaN;
-      if (Number.isFinite(n) && n >= SHEET_WIDTH_MIN && n <= SHEET_WIDTH_MAX) {
-        setPanelWidth(n);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
       const raw = localStorage.getItem(KIT_SPLIT_STORAGE_KEY);
       const n = raw ? Number.parseInt(raw, 10) : NaN;
       if (Number.isFinite(n) && n >= KIT_SPLIT_MIN && n <= KIT_SPLIT_MAX) {
@@ -189,30 +167,6 @@ export function BrandRepAgentSheet({
     } catch {
       /* ignore */
     }
-  }, []);
-
-  const startResize = useCallback((e: ReactMouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = panelWidthRef.current;
-    const onMove = (ev: MouseEvent) => {
-      const dx = startX - ev.clientX;
-      const cap = Math.min(SHEET_WIDTH_MAX, typeof window !== "undefined" ? window.innerWidth - 24 : SHEET_WIDTH_MAX);
-      const next = Math.min(cap, Math.max(SHEET_WIDTH_MIN, startW + dx));
-      panelWidthRef.current = next;
-      setPanelWidth(next);
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      try {
-        localStorage.setItem(SHEET_WIDTH_STORAGE_KEY, String(panelWidthRef.current));
-      } catch {
-        /* ignore */
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
   }, []);
 
   const startKitSplitResize = useCallback((e: ReactMouseEvent) => {
@@ -889,21 +843,13 @@ export function BrandRepAgentSheet({
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="flex h-full max-w-none flex-col gap-0 overflow-y-auto border-l p-0 shadow-xl !max-w-none"
-        style={{
-          width: `min(${panelWidthPx}px, calc(100vw - 12px))`,
-        }}
+        className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+        style={sheetWidthStyle}
       >
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Drag to resize panel"
-          title="Drag to resize"
-          className="absolute top-0 bottom-0 left-0 z-[60] hidden w-4 cursor-col-resize touch-none items-center justify-center border-r border-transparent hover:border-border hover:bg-muted/50 active:bg-muted md:flex"
+        <RightAppSheetResizeHandle
           onMouseDown={startResize}
-        >
-          <GripVertical className="size-4 text-muted-foreground opacity-70" aria-hidden />
-        </div>
+          className="hidden md:flex"
+        />
 
         <SheetHeader className="gap-3 border-b border-border/60 px-6 pb-7 pl-10 pr-7 pt-6 sm:gap-3.5 sm:px-8 sm:pb-9 sm:pl-12 sm:pr-10 sm:pt-7">
           <SheetTitle className="text-lg">Brand Rep Agent</SheetTitle>

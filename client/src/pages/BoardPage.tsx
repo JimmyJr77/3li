@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArchiveRestore, Kanban, LayoutGrid, Loader2, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { PMAgentSheet, buildBoardContextSnapshot } from "@/features/agents/PMAgentSheet";
@@ -55,7 +55,6 @@ export function BoardPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [filters, setFilters] = useState<BoardFilterState>(defaultBoardFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [boardNameDraft, setBoardNameDraft] = useState("");
 
   const boardQuery = useQuery({
     queryKey: ["board", boardId],
@@ -69,19 +68,6 @@ export function BoardPage() {
     queryKey: ["my-ticket-labels", board?.brandId],
     queryFn: () => fetchMyTicketLabels(board!.brandId!),
     enabled: Boolean(board?.brandId),
-  });
-
-  useEffect(() => {
-    if (board) setBoardNameDraft(board.name);
-  }, [board?.id, board?.name]);
-
-  const renameBoardMutation = useMutation({
-    mutationFn: (name: string) => patchBoard(board!.id, { name }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["board", next.id], next);
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
-    },
   });
 
   const archiveBoardMutation = useMutation({
@@ -180,104 +166,81 @@ export function BoardPage() {
           ← Project Boards
         </Link>
       </div>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-4">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <Kanban className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-            <Input
-              value={boardNameDraft}
-              onChange={(e) => setBoardNameDraft(e.target.value)}
-              onBlur={() => {
-                const next = boardNameDraft.trim();
-                if (next && next !== board.name) renameBoardMutation.mutate(next);
-                if (!next) setBoardNameDraft(board.name);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              className="max-w-xl border border-neutral-200 bg-white px-2 py-1 text-2xl font-semibold tracking-tight text-neutral-950 shadow-sm hover:border-neutral-300 focus-visible:border-ring dark:border-neutral-300 dark:bg-white dark:text-neutral-950"
-              aria-label="Board title"
-            />
+            <h1 className="max-w-xl text-2xl font-semibold tracking-tight text-neutral-950 dark:text-neutral-50">
+              {board.name}
+            </h1>
           </div>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Drag columns by the grip, move cards between lists, open a card for detail, or use the table view.
-            Filters pause drag-and-drop.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border p-0.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border p-0.5">
+              <Button
+                type="button"
+                variant={view === "board" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1"
+                onClick={() => setView("board")}
+              >
+                <Kanban className="size-4" />
+                Board
+              </Button>
+              <Button
+                type="button"
+                variant={view === "table" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1"
+                onClick={() => setView("table")}
+              >
+                <LayoutGrid className="size-4" />
+                Table
+              </Button>
+            </div>
             <Button
               type="button"
-              variant={view === "board" ? "secondary" : "ghost"}
+              variant={filtersOpen ? "secondary" : "outline"}
               size="sm"
               className="gap-1"
-              onClick={() => setView("board")}
+              onClick={() => setFiltersOpen((v) => !v)}
             >
-              <Kanban className="size-4" />
-              Board
+              <Search className="size-4" />
+              Search & filters
             </Button>
-            <Button
-              type="button"
-              variant={view === "table" ? "secondary" : "ghost"}
-              size="sm"
-              className="gap-1"
-              onClick={() => setView("table")}
-            >
-              <LayoutGrid className="size-4" />
-              Table
-            </Button>
-          </div>
-          <Button
-            type="button"
-            variant={filtersOpen ? "secondary" : "outline"}
-            size="sm"
-            className="gap-1"
-            onClick={() => setFiltersOpen((v) => !v)}
-          >
-            <Search className="size-4" />
-            Search & filters
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["board", board.id] })}
-          >
-            Refresh
-          </Button>
-          {activeWorkspaceId ? (
-            <PMAgentSheet
-              workspaceId={activeWorkspaceId}
-              contextText={buildBoardContextSnapshot(board)}
-              surfaceLabel="Project board snapshot"
-            />
-          ) : null}
-          {boardArchived ? (
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              className="gap-1"
-              disabled={archiveBoardMutation.isPending}
-              onClick={() => archiveBoardMutation.mutate(false)}
-            >
-              <ArchiveRestore className="size-4" />
-              Restore board
-            </Button>
-          ) : (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="gap-1 text-muted-foreground"
-              disabled={archiveBoardMutation.isPending}
-              onClick={requestArchiveBoard}
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["board", board.id] })}
             >
-              <Archive className="size-4" />
-              Archive board
+              Refresh
             </Button>
-          )}
+            {activeWorkspaceId ? (
+              <PMAgentSheet
+                workspaceId={activeWorkspaceId}
+                contextText={buildBoardContextSnapshot(board)}
+                surfaceLabel="Project board snapshot"
+              />
+            ) : null}
+            {boardArchived ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="gap-1"
+                disabled={archiveBoardMutation.isPending}
+                onClick={() => archiveBoardMutation.mutate(false)}
+              >
+                <ArchiveRestore className="size-4" />
+                Restore board
+              </Button>
+            ) : null}
+          </div>
         </div>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Drag columns by the grip, move cards between lists, open a card for detail, or use the table view. Filters
+          pause drag-and-drop.
+        </p>
       </div>
 
       {boardArchived ? (
@@ -399,6 +362,8 @@ export function BoardPage() {
           board={displayBoard}
           dragDisabled={filtersOn || boardArchived}
           onAddSubBoard={requestAddSubBoard}
+          onArchiveBoard={boardArchived ? undefined : requestArchiveBoard}
+          boardArchived={boardArchived}
           onOpenTask={(t) => {
             setSelectedTaskId(t.id);
           }}

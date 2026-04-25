@@ -39,6 +39,9 @@ model AppUser {
   customBoardTemplates CustomBoardTemplate[]
   /// Reusable ticket labels (name + color) scoped by brand; shown on tasks for this user.
   userBrandTicketLabels UserBrandTicketLabel[]
+  boardUserPreferences  BoardUserPreference[]
+  /// Ticket comments authored by this login (nullable on legacy rows).
+  taskCommentsAuthored  Comment[]    @relation("TaskCommentAuthor")
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 }
@@ -381,11 +384,31 @@ model Board {
   archivedAt     DateTime?
   lists          BoardList[]
   labels         Label[]
+  userPreferences BoardUserPreference[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@index([projectSpaceId])
   @@index([projectSpaceId, archivedAt])
+}
+
+/// Per-user defaults for a project board (card color, lane visibility, checkbox default, hidden sub-boards).
+model BoardUserPreference {
+  id                             String          @id @default(cuid())
+  userId                         String
+  user                           AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boardId                        String
+  board                          Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  defaultTicketCardColor         String?         @db.VarChar(32)
+  defaultHiddenTrackerStatuses   TrackerStatus[]
+  defaultCompleteCheckboxVisible Boolean         @default(true)
+  /// Sub-board (`BoardList`) ids hidden from this user’s tab strip for this board.
+  hiddenSubBoardIds              String[]
+  createdAt                      DateTime        @default(now())
+  updatedAt                      DateTime        @updatedAt
+
+  @@unique([userId, boardId])
+  @@index([boardId])
 }
 
 /// Project sub-board (horizontal swimlane on a project board); tickets live in fixed tracker columns within it.
@@ -616,9 +639,13 @@ model Comment {
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   body      String
+  /// Set for new comments; null on rows created before author tracking.
+  authorUserId String?
+  author       AppUser? @relation("TaskCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
 
   @@index([taskId])
+  @@index([authorUserId])
 }
 
 model ChecklistItem {

@@ -75,6 +75,25 @@ export async function getBoardWorkspaceId(boardId: string): Promise<string | nul
   return b?.projectSpace.workspaceId ?? null;
 }
 
+export async function getBrandIdForBoardId(boardId: string): Promise<string | null> {
+  const b = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { projectSpace: { select: { workspace: { select: { brandId: true } } } } },
+  });
+  return b?.projectSpace.workspace.brandId ?? null;
+}
+
+/** Brand owner or an accepted `BrandMember` (email invite consumed or join key), not a pending invite-only email. */
+export async function assertUserIsBrandParticipant(brandId: string, userId: string): Promise<boolean> {
+  const n = await prisma.brand.count({
+    where: {
+      id: brandId,
+      OR: [{ ownerUserId: userId }, { members: { some: { userId } } }],
+    },
+  });
+  return n > 0;
+}
+
 export async function assertBoardAccess(user: AppUserPrincipal, boardId: string): Promise<boolean> {
   const wsId = await getBoardWorkspaceId(boardId);
   if (!wsId) return false;

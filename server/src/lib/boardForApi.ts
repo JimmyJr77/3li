@@ -2,6 +2,10 @@
 
 import type { TrackerStatus } from "@prisma/client";
 import { activityActorDto, type ActivityActorUserFields } from "./activityActorLabel.js";
+
+function mapTaskActorField(u: ActivityActorUserFields | null | undefined) {
+  return activityActorDto(u ?? null);
+}
 import { TRACKER_STATUS_ORDER } from "./trackerStatus.js";
 
 type ActivityWithOptionalActor = {
@@ -160,12 +164,30 @@ export function taskJsonForApi<
   const mergedBase = {
     ...rowRest,
     labels: [...boardLabels, ...userLabels],
+  } as unknown as T & {
+    createdBy?: ActivityActorUserFields | null;
+    assignee?: ActivityActorUserFields | null;
+  };
+
+  const rawComments = (mergedBase as { comments?: unknown }).comments as unknown;
+  const mappedComments = Array.isArray(rawComments)
+    ? (rawComments as Array<{ author?: ActivityActorUserFields | null }>).map((c) => ({
+        ...(c as Record<string, unknown>),
+        author: activityActorDto((c as { author?: ActivityActorUserFields | null }).author ?? null),
+      }))
+    : undefined;
+
+  const withActors = {
+    ...mergedBase,
+    createdBy: mapTaskActorField(mergedBase.createdBy),
+    assignee: mapTaskActorField(mergedBase.assignee),
+    ...(Array.isArray(rawComments) ? { comments: mappedComments } : {}),
   } as unknown as T;
 
-  const m = mergedBase as T & { subBoardId?: string; listId?: string };
+  const m = withActors as T & { subBoardId?: string; listId?: string };
   const compatListId = sub?.id ?? m.subBoardId;
   if (compatListId && m.listId === undefined) {
-    return { ...mergedBase, listId: compatListId } as T;
+    return { ...withActors, listId: compatListId } as T;
   }
-  return mergedBase;
+  return withActors;
 }

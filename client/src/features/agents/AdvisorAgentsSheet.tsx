@@ -1,5 +1,5 @@
-import { GripVertical, Users } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Users } from "lucide-react";
+import { useState } from "react";
 import { RedTeamPanel } from "@/features/agents/RedTeamPanel";
 import type { AtlasNoteDto } from "@/features/notes/types";
 import { Button } from "@/components/ui/button";
@@ -11,11 +11,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-
-const SHEET_WIDTH_STORAGE_KEY = "advisorAgentsSheetWidthPx";
-const SHEET_WIDTH_DEFAULT = 640;
-const SHEET_WIDTH_MIN = 380;
-const SHEET_WIDTH_MAX = 1200;
+import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
+import { cn } from "@/lib/utils";
 
 export type AdvisorAgentsSheetNoteAi = {
   note: AtlasNoteDto;
@@ -39,50 +36,7 @@ export function AdvisorAgentsSheet({
   noteAi,
 }: AdvisorAgentsSheetProps) {
   const [open, setOpen] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(SHEET_WIDTH_DEFAULT);
-  const panelWidthRef = useRef(panelWidth);
-  panelWidthRef.current = panelWidth;
-
-  const panelWidthPx = useMemo(() => {
-    const w = Number.isFinite(panelWidth) && panelWidth > 0 ? panelWidth : SHEET_WIDTH_DEFAULT;
-    return Math.min(SHEET_WIDTH_MAX, Math.max(SHEET_WIDTH_MIN, w));
-  }, [panelWidth]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SHEET_WIDTH_STORAGE_KEY);
-      const n = raw ? Number.parseInt(raw, 10) : NaN;
-      if (Number.isFinite(n) && n >= SHEET_WIDTH_MIN && n <= SHEET_WIDTH_MAX) {
-        setPanelWidth(n);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const startResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = panelWidthRef.current;
-    const onMove = (ev: MouseEvent) => {
-      const dx = startX - ev.clientX;
-      const cap = Math.min(SHEET_WIDTH_MAX, typeof window !== "undefined" ? window.innerWidth - 24 : SHEET_WIDTH_MAX);
-      const next = Math.min(cap, Math.max(SHEET_WIDTH_MIN, startW + dx));
-      panelWidthRef.current = next;
-      setPanelWidth(next);
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      try {
-        localStorage.setItem(SHEET_WIDTH_STORAGE_KEY, String(panelWidthRef.current));
-      } catch {
-        /* ignore */
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, []);
+  const { startResize, sheetWidthStyle } = useResizableRightAppSheetWidth({ open });
 
   if (!workspaceId) return null;
 
@@ -96,21 +50,10 @@ export function AdvisorAgentsSheet({
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="flex h-full max-w-none flex-col gap-0 overflow-hidden border-l p-0 shadow-xl !max-w-none"
-        style={{
-          width: `min(${panelWidthPx}px, calc(100vw - 12px))`,
-        }}
+        className={cn(rightAppSheetContentClassName, "overflow-hidden")}
+        style={sheetWidthStyle}
       >
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Drag to resize panel"
-          title="Drag to resize"
-          className="absolute top-0 bottom-0 left-0 z-[60] flex w-4 cursor-col-resize touch-none items-center justify-center border-r border-transparent hover:border-border hover:bg-muted/50 active:bg-muted"
-          onMouseDown={startResize}
-        >
-          <GripVertical className="size-4 text-muted-foreground opacity-70" aria-hidden />
-        </div>
+        <RightAppSheetResizeHandle onMouseDown={startResize} />
 
         <SheetHeader className="shrink-0 gap-2 border-b border-border/60 px-6 pb-5 pl-10 pr-7 pt-6 sm:px-8 sm:pb-6 sm:pl-12 sm:pr-10 sm:pt-7">
           <SheetTitle className="text-lg">Advisor Agents</SheetTitle>

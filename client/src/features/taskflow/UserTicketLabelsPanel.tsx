@@ -9,6 +9,7 @@ import {
   patchMyTicketLabel,
   postMyTicketLabel,
 } from "./api";
+import { NewTicketLabelForm } from "./NewTicketLabelForm";
 import type { UserTicketLabelDto } from "./types";
 
 const DEFAULT_COLOR = "#6366f1";
@@ -95,45 +96,24 @@ export function UserTicketLabelsPanel({ brandId, boardId, mode }: UserTicketLabe
         <p className="text-sm text-destructive">Could not load your ticket labels.</p>
       ) : null}
 
-      <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 p-3">
-        <p className="text-xs font-medium text-muted-foreground">New label</p>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input
-            placeholder="Name"
-            value={newName}
-            disabled={busy}
-            onChange={(e) => setNewName(e.target.value)}
-            className="sm:max-w-xs"
-          />
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              aria-label="Label color"
-              value={newColor}
-              disabled={busy}
-              onChange={(e) => setNewColor(e.target.value)}
-              className="size-9 cursor-pointer rounded border border-input bg-background p-0.5"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy || !newName.trim()}
-              onClick={() => createMut.mutate()}
-            >
-              {createMut.isPending ? "Adding…" : "Add"}
-            </Button>
-          </div>
-        </div>
-        {createMut.isError ? (
-          <p className="text-xs text-destructive">Could not create (duplicate name?).</p>
-        ) : null}
-      </div>
-
-      {mode === "quick" ? (
-        <p className="text-xs text-muted-foreground">
-          Rename and fine-tune colors in Settings → Ticket labels (this brand).
-        </p>
-      ) : null}
+      <NewTicketLabelForm
+        title="New label"
+        hint={
+          mode === "quick"
+            ? "Rename and fine-tune colors in Settings → Ticket labels (this brand)."
+            : undefined
+        }
+        name={newName}
+        onNameChange={setNewName}
+        color={newColor}
+        onColorChange={setNewColor}
+        disabled={busy}
+        pending={createMut.isPending}
+        onSubmit={() => createMut.mutate()}
+        submitLabel="Add"
+        pendingLabel="Adding…"
+        errorMessage={createMut.isError ? "Could not create (duplicate name?)." : null}
+      />
 
       <ul className="space-y-2">
         {rows.map((row) => {

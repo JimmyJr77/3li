@@ -1,6 +1,7 @@
 import { api } from "@/lib/api/client";
 import type {
   BoardDto,
+  BoardUserPreferenceDto,
   BootstrapDto,
   BrandInviteCreatedDto,
   BrandTeamDto,
@@ -44,6 +45,29 @@ export async function fetchBoard(boardId: string): Promise<BoardDto> {
 export async function fetchBoardSubBoardPreferences(boardId: string): Promise<SubBoardPreferenceDto[]> {
   const { data } = await api.get<SubBoardPreferenceDto[]>(
     `/api/task-app/boards/${boardId}/sub-board-preferences`,
+  );
+  return data;
+}
+
+export async function fetchBoardUserPreferences(boardId: string): Promise<BoardUserPreferenceDto> {
+  const { data } = await api.get<BoardUserPreferenceDto>(
+    `/api/task-app/boards/${boardId}/user-board-preferences`,
+  );
+  return data;
+}
+
+export async function patchBoardUserPreferences(
+  boardId: string,
+  body: Partial<{
+    defaultTicketCardColor: string | null;
+    defaultHiddenTrackerStatuses: string[];
+    defaultCompleteCheckboxVisible: boolean;
+    hiddenSubBoardIds: string[];
+  }>,
+): Promise<BoardUserPreferenceDto> {
+  const { data } = await api.patch<BoardUserPreferenceDto>(
+    `/api/task-app/boards/${boardId}/user-board-preferences`,
+    body,
   );
   return data;
 }
@@ -467,6 +491,14 @@ export async function patchBoard(
   body: { name?: string; archived?: boolean },
 ): Promise<BoardDto> {
   const { data } = await api.patch<BoardDto>(`/api/task-app/boards/${boardId}`, body);
+  return data;
+}
+
+export async function postBoardLabel(
+  boardId: string,
+  body: { name: string; color: string },
+): Promise<BoardDto> {
+  const { data } = await api.post<BoardDto>(`/api/task-app/boards/${boardId}/labels`, body);
   return data;
 }
 

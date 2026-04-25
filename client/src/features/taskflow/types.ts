@@ -21,6 +21,8 @@ export type TaskFlowTask = {
   completed: boolean;
   order: number;
   priority: string;
+  /** ISO creation time from API (task row). */
+  createdAt?: string;
   /** Set when the task is archived (soft-deleted). Omitted on older API responses. */
   archivedAt?: string | null;
   dueDate: string | null;
@@ -33,6 +35,9 @@ export type TaskFlowTask = {
   trackerStatus: TrackerStatus;
   createdByUserId?: string | null;
   assigneeUserId?: string | null;
+  /** Display ref from API (`activityActorDto`); pair with `createdByUserId`. */
+  createdBy?: { id: string; label: string } | null;
+  assignee?: { id: string; label: string } | null;
   lastAssignedAt?: string | null;
   /** @deprecated Use sub-board preference `cardFaceLayout`. */
   cardFaceLayout?: string;
@@ -51,7 +56,12 @@ export type TaskFlowTask = {
     boardId: string;
     board: { id: string; name: string; workspaceId: string };
   };
-  comments?: { id: string; body: string; createdAt: string }[];
+  comments?: {
+    id: string;
+    body: string;
+    createdAt: string;
+    author?: { id: string; label: string } | null;
+  }[];
   checklist?: { id: string; title: string; completed: boolean; position: number }[];
   activities?: {
     id: string;
@@ -78,6 +88,16 @@ export type SubBoardPreferenceDto = {
   /** When true, kanban cards show the done checkbox unless a ticket overrides. */
   completeCheckboxVisibleByDefault: boolean;
   hiddenTrackerStatuses: TrackerStatus[];
+  updatedAt: string | null;
+};
+
+/** Per-user defaults for an entire project board (`/boards/:boardId/user-board-preferences`). */
+export type BoardUserPreferenceDto = {
+  boardId: string;
+  defaultTicketCardColor: string | null;
+  defaultHiddenTrackerStatuses: TrackerStatus[];
+  defaultCompleteCheckboxVisible: boolean;
+  hiddenSubBoardIds: string[];
   updatedAt: string | null;
 };
 
