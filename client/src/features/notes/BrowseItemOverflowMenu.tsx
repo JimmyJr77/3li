@@ -15,6 +15,8 @@ type BrowseItemOverflowMenuProps = {
   onApply: (payload: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   deleteConfirmation: string;
+  /** When false, delete is hidden (e.g. protected default notebooks). Defaults to true. */
+  canDelete?: boolean;
 };
 
 export function BrowseItemOverflowMenu({
@@ -24,6 +26,7 @@ export function BrowseItemOverflowMenu({
   onApply,
   onDelete,
   deleteConfirmation,
+  canDelete = true,
 }: BrowseItemOverflowMenuProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
@@ -96,7 +99,9 @@ export function BrowseItemOverflowMenu({
         <div className="border-b border-border px-5 py-4">
           <DialogTitle className="text-base">{dialogTitle} options</DialogTitle>
           <DialogDescription className="mt-1 text-sm">
-            Rename, tint this row, or remove {kind === "notebook" ? "the notebook" : "the note"}.
+            Rename and tint this row
+            {canDelete ? `, or remove ${kind === "notebook" ? "the notebook" : "the note"}` : ""}.
+            {!canDelete && kind === "notebook" ? " This default notebook cannot be deleted." : null}
           </DialogDescription>
         </div>
         <div className="space-y-4 px-5 py-4">
@@ -168,19 +173,26 @@ export function BrowseItemOverflowMenu({
             {hexError ? <p className="text-xs text-destructive">{hexError}</p> : null}
           </div>
 
-          <Separator />
+          {canDelete ? <Separator /> : null}
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => void handleDelete()}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              Delete
-            </Button>
+          <div
+            className={cn(
+              "flex flex-col gap-2 sm:flex-row sm:items-center",
+              canDelete ? "sm:justify-between" : "sm:justify-end",
+            )}
+          >
+            {canDelete ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => void handleDelete()}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                Delete
+              </Button>
+            ) : null}
             <Button type="button" size="sm" onClick={() => void handleSave()} disabled={!title.trim()}>
               Save changes
             </Button>

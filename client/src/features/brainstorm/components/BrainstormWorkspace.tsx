@@ -159,7 +159,7 @@ export function BrainstormWorkspace({
     } else {
       mapped = mapped.map((n) => ({ ...n, selected: false }));
     }
-    resetCanvas(mapped, rawEdges);
+    resetCanvas(mapped, rawEdges, { keepShapePickerOpen: true });
     hydratedRef.current = true;
     lastPersistedRef.current = null;
   }, [sessionQuery.isSuccess, sessionQuery.data, sessionQuery.dataUpdatedAt, sessionId, resetCanvas]);

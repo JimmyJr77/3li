@@ -287,7 +287,11 @@ type BrainstormState = {
   togglePresentationMode: () => void;
   setAgentsPanelVisible: (v: boolean) => void;
   setSelectedEdgeId: (id: string | null) => void;
-  resetCanvas: (nodes: BrainstormFlowNode[], edges: BrainstormEdge[]) => void;
+  resetCanvas: (
+    nodes: BrainstormFlowNode[],
+    edges: BrainstormEdge[],
+    options?: { keepShapePickerOpen?: boolean },
+  ) => void;
   groupSelectedNodes: () => void;
   ungroupSelection: () => void;
   organizeSelectedNodes: () => void;
@@ -475,7 +479,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     let height = 200;
     if (data.stencilLibrary === "basic") {
       const v = data.variant;
-      if (v === "square" || v === "square_rounded" || v === "circle") {
+      if (v === "square" || v === "square_rounded" || v === "circle" || v === "sphere") {
         width = 200;
         height = 200;
       }
@@ -670,12 +674,12 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     }));
   },
 
-  resetCanvas: (nodes, edges) =>
+  resetCanvas: (nodes, edges, options) =>
     set({
       nodes,
       edges,
       selectedEdgeId: null,
-      shapePickerOpen: false,
+      ...(!options?.keepShapePickerOpen ? { shapePickerOpen: false } : {}),
     }),
 
   groupSelectedNodes: () => {

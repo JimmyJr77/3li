@@ -2,8 +2,18 @@ import { X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  BasicShapeSvgBackground,
+  basicShapeUsesSvgBackground,
+} from "@/features/brainstorm/components/BasicShapeSvgBackground";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
-import { BASIC_SHAPE_VARIANTS, type ShapeVariant, type StencilLibrary } from "@/features/brainstorm/types";
+import {
+  BASIC_2D_SHAPE_VARIANTS,
+  BASIC_3D_SHAPE_VARIANTS,
+  defaultShapeData,
+  type ShapeVariant,
+  type StencilLibrary,
+} from "@/features/brainstorm/types";
 import { presetsForWireframeLibrary, type WireframeLibrary } from "@/features/brainstorm/wireframePresets";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +26,33 @@ const BASIC_LABELS: Record<ShapeVariant, string> = {
   circle: "Circle",
   diamond: "Diamond",
   triangle: "Triangle",
+  hexagon: "Hexagon",
+  pentagon: "Pentagon",
+  octagon: "Octagon",
+  star: "Star",
+  parallelogram: "Parallelogram",
+  cube: "Cube",
+  block_3d: "3D block",
+  cylinder: "Cylinder",
+  cone: "Cone",
+  sphere: "Sphere",
+  pyramid: "Pyramid",
 };
 
 function BasicShapePreview({ variant }: { variant: ShapeVariant }) {
+  const previewData = { ...defaultShapeData(), variant, stencilLibrary: "basic" as const };
+
+  if (basicShapeUsesSvgBackground(variant)) {
+    return (
+      <span
+        className="relative inline-block h-9 w-12 shrink-0 overflow-hidden rounded-sm border border-muted-foreground/40 bg-muted/25"
+        aria-hidden
+      >
+        <BasicShapeSvgBackground variant={variant} data={previewData} />
+      </span>
+    );
+  }
+
   const base = "inline-block shrink-0 border-2 border-muted-foreground bg-muted/40";
   switch (variant) {
     case "rectangle":
@@ -33,23 +67,6 @@ function BasicShapePreview({ variant }: { variant: ShapeVariant }) {
       return <span className={cn(base, "h-7 w-11 rounded-[50%]")} aria-hidden />;
     case "circle":
       return <span className={cn(base, "size-8 rounded-[50%]")} aria-hidden />;
-    case "diamond":
-      return (
-        <span
-          className={cn(base, "size-7 rounded-none [clip-path:polygon(50%_0%,100%_50%,50%_100%,0%_50%)]")}
-          aria-hidden
-        />
-      );
-    case "triangle":
-      return (
-        <span
-          className={cn(
-            base,
-            "h-6 w-10 rounded-none border-0 [clip-path:polygon(50%_0%,100%_100%,0%_100%)]",
-          )}
-          aria-hidden
-        />
-      );
     default:
       return <span className={cn(base, "h-6 w-10 rounded-md")} aria-hidden />;
   }
@@ -80,7 +97,10 @@ export function BrainstormShapePicker() {
   };
 
   return (
-    <div className="flex max-h-[min(520px,calc(100vh-8rem))] w-[min(280px,calc(100vw-2rem))] flex-col gap-2 rounded-md border bg-card/95 p-2 shadow-md backdrop-blur-sm">
+    <div
+      className="nodrag nopan flex max-h-[min(520px,calc(100vh-8rem))] w-[min(280px,calc(100vw-2rem))] flex-col gap-2 rounded-md border bg-card/95 p-2 shadow-md backdrop-blur-sm"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div className="flex items-start justify-between gap-2 border-b border-border pb-2">
         <div>
           <p className="text-xs font-semibold">Add shape</p>
@@ -124,23 +144,44 @@ export function BrainstormShapePicker() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {library === "basic" ? (
-          <div className="space-y-2">
-            <Label className="text-[10px] text-muted-foreground">Basic shapes</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {BASIC_SHAPE_VARIANTS.map((variant) => (
-                <Button
-                  key={variant}
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="nodrag nopan flex h-auto min-h-[4.25rem] flex-col gap-1 px-1 py-2 text-[9px] font-normal leading-tight"
-                  title={BASIC_LABELS[variant]}
-                  onClick={() => addBasic(variant)}
-                >
-                  <BasicShapePreview variant={variant} />
-                  {BASIC_LABELS[variant]}
-                </Button>
-              ))}
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="text-[10px] text-muted-foreground">2D shapes</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {BASIC_2D_SHAPE_VARIANTS.map((variant) => (
+                  <Button
+                    key={variant}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="nodrag nopan flex h-auto min-h-[4.25rem] flex-col gap-1 px-1 py-2 text-[9px] font-normal leading-tight"
+                    title={BASIC_LABELS[variant]}
+                    onClick={() => addBasic(variant)}
+                  >
+                    <BasicShapePreview variant={variant} />
+                    {BASIC_LABELS[variant]}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[10px] text-muted-foreground">3D shapes</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {BASIC_3D_SHAPE_VARIANTS.map((variant) => (
+                  <Button
+                    key={variant}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="nodrag nopan flex h-auto min-h-[4.25rem] flex-col gap-1 px-1 py-2 text-[9px] font-normal leading-tight"
+                    title={BASIC_LABELS[variant]}
+                    onClick={() => addBasic(variant)}
+                  >
+                    <BasicShapePreview variant={variant} />
+                    {BASIC_LABELS[variant]}
+                  </Button>
+                ))}
+              </div>
             </div>
           </div>
         ) : null}

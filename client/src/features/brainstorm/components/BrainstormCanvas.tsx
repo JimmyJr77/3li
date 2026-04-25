@@ -104,10 +104,6 @@ function BrainstormCanvasInner() {
     setContextMenu(null);
   }, [setSelectedEdgeId, setShapePickerOpen]);
 
-  const onNodeClick = useCallback(() => {
-    setShapePickerOpen(false);
-  }, [setShapePickerOpen]);
-
   const onPaneContextMenu = useCallback((e: ReactMouseEvent | globalThis.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -178,7 +174,6 @@ function BrainstormCanvasInner() {
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onEdgeClick={onEdgeClick}
-      onNodeClick={onNodeClick}
       onPaneClick={onPaneClick}
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}

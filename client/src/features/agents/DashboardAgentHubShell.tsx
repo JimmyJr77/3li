@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, GripVertical, History, XIcon } from "lucide-react";
+import { ArrowLeftRight, ExternalLink, GripVertical, History, XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router-dom";
 import type { AgentDirectoryEntry } from "@/features/agents/agentDirectory";
@@ -36,6 +36,23 @@ const LEFT_WIDTH_DEFAULT = 360;
 const RIGHT_WIDTH_DEFAULT = 560;
 const WIDTH_MIN = 300;
 const WIDTH_MAX = 720;
+
+/** Tailwind `md` — match Brand Rep: side-by-side panes only at this breakpoint and up. */
+const SPLIT_DESKTOP_MQ = "(min-width: 768px)";
+
+function useSplitDesktopLayout() {
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(SPLIT_DESKTOP_MQ).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(SPLIT_DESKTOP_MQ);
+    const sync = () => setMatches(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return matches;
+}
 
 function readStoredPanelWidth(storageKey: string, defaultW: number): number {
   if (typeof window === "undefined") return defaultW;
@@ -141,9 +158,12 @@ type HubShellProps = {
 };
 
 export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
+  const splitDesktop = useSplitDesktopLayout();
   const [entry, setEntry] = useState<AgentDirectoryEntry | null>(null);
   const [hubOpen, setHubOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  /** Narrow viewports: one pane at a time (avoids two fixed columns freezing phones). */
+  const [mobileHubFace, setMobileHubFace] = useState<"sessions" | "history">("sessions");
 
   const leftPanel = useResizablePanelWidth("dashboardAgentHubLeftW", LEFT_WIDTH_DEFAULT);
   const rightPanel = useResizablePanelWidth("dashboardAgentHubRightW", RIGHT_WIDTH_DEFAULT);
@@ -151,6 +171,7 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
   const openForEntry = useCallback((e: AgentDirectoryEntry) => {
     setEntry(e);
     setSessionId(null);
+    setMobileHubFace("sessions");
     setHubOpen(true);
   }, []);
 
@@ -159,8 +180,17 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
     if (!open) {
       setEntry(null);
       setSessionId(null);
+      setMobileHubFace("sessions");
     }
   }, []);
+
+  const pickSession = useCallback(
+    (id: string) => {
+      setSessionId(id);
+      if (!splitDesktop) setMobileHubFace("history");
+    },
+    [splitDesktop],
+  );
 
   const { data: boot } = useQuery({
     queryKey: ["chat-bootstrap"],
@@ -260,23 +290,62 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
               {entry ? `${entry.label} — sessions and history` : "Agent sessions and history"}
             </SheetDialog.Title>
             <SheetDialog.Description className="sr-only">
-              Choose a session on the left and read its history on the right.
+              Choose a session, then read its history. On small screens, switch between sessions and history with the
+              control in the bar.
             </SheetDialog.Description>
 
             <div
-              className="flex h-full max-h-[100dvh] min-h-0 w-full min-w-0 flex-1 flex-row overscroll-contain"
+              className="flex h-full max-h-[100dvh] min-h-0 w-full min-w-0 flex-1 flex-col overscroll-contain md:flex-row"
               data-agent-hub-dual-pane
             >
+              {!splitDesktop ? (
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-popover px-3 py-2.5 md:hidden">
+                  <span className="text-xs font-medium text-foreground">
+                    {mobileHubFace === "sessions" ? "Sessions" : "History"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-9 shrink-0 gap-1.5 text-xs"
+                      onClick={() => setMobileHubFace((f) => (f === "sessions" ? "history" : "sessions"))}
+                    >
+                      <ArrowLeftRight className="size-3.5 shrink-0" aria-hidden />
+                      {mobileHubFace === "sessions" ? "View history" : "Back to sessions"}
+                    </Button>
+                    <SheetClose asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0"
+                        aria-label="Close agent hub"
+                      >
+                        <XIcon className="size-4" />
+                      </Button>
+                    </SheetClose>
+                  </div>
+                </div>
+              ) : null}
+
               <div
-                className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-border bg-popover text-sm text-popover-foreground shadow-xl"
-                style={{ width: `min(${leftPanel.widthPx}px, calc(100vw - 12px))` }}
+                className={cn(
+                  "relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-xl md:h-full md:shrink-0 md:border-r md:border-border",
+                  !splitDesktop && mobileHubFace === "history" && "max-md:hidden",
+                )}
+                style={
+                  splitDesktop ?
+                    { width: `min(${leftPanel.widthPx}px, calc(100vw - 12px))` }
+                  : undefined
+                }
               >
                 <div
                   role="separator"
                   aria-orientation="vertical"
                   aria-label="Drag to resize panel"
                   title="Drag to resize"
-                  className="absolute top-0 right-0 bottom-0 z-20 flex w-4 cursor-col-resize touch-none items-center justify-center border-l border-transparent hover:border-border hover:bg-muted/50 active:bg-muted"
+                  className="absolute top-0 right-0 bottom-0 z-20 hidden w-4 cursor-col-resize touch-none items-center justify-center border-l border-transparent hover:border-border hover:bg-muted/50 active:bg-muted md:flex"
                   onMouseDown={(e) => leftPanel.startResize(e, "left")}
                 >
                   <GripVertical className="size-4 text-muted-foreground opacity-70" aria-hidden />
@@ -301,7 +370,7 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
                           <li key={t.id}>
                             <button
                               type="button"
-                              onClick={() => setSessionId(t.id)}
+                              onClick={() => pickSession(t.id)}
                               className={cn(
                                 "w-full rounded-md border px-3 py-2 text-left text-sm transition-colors",
                                 activeSessionId === t.id ?
@@ -330,7 +399,7 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
                         <li key={s.id}>
                           <button
                             type="button"
-                            onClick={() => setSessionId(s.id)}
+                            onClick={() => pickSession(s.id)}
                             className={cn(
                               "w-full rounded-md border px-3 py-2 text-left text-sm transition-colors",
                               activeSessionId === s.id ?
@@ -350,18 +419,25 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
                 </div>
               </div>
 
-              <div className="min-h-0 min-w-0 flex-1 bg-transparent" aria-hidden />
+              <div className="hidden min-h-0 min-w-0 flex-1 bg-transparent md:block" aria-hidden />
 
               <div
-                className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-border bg-popover text-sm text-popover-foreground shadow-xl"
-                style={{ width: `min(${rightPanel.widthPx}px, calc(100vw - 12px))` }}
+                className={cn(
+                  "relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-xl md:h-full md:shrink-0 md:border-l md:border-border",
+                  !splitDesktop && mobileHubFace === "sessions" && "max-md:hidden",
+                )}
+                style={
+                  splitDesktop ?
+                    { width: `min(${rightPanel.widthPx}px, calc(100vw - 12px))` }
+                  : undefined
+                }
               >
                 <div
                   role="separator"
                   aria-orientation="vertical"
                   aria-label="Drag to resize panel"
                   title="Drag to resize"
-                  className="absolute top-0 bottom-0 left-0 z-20 flex w-4 cursor-col-resize touch-none items-center justify-center border-r border-transparent hover:border-border hover:bg-muted/50 active:bg-muted"
+                  className="absolute top-0 bottom-0 left-0 z-20 hidden w-4 cursor-col-resize touch-none items-center justify-center border-r border-transparent hover:border-border hover:bg-muted/50 active:bg-muted md:flex"
                   onMouseDown={(e) => rightPanel.startResize(e, "right")}
                 >
                   <GripVertical className="size-4 text-muted-foreground opacity-70" aria-hidden />
@@ -371,7 +447,7 @@ export function DashboardAgentHubShell({ workspaceId }: HubShellProps) {
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="absolute top-3 right-3 z-30"
+                    className="absolute top-3 right-3 z-30 hidden md:flex"
                     aria-label="Close agent hub"
                   >
                     <XIcon className="size-4" />

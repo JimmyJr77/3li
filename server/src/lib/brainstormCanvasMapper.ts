@@ -31,6 +31,17 @@ const BASIC_SHAPE_VARIANTS = [
   "circle",
   "diamond",
   "triangle",
+  "hexagon",
+  "pentagon",
+  "octagon",
+  "star",
+  "parallelogram",
+  "cube",
+  "block_3d",
+  "cylinder",
+  "cone",
+  "sphere",
+  "pyramid",
 ] as const;
 
 function normalizeBasicShapeVariant(raw: unknown): (typeof BASIC_SHAPE_VARIANTS)[number] {

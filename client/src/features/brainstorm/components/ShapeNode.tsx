@@ -1,6 +1,10 @@
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { useLayoutEffect, useRef } from "react";
-import type { ShapeFlowNode, StencilLibrary } from "@/features/brainstorm/types";
+import {
+  BasicShapeSvgBackground,
+  basicShapeUsesSvgBackground,
+} from "@/features/brainstorm/components/BasicShapeSvgBackground";
+import type { ShapeFlowNode, ShapeVariant, StencilLibrary } from "@/features/brainstorm/types";
 import { findWireframePreset } from "@/features/brainstorm/wireframePresets";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
@@ -17,13 +21,19 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
 
   const stencilLibrary: StencilLibrary = data.stencilLibrary ?? "basic";
   const isBasic = stencilLibrary === "basic";
-  const variant = data.variant ?? "rectangle";
+  const variant: ShapeVariant = data.variant ?? "rectangle";
   const isEllipse = variant === "ellipse";
   const isCircle = variant === "circle";
   const isRoundedRect = variant === "rectangle_rounded" || variant === "square_rounded";
   const isSharpQuad = variant === "rectangle" || variant === "square";
-  const isDiamond = variant === "diamond";
-  const isTriangle = variant === "triangle";
+  const usesSvgChrome = basicShapeUsesSvgBackground(variant);
+  const pointyCaptionPadding =
+    variant === "diamond" ||
+    variant === "triangle" ||
+    variant === "pentagon" ||
+    variant === "star" ||
+    variant === "cone" ||
+    variant === "pyramid";
   const wireLib = isWireframeLibrary(stencilLibrary) ? stencilLibrary : null;
   const wirePreset = wireLib ? findWireframePreset(wireLib, data.presetId) : undefined;
   const WireIcon = wirePreset?.Icon;
@@ -62,8 +72,8 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
   const chromeBox = (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col px-2 pb-1.5 pt-2",
-        isBasic && isDiamond && "px-5",
+        "relative z-[1] flex min-h-0 flex-1 flex-col px-2 pb-1.5 pt-2",
+        isBasic && pointyCaptionPadding && "px-5 pt-1",
       )}
     >
       {isBasic ? (
@@ -127,27 +137,24 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
         <NodeCaptionWrapper {...nodeCaptionPropsFromData(data)} className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div
             className={cn(
-              "flex min-h-0 w-full flex-1 flex-col overflow-hidden",
-              isBasic
+              "relative flex min-h-0 w-full flex-1 flex-col overflow-hidden shadow-sm",
+              isBasic && !usesSvgChrome
                 ? cn(
-                    "border-2 border-border bg-card/95 shadow-sm",
+                    "border-2 border-border bg-card/95",
                     isEllipse || isCircle ? "rounded-[50%]" : null,
                     isRoundedRect ? "rounded-2xl" : null,
                     isSharpQuad ? "rounded-none" : null,
-                    isDiamond && "rounded-none [clip-path:polygon(50%_2%,98%_50%,50%_98%,2%_50%)]",
-                    isTriangle && "rounded-none border-0 [clip-path:polygon(50%_6%,100%_90%,0%_90%)]",
                     !isEllipse &&
                       !isCircle &&
                       !isRoundedRect &&
                       !isSharpQuad &&
-                      !isDiamond &&
-                      !isTriangle &&
                       "rounded-lg",
                   )
-                : "rounded-lg border-2 border-border bg-card/95 shadow-sm",
+                : !isBasic && "rounded-lg border-2 border-border bg-card/95",
             )}
-            style={nodeChromeToStyle(data)}
+            style={isBasic && !usesSvgChrome ? nodeChromeToStyle(data) : !isBasic ? nodeChromeToStyle(data) : undefined}
           >
+            {isBasic && usesSvgChrome ? <BasicShapeSvgBackground variant={variant} data={data} /> : null}
             {chromeBox}
           </div>
         </NodeCaptionWrapper>

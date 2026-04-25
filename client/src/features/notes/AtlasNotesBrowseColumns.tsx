@@ -11,6 +11,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from "@dnd-kit/utilities";
 import {
   BookPlus,
+  ChevronDown,
   ChevronLeft,
   FilePlus,
   Globe,
@@ -18,7 +19,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,8 @@ import {
   useRoutedNoteGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
 import type { AtlasNoteDto, NotesFolderDto } from "./types";
+import { isProtectedNotebookTitle } from "./notebookConstants";
+import { useNotesBrowseDesktop } from "./useNotesBrowseDesktop";
 
 function CollapsibleRail({
   open,
@@ -104,6 +107,69 @@ function CollapsibleRail({
   );
 }
 
+/** Full-width stacked accordion row for narrow viewports (see `useNotesBrowseDesktop`). */
+function StackBrowsePanel({
+  open,
+  onOpenChange,
+  label,
+  headerRight,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  label: string;
+  headerRight?: ReactNode;
+  children: React.ReactNode;
+}) {
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="flex w-full shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2.5 text-left hover:bg-muted/70"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenChange(true);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-expanded={false}
+        aria-label={`Expand ${label}`}
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      </button>
+    );
+  }
+  return (
+    <div className="flex min-h-0 w-full min-w-0 shrink-0 flex-col border-b border-border bg-muted/30">
+      <div className="relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-muted/30 px-2 py-1.5">
+        <span className="truncate text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {headerRight}
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-xs"
+            title="Collapse this section"
+            className="size-8 shrink-0"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenChange(false);
+            }}
+            aria-expanded
+            aria-label={`Collapse ${label}`}
+          >
+            <ChevronDown className="size-4 rotate-180" aria-hidden />
+          </Button>
+        </div>
+      </div>
+      <div className="relative z-0 max-h-[min(70dvh,560px)] min-h-[10rem] shrink-0 overflow-y-auto p-2">{children}</div>
+    </div>
+  );
+}
+
 function SortableFolderRow({
   folder,
   active,
@@ -111,6 +177,7 @@ function SortableFolderRow({
   onPatch,
   onDelete,
   dragDisabled,
+  canDeleteNotebook,
 }: {
   folder: NotesFolderDto;
   active: boolean;
@@ -118,6 +185,7 @@ function SortableFolderRow({
   onPatch: (payload: { title: string; rowAccentColor: string | null }) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   dragDisabled: boolean;
+  canDeleteNotebook: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: folder.id,
@@ -166,6 +234,7 @@ function SortableFolderRow({
         initialAccent={folder.rowAccentColor ?? null}
         onApply={onPatch}
         onDelete={onDelete}
+        canDelete={canDeleteNotebook}
         deleteConfirmation={`Delete notebook “${folder.title}”? Notes inside will be moved to another notebook if one exists.`}
       />
     </div>
@@ -358,9 +427,15 @@ export function AtlasNotesBrowseColumns({
   /** When set, Rapid Router–routed notes show a glow until opened or edited here. */
   routingWorkspaceId?: string | null;
 }) {
-  const [foldersOpen, setFoldersOpen] = useState(true);
-  const [notesOpen, setNotesOpen] = useState(true);
+  const isDesktop = useNotesBrowseDesktop();
+  const [foldersOpen, setFoldersOpen] = useState(isDesktop);
+  const [notesOpen, setNotesOpen] = useState(isDesktop);
   const [notebookSearch, setNotebookSearch] = useState("");
+
+  useEffect(() => {
+    setFoldersOpen(isDesktop);
+    setNotesOpen(isDesktop);
+  }, [isDesktop]);
 
   const notebookSearchActive = notebookSearch.trim().length > 0;
   const foldersShown = useMemo(() => {
@@ -403,176 +478,206 @@ export function AtlasNotesBrowseColumns({
     void onReorderNotes(next);
   };
 
-  return (
+  const notebooksHeaderRight = (
+    <Button
+      type="button"
+      size="icon-xs"
+      variant="ghost"
+      aria-label="New notebook"
+      title="New notebook"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onNewFolder();
+      }}
+      disabled={newFolderPending}
+    >
+      <BookPlus className="size-3.5" />
+    </Button>
+  );
+
+  const notesHeaderRight = (
+    <Button
+      type="button"
+      size="icon-xs"
+      variant="ghost"
+      aria-label="New note"
+      title="New note"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onNewNote();
+      }}
+      disabled={createPending}
+    >
+      <FilePlus className="size-3.5" />
+    </Button>
+  );
+
+  const notebooksInner = (
     <>
-      <CollapsibleRail
-        open={foldersOpen}
-        onOpenChange={setFoldersOpen}
-        label="NOTEBOOKS"
-        widthClass="w-52"
-        headerRight={
+      <Input
+        placeholder="Find notebooks…"
+        value={notebookSearch}
+        onChange={(e) => setNotebookSearch(e.target.value)}
+        className="mb-2 h-8 text-sm"
+        aria-label="Filter notebooks"
+      />
+      {universalSearch ? (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-500/35 bg-sky-500/10 px-2 py-1.5 text-[0.65rem] text-sky-900 dark:text-sky-100">
+          <Globe className="size-3.5 shrink-0" aria-hidden />
+          <span className="font-medium">Searching all notebooks</span>
+        </div>
+      ) : null}
+      {notebookSearchActive ? (
+        <p className="mb-2 text-[0.65rem] text-muted-foreground">Clear the filter to reorder notebooks.</p>
+      ) : null}
+      <DndContext
+        id="notebooks-dnd"
+        sensors={folderSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onFolderDragEnd}
+      >
+        <SortableContext items={folderIdsShown} strategy={verticalListSortingStrategy}>
+          <nav
+            className={cn(
+              "flex flex-col gap-0.5",
+              universalSearch && "rounded-md opacity-60 transition-opacity",
+            )}
+          >
+            {foldersShown.map((f) => (
+              <SortableFolderRow
+                key={f.id}
+                folder={f}
+                active={!universalSearch && folderFilter === f.id}
+                onSelect={() => {
+                  onPickNotebook(f.id);
+                }}
+                onPatch={(payload) => onPatchFolder(f.id, payload)}
+                onDelete={() => void onDeleteFolder(f.id)}
+                dragDisabled={notebookSearchActive}
+                canDeleteNotebook={!isProtectedNotebookTitle(f.title)}
+              />
+            ))}
+          </nav>
+        </SortableContext>
+      </DndContext>
+    </>
+  );
+
+  const notesInner = (
+    <>
+      <div className="mb-3 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <Input
+            placeholder={universalSearch ? "Search all notebooks…" : "Filter notes in this notebook…"}
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            className="h-8 min-w-0 flex-1 text-sm"
+            aria-label={universalSearch ? "Search notes in all notebooks" : "Filter notes in the selected notebook"}
+          />
           <Button
             type="button"
-            size="icon-xs"
-            variant="ghost"
-            aria-label="New notebook"
-            title="New notebook"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onNewFolder();
-            }}
-            disabled={newFolderPending}
+            size="icon"
+            variant={universalSearch ? "secondary" : "outline"}
+            className={cn("size-8 shrink-0", universalSearch && "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100")}
+            title={universalSearch ? "Universal search on — click to return to one notebook" : "Search across all notebooks"}
+            aria-pressed={universalSearch}
+            aria-label={universalSearch ? "Exit universal note search" : "Search all notebooks"}
+            onClick={() => onUniversalSearchChange(!universalSearch)}
           >
-            <BookPlus className="size-3.5" />
+            <Globe className="size-4" />
           </Button>
-        }
-      >
-        <Input
-          placeholder="Find notebooks…"
-          value={notebookSearch}
-          onChange={(e) => setNotebookSearch(e.target.value)}
-          className="mb-2 h-8 text-sm"
-          aria-label="Filter notebooks"
-        />
-        {universalSearch ? (
-          <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-500/35 bg-sky-500/10 px-2 py-1.5 text-[0.65rem] text-sky-900 dark:text-sky-100">
-            <Globe className="size-3.5 shrink-0" aria-hidden />
-            <span className="font-medium">Searching all notebooks</span>
+        </div>
+      </div>
+      {!canReorderNotes ? (
+        <p className="mb-2 text-[0.65rem] text-muted-foreground">Select a single notebook to reorder notes.</p>
+      ) : null}
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+        {!localMode && notesLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Loading…
           </div>
-        ) : null}
-        {notebookSearchActive ? (
-          <p className="mb-2 text-[0.65rem] text-muted-foreground">Clear the filter to reorder notebooks.</p>
-        ) : null}
-        <DndContext
-          id="notebooks-dnd"
-          sensors={folderSensors}
-          collisionDetection={closestCenter}
-          onDragEnd={onFolderDragEnd}
-        >
-          <SortableContext items={folderIdsShown} strategy={verticalListSortingStrategy}>
-            <nav
-              className={cn(
-                "flex flex-col gap-0.5",
-                universalSearch && "rounded-md opacity-60 transition-opacity",
-              )}
-            >
-              {foldersShown.map((f) => (
-                <SortableFolderRow
-                  key={f.id}
-                  folder={f}
-                  active={!universalSearch && folderFilter === f.id}
+        ) : displayList.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {universalSearch
+              ? searchQ.trim()
+                ? "No notes match."
+                : "Type above to search every notebook, or turn off the globe to browse one notebook."
+              : "No notes yet. Create one to get started."}
+          </p>
+        ) : canReorderNotes ? (
+          <DndContext id="atlas-notes-dnd" sensors={noteSensors} collisionDetection={closestCenter} onDragEnd={onNoteDragEnd}>
+            <SortableContext items={noteIds} strategy={verticalListSortingStrategy}>
+              {displayList.map((n) => (
+                <SortableNoteRow
+                  key={n.id}
+                  note={n}
+                  active={resolvedSelectedId === n.id}
+                  routingWorkspaceId={routingWorkspaceId}
                   onSelect={() => {
-                    onPickNotebook(f.id);
+                    setSelectedId(n.id);
                   }}
-                  onPatch={(payload) => onPatchFolder(f.id, payload)}
-                  onDelete={() => void onDeleteFolder(f.id)}
-                  dragDisabled={notebookSearchActive}
+                  onPatch={(payload) => onPatchNote(n.id, payload)}
+                  onDelete={() => void onDeleteNote(n.id)}
                 />
               ))}
-            </nav>
-          </SortableContext>
-        </DndContext>
-      </CollapsibleRail>
-
-      <CollapsibleRail
-        open={notesOpen}
-        onOpenChange={setNotesOpen}
-        label="NOTES"
-        widthClass="w-64"
-        headerRight={
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            aria-label="New note"
-            title="New note"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onNewNote();
-            }}
-            disabled={createPending}
-          >
-            <FilePlus className="size-3.5" />
-          </Button>
-        }
-      >
-        <div className="mb-3 flex flex-col gap-2">
-          <div className="flex gap-2">
-            <Input
-              placeholder={universalSearch ? "Search all notebooks…" : "Filter notes in this notebook…"}
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              className="h-8 min-w-0 flex-1 text-sm"
-              aria-label={universalSearch ? "Search notes in all notebooks" : "Filter notes in the selected notebook"}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          displayList.map((n) => (
+            <BrowseNoteListRowStatic
+              key={n.id}
+              note={n}
+              active={resolvedSelectedId === n.id}
+              routingWorkspaceId={routingWorkspaceId}
+              setSelectedId={setSelectedId}
+              onPatchNote={onPatchNote}
+              onDeleteNote={onDeleteNote}
             />
-            <Button
-              type="button"
-              size="icon"
-              variant={universalSearch ? "secondary" : "outline"}
-              className={cn("size-8 shrink-0", universalSearch && "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-100")}
-              title={universalSearch ? "Universal search on — click to return to one notebook" : "Search across all notebooks"}
-              aria-pressed={universalSearch}
-              aria-label={universalSearch ? "Exit universal note search" : "Search all notebooks"}
-              onClick={() => onUniversalSearchChange(!universalSearch)}
-            >
-              <Globe className="size-4" />
-            </Button>
-          </div>
-        </div>
-        {!canReorderNotes ? (
-          <p className="mb-2 text-[0.65rem] text-muted-foreground">Select a single notebook to reorder notes.</p>
-        ) : null}
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-          {!localMode && notesLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" />
-              Loading…
-            </div>
-          ) : displayList.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {universalSearch
-                ? searchQ.trim()
-                  ? "No notes match."
-                  : "Type above to search every notebook, or turn off the globe to browse one notebook."
-                : "No notes yet. Create one to get started."}
-            </p>
-          ) : canReorderNotes ? (
-            <DndContext id="atlas-notes-dnd" sensors={noteSensors} collisionDetection={closestCenter} onDragEnd={onNoteDragEnd}>
-              <SortableContext items={noteIds} strategy={verticalListSortingStrategy}>
-                {displayList.map((n) => (
-                  <SortableNoteRow
-                    key={n.id}
-                    note={n}
-                    active={resolvedSelectedId === n.id}
-                    routingWorkspaceId={routingWorkspaceId}
-                    onSelect={() => {
-                      setSelectedId(n.id);
-                    }}
-                    onPatch={(payload) => onPatchNote(n.id, payload)}
-                    onDelete={() => void onDeleteNote(n.id)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          ) : (
-            displayList.map((n) => (
-              <BrowseNoteListRowStatic
-                key={n.id}
-                note={n}
-                active={resolvedSelectedId === n.id}
-                routingWorkspaceId={routingWorkspaceId}
-                setSelectedId={setSelectedId}
-                onPatchNote={onPatchNote}
-                onDeleteNote={onDeleteNote}
-              />
-            ))
-          )}
-        </div>
-      </CollapsibleRail>
+          ))
+        )}
+      </div>
     </>
+  );
+
+  if (isDesktop) {
+    return (
+      <>
+        <CollapsibleRail
+          open={foldersOpen}
+          onOpenChange={setFoldersOpen}
+          label="NOTEBOOKS"
+          widthClass="w-52"
+          headerRight={notebooksHeaderRight}
+        >
+          {notebooksInner}
+        </CollapsibleRail>
+
+        <CollapsibleRail open={notesOpen} onOpenChange={setNotesOpen} label="NOTES" widthClass="w-64" headerRight={notesHeaderRight}>
+          {notesInner}
+        </CollapsibleRail>
+      </>
+    );
+  }
+
+  return (
+    <div className="flex w-full min-w-0 shrink-0 flex-col">
+      <StackBrowsePanel
+        open={foldersOpen}
+        onOpenChange={setFoldersOpen}
+        label="Notebooks"
+        headerRight={notebooksHeaderRight}
+      >
+        {notebooksInner}
+      </StackBrowsePanel>
+
+      <StackBrowsePanel open={notesOpen} onOpenChange={setNotesOpen} label="Notes" headerRight={notesHeaderRight}>
+        {notesInner}
+      </StackBrowsePanel>
+    </div>
   );
 }

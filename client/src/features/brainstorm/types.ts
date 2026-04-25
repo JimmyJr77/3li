@@ -71,8 +71,8 @@ export type IdeaNodeData = {
 
 export type IdeaFlowNode = Node<IdeaNodeData, "idea">;
 
-/** Basic geometry presets (not wireframe kits). */
-export const BASIC_SHAPE_VARIANTS = [
+/** Flat / diagram geometry (not wireframe kits). */
+export const BASIC_2D_SHAPE_VARIANTS = [
   "rectangle",
   "rectangle_rounded",
   "square",
@@ -81,7 +81,25 @@ export const BASIC_SHAPE_VARIANTS = [
   "circle",
   "diamond",
   "triangle",
+  "hexagon",
+  "pentagon",
+  "octagon",
+  "star",
+  "parallelogram",
 ] as const;
+
+/** Stylized solids (same persistence model as 2D basics). */
+export const BASIC_3D_SHAPE_VARIANTS = [
+  "cube",
+  "block_3d",
+  "cylinder",
+  "cone",
+  "sphere",
+  "pyramid",
+] as const;
+
+/** Basic geometry presets (2D + 3D; not wireframe kits). */
+export const BASIC_SHAPE_VARIANTS = [...BASIC_2D_SHAPE_VARIANTS, ...BASIC_3D_SHAPE_VARIANTS] as const;
 
 export type ShapeVariant = (typeof BASIC_SHAPE_VARIANTS)[number];
 

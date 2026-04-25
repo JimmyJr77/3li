@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { extractPlainTextFromDoc } from "./extractPreview";
 import { AtlasNotesBrowseColumns } from "./AtlasNotesBrowseColumns";
+import { isProtectedNotebookTitle } from "./notebookConstants";
 import { applyLocalContentPatch, LOCAL_WORKSPACE_ID, useLocalNotesStore } from "./localNotesStore";
 import { NoteEditor } from "./NoteEditor";
 import { NoteLinksPanel } from "./NoteLinksPanel";
@@ -379,8 +380,8 @@ export function AtlasNotesApp() {
         </div>
       ) : null}
 
-      <div className="flex min-h-[min(68vh,700px)] flex-1 gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex min-w-0 shrink-0 items-stretch">
+      <div className="flex min-h-[min(68vh,700px)] flex-1 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm md:flex-row">
+        <div className="flex min-w-0 shrink-0 flex-col items-stretch md:flex-row">
         <AtlasNotesBrowseColumns
           localMode={localMode}
           topFolders={topFolders}
@@ -472,6 +473,11 @@ export function AtlasNotesApp() {
             }
           }}
           onDeleteFolder={async (folderId) => {
+            const folderMeta = topFolders.find((f) => f.id === folderId);
+            if (folderMeta && isProtectedNotebookTitle(folderMeta.title)) {
+              window.alert("The Quicknotes and default Notebook folders cannot be deleted.");
+              return;
+            }
             if (topFolders.length <= 1) {
               window.alert("Create a second notebook before deleting this one. Every workspace needs at least one notebook.");
               return;
@@ -500,7 +506,7 @@ export function AtlasNotesApp() {
         />
         </div>
 
-        <section className="flex min-w-0 min-h-0 flex-1 flex-col border-l border-border bg-background p-4">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-background p-4 md:border-t-0 md:border-l">
           {selected ? (
             <>
               <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">

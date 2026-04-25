@@ -4,6 +4,7 @@ import type { PatchNoteBody } from "./api";
 import { previewFromDoc, titleMatchesWiki } from "./localWiki";
 import type { AtlasNoteDto, NoteLinkSummaryDto, NoteTagDto, NotesBootstrapDto, NotesFolderDto } from "./types";
 import { DEFAULT_NOTEBOOK_BASE, DEFAULT_NOTE_BASE, nextSequencedTitle } from "./defaultNames";
+import { isProtectedNotebookTitle } from "./notebookConstants";
 
 export const LOCAL_WORKSPACE_ID = "local-workspace";
 
@@ -205,7 +206,36 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
       },
 
       deleteNote: (id) => {
-        set((st) => ({ notes: st.notes.filter((n) => n.id !== id) }));
+        set((st) => {
+          let notes = st.notes.filter((n) => n.id !== id);
+          if (notes.length === 0) {
+            const notebookFolder = st.folders.find((f) => f.parentId === null && f.title === DEFAULT_NOTEBOOK_BASE);
+            if (notebookFolder) {
+              const t = nowIso();
+              notes = [
+                {
+                  id: crypto.randomUUID(),
+                  workspaceId: LOCAL_WORKSPACE_ID,
+                  folderId: notebookFolder.id,
+                  title: DEFAULT_NOTE_BASE,
+                  slug: null,
+                  contentJson: emptyDoc(),
+                  previewText: null,
+                  position: 0,
+                  rowAccentColor: null,
+                  isPinned: false,
+                  isPublic: false,
+                  publicSlug: null,
+                  routingSource: null,
+                  tags: [],
+                  createdAt: t,
+                  updatedAt: t,
+                },
+              ];
+            }
+          }
+          return { notes };
+        });
       },
 
       createFolder: (title) => {
@@ -251,10 +281,13 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
 
       deleteFolder: (id) => {
         const s = get();
-        const top = s.folders.filter((f) => f.parentId === null);
-        if (top.length <= 1) throw new Error("Cannot delete the only folder");
         const victim = s.folders.find((f) => f.id === id);
         if (!victim) throw new Error("Folder not found");
+        if (victim.parentId === null && isProtectedNotebookTitle(victim.title)) {
+          throw new Error("The Quicknotes and default Notebook folders cannot be deleted.");
+        }
+        const top = s.folders.filter((f) => f.parentId === null);
+        if (top.length <= 1) throw new Error("Cannot delete the only folder");
         const target = top.find((f) => f.id !== id);
         if (!target) throw new Error("No target folder");
         const notes = s.notes.map((n) =>

@@ -4,12 +4,12 @@ import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { prisma } from "./db.js";
 import { ensurePersonalWorkspaceBoard } from "./taskDefaults.js";
 import { DEFAULT_NOTE_BASE } from "./sequencedDefaultTitle.js";
+import { DEFAULT_NOTEBOOK_TITLE, QUICKNOTES_NOTEBOOK_TITLE } from "./notebookConstants.js";
 
-const QUICKNOTES_FOLDER_TITLE = "Quicknotes";
-const NOTEBOOK_FOLDER_TITLE = "Notebook";
 const LEGACY_NOTES_FOLDER_TITLE = "Notes";
 
-const EMPTY_NOTE_DOC: Prisma.InputJsonValue = {
+/** Empty TipTap doc for seeded notes (delete-last-note recovery, bootstrap). */
+export const STARTER_NOTE_CONTENT_JSON: Prisma.InputJsonValue = {
   type: "doc",
   content: [{ type: "paragraph" }],
 };
@@ -31,44 +31,44 @@ export async function syncNotesWorkspaceFolderDefaults(
 
     let tops = await refetchTops();
 
-    const hasNotebookTitle = tops.some((f) => f.title === NOTEBOOK_FOLDER_TITLE);
+    const hasNotebookTitle = tops.some((f) => f.title === DEFAULT_NOTEBOOK_TITLE);
     if (!hasNotebookTitle) {
       const legacyNotes = tops.filter((f) => f.title === LEGACY_NOTES_FOLDER_TITLE);
       if (legacyNotes.length === 1) {
         await tx.notesFolder.update({
           where: { id: legacyNotes[0]!.id },
-          data: { title: NOTEBOOK_FOLDER_TITLE },
+          data: { title: DEFAULT_NOTEBOOK_TITLE },
         });
         tops = await refetchTops();
       }
     }
 
-    if (!tops.some((f) => f.title === QUICKNOTES_FOLDER_TITLE)) {
+    if (!tops.some((f) => f.title === QUICKNOTES_NOTEBOOK_TITLE)) {
       await tx.notesFolder.create({
         data: {
           workspaceId,
           parentId: null,
-          title: QUICKNOTES_FOLDER_TITLE,
+          title: QUICKNOTES_NOTEBOOK_TITLE,
           position: 9999,
         },
       });
       tops = await refetchTops();
     }
 
-    if (!tops.some((f) => f.title === NOTEBOOK_FOLDER_TITLE)) {
+    if (!tops.some((f) => f.title === DEFAULT_NOTEBOOK_TITLE)) {
       await tx.notesFolder.create({
         data: {
           workspaceId,
           parentId: null,
-          title: NOTEBOOK_FOLDER_TITLE,
+          title: DEFAULT_NOTEBOOK_TITLE,
           position: 9998,
         },
       });
       tops = await refetchTops();
     }
 
-    const quickFolder = tops.find((f) => f.title === QUICKNOTES_FOLDER_TITLE);
-    const notebookFolder = tops.find((f) => f.title === NOTEBOOK_FOLDER_TITLE);
+    const quickFolder = tops.find((f) => f.title === QUICKNOTES_NOTEBOOK_TITLE);
+    const notebookFolder = tops.find((f) => f.title === DEFAULT_NOTEBOOK_TITLE);
     if (!quickFolder || !notebookFolder) {
       throw new Error("notesDefaults: failed to ensure Quicknotes and Notebook folders");
     }
@@ -91,17 +91,17 @@ export async function syncNotesWorkspaceFolderDefaults(
           folderId: notebookFolder.id,
           title: DEFAULT_NOTE_BASE,
           position: 0,
-          contentJson: EMPTY_NOTE_DOC,
+          contentJson: STARTER_NOTE_CONTENT_JSON,
         },
       });
     }
   });
 
   const quicknotes = await prisma.notesFolder.findFirstOrThrow({
-    where: { workspaceId, parentId: null, title: QUICKNOTES_FOLDER_TITLE },
+    where: { workspaceId, parentId: null, title: QUICKNOTES_NOTEBOOK_TITLE },
   });
   const notebook = await prisma.notesFolder.findFirstOrThrow({
-    where: { workspaceId, parentId: null, title: NOTEBOOK_FOLDER_TITLE },
+    where: { workspaceId, parentId: null, title: DEFAULT_NOTEBOOK_TITLE },
   });
   return { notebook, quicknotes };
 }

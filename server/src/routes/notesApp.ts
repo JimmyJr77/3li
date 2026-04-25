@@ -12,8 +12,10 @@ import {
 import {
   ensureDefaultNotesFolder,
   ensureNotesBootstrap,
+  STARTER_NOTE_CONTENT_JSON,
   syncNotesWorkspaceFolderDefaults,
 } from "../lib/notesDefaults.js";
+import { DEFAULT_NOTEBOOK_TITLE, isProtectedNotebookTitle } from "../lib/notebookConstants.js";
 import type { Workspace } from "@prisma/client";
 import { syncNoteLinksFromContent } from "../lib/wikiLinks.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
@@ -353,6 +355,10 @@ router.delete("/folders/:folderId", async (req, res) => {
     const folder = await prisma.notesFolder.findUnique({ where: { id: folderId } });
     if (!folder) {
       res.status(404).json({ error: "Folder not found" });
+      return;
+    }
+    if (folder.parentId === null && isProtectedNotebookTitle(folder.title)) {
+      res.status(400).json({ error: "The Quicknotes and default Notebook folders cannot be deleted." });
       return;
     }
     const siblingCount = await prisma.notesFolder.count({
@@ -1023,10 +1029,49 @@ router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
 
 router.delete("/notes/:noteId", async (req, res) => {
   try {
-    if (!(await assertNoteAccessible(req, res, req.params.noteId))) {
+    const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
       return;
     }
-    await prisma.note.delete({ where: { id: req.params.noteId } });
+    const before = await prisma.note.findUnique({
+      where: { id: noteId },
+      select: { workspaceId: true },
+    });
+    if (!before) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const wsId = before.workspaceId;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.note.delete({ where: { id: noteId } });
+      const remaining = await tx.note.count({ where: { workspaceId: wsId } });
+      if (remaining > 0) return;
+
+      let notebookFolder = await tx.notesFolder.findFirst({
+        where: { workspaceId: wsId, parentId: null, title: DEFAULT_NOTEBOOK_TITLE },
+      });
+      if (!notebookFolder) {
+        notebookFolder = await tx.notesFolder.create({
+          data: {
+            workspaceId: wsId,
+            parentId: null,
+            title: DEFAULT_NOTEBOOK_TITLE,
+            position: 1,
+          },
+        });
+      }
+      await tx.note.create({
+        data: {
+          workspaceId: wsId,
+          folderId: notebookFolder.id,
+          title: DEFAULT_NOTE_BASE,
+          position: 0,
+          contentJson: STARTER_NOTE_CONTENT_JSON,
+        },
+      });
+    });
+
     res.status(204).send();
   } catch {
     res.status(500).json({ error: "Failed to delete note" });
