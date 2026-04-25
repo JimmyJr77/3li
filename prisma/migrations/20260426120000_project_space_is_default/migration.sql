@@ -1,9 +1,12 @@
--- Primary project space per brand workspace: one row is marked isDefault; it cannot be archived.
-ALTER TABLE "ProjectSpace" ADD COLUMN "isDefault" BOOLEAN NOT NULL DEFAULT false;
+-- Primary project space per workspace: one row is marked isDefault.
+-- Idempotent: `20260201120000_project_space_default_purpose` may already have added `isDefault` + index
+-- (migration ordering / history overlap). Safe to re-run on Neon and local.
 
-CREATE INDEX "ProjectSpace_workspaceId_isDefault_idx" ON "ProjectSpace"("workspaceId", "isDefault");
+ALTER TABLE "ProjectSpace" ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN NOT NULL DEFAULT false;
 
--- Mark the earliest-created active project space per workspace as the default (matches first-time brand setup).
+CREATE INDEX IF NOT EXISTS "ProjectSpace_workspaceId_isDefault_idx" ON "ProjectSpace"("workspaceId", "isDefault");
+
+-- Mark the earliest-created active project space per workspace as the default.
 UPDATE "ProjectSpace" ps
 SET "isDefault" = true
 FROM (
