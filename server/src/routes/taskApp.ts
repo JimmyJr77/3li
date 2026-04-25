@@ -140,6 +140,7 @@ function parseTemplateListsPayload(raw: unknown): BoardTemplateList[] | null {
 }
 
 async function resolveWorkspaceTemplate(
+  user: AppUserPrincipal,
   _workspaceId: string,
   templateId: string,
 ): Promise<{ templateName: string; lists: BoardTemplateList[] } | null> {
@@ -151,6 +152,19 @@ async function resolveWorkspaceTemplate(
     where: { id: templateId },
   });
   if (!row) return null;
+  if (row.createdByUserId) {
+    if (row.createdByUserId !== user.id) {
+      return null;
+    }
+  } else {
+    if (!row.workspaceId) {
+      return null;
+    }
+    const ok = await assertWorkspaceAccess(user, row.workspaceId);
+    if (!ok) {
+      return null;
+    }
+  }
   const lists = parseTemplateListsPayload(row.lists);
   if (!lists) return null;
   return { templateName: row.name, lists };
@@ -683,6 +697,22 @@ router.get("/workspaces/:workspaceId/archived-boards", async (req, res) => {
   }
 });
 
+/** Project spaces (delivery threads) archived within this brand workspace only (`router.param` enforces access). */
+router.get("/workspaces/:workspaceId/archived-project-spaces", async (req, res) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const projectSpaces = await prisma.projectSpace.findMany({
+      where: { workspaceId, archivedAt: { not: null } },
+      orderBy: { archivedAt: "desc" },
+      select: { id: true, name: true, archivedAt: true },
+    });
+    res.json({ projectSpaces });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to list archived project spaces" });
+  }
+});
+
 router.get("/boards/:boardId", async (req, res) => {
   try {
     const board = await prisma.board.findUnique({
@@ -848,7 +878,6 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
 
 router.get("/board-templates", async (req, res) => {
   try {
-    const accessible = await listAccessibleWorkspaceIds(req.appUser!);
     const builtins = BOARD_TEMPLATES.map((t) => ({
       id: t.id,
       name: t.name,
@@ -859,12 +888,11 @@ router.get("/board-templates", async (req, res) => {
       workspaceName: null as string | null,
     }));
     const customs = await prisma.customBoardTemplate.findMany({
+      where: { createdByUserId: req.appUser!.id },
       orderBy: { createdAt: "desc" },
       include: { workspace: { select: { name: true } } },
     });
-    const customSummaries = customs
-      .filter((c) => !c.workspaceId || accessible.includes(c.workspaceId))
-      .map((c) => {
+    const customSummaries = customs.map((c) => {
       const lists = parseTemplateListsPayload(c.lists);
       return {
         id: c.id,
@@ -897,6 +925,7 @@ router.post("/board-templates", async (req, res) => {
     }
     const created = await prisma.customBoardTemplate.create({
       data: {
+        createdByUserId: req.appUser!.id,
         workspaceId: null,
         name: body.name.trim(),
         description: body.description?.trim() ?? "",
@@ -930,14 +959,14 @@ router.delete("/board-templates/:templateId", async (req, res) => {
       res.status(404).json({ error: "Template not found" });
       return;
     }
-    if (row.workspaceId) {
-      const ok = await assertWorkspaceAccess(req.appUser!, row.workspaceId);
-      if (!ok) {
+    const u = req.appUser!;
+    if (row.createdByUserId) {
+      if (row.createdByUserId !== u.id && u.role !== "admin") {
         res.status(403).json({ error: "Forbidden" });
         return;
       }
-    } else if (req.appUser!.role !== "admin") {
-      res.status(403).json({ error: "Only an administrator can delete global templates" });
+    } else if (u.role !== "admin") {
+      res.status(403).json({ error: "Only an administrator can delete legacy templates" });
       return;
     }
     await prisma.customBoardTemplate.delete({ where: { id: templateId } });
@@ -1780,7 +1809,7 @@ router.post("/workspaces/:workspaceId/boards/from-template", async (req, res) =>
       return;
     }
 
-    const resolved = await resolveWorkspaceTemplate(workspaceId, body.templateId);
+    const resolved = await resolveWorkspaceTemplate(req.appUser!, workspaceId, body.templateId);
     if (!resolved) {
       res.status(404).json({ error: "Unknown template" });
       return;

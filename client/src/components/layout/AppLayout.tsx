@@ -4,6 +4,8 @@ import { ModeToggle } from "@/components/shared/ModeToggle";
 import { WorkspaceBrandSwitcher } from "@/components/layout/WorkspaceBrandSwitcher";
 import { WorkspaceNav, WorkspaceSidebarColumn } from "@/components/layout/WorkspaceSidebarColumn";
 import { ActiveWorkspaceProvider } from "@/context/ActiveWorkspaceContext";
+import { ArchivesVisibilityProvider } from "@/context/ArchivesVisibilityContext";
+import { ShowArchivesFooter } from "@/components/layout/ShowArchivesFooter";
 import { MailroomRoutingProvider, useMailroomRouting } from "@/context/MailroomRoutingContext";
 import { RoutingToastProvider } from "@/context/RoutingToastContext";
 import { NotesWorkspaceShortcutsProvider } from "@/features/notes/NotesWorkspaceShortcutsProvider";
@@ -92,7 +94,10 @@ function AppLayoutInner() {
           )}
         >
           <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6 lg:p-8">
-            <Outlet />
+            <div className="min-h-0 flex-1">
+              <Outlet />
+            </div>
+            <ShowArchivesFooter />
           </div>
         </div>
       </div>
@@ -106,13 +111,15 @@ export function AppLayout() {
   return (
     <WorkspacePrefsProvider>
       <ActiveWorkspaceProvider>
-        <NotesWorkspaceShortcutsProvider>
-          <MailroomRoutingProvider>
-            <RoutingToastProvider>
-              <AppLayoutInner />
-            </RoutingToastProvider>
-          </MailroomRoutingProvider>
-        </NotesWorkspaceShortcutsProvider>
+        <ArchivesVisibilityProvider>
+          <NotesWorkspaceShortcutsProvider>
+            <MailroomRoutingProvider>
+              <RoutingToastProvider>
+                <AppLayoutInner />
+              </RoutingToastProvider>
+            </MailroomRoutingProvider>
+          </NotesWorkspaceShortcutsProvider>
+        </ArchivesVisibilityProvider>
       </ActiveWorkspaceProvider>
     </WorkspacePrefsProvider>
   );

@@ -8,17 +8,17 @@ import {
   createProjectSpace,
   deleteBoardTemplate,
   fetchArchivedBoards,
-  fetchArchivedWorkspaces,
+  fetchArchivedProjectSpaces,
   fetchBoardTemplates,
   fetchWorkspaces,
   patchBoard,
   patchProjectSpace,
-  patchWorkspace,
   reorderProjectSpaces,
 } from "@/features/taskflow/api";
 import { brandMentionLabel } from "@/components/layout/WorkspaceBrandSwitcher";
 import { PMAgentSheet } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -59,6 +59,7 @@ function computeProjectSpaceReorder(orderedIds: string[], draggedId: string, bef
 export function BoardsPage() {
   const queryClient = useQueryClient();
   const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
+  const { showArchives } = useArchivesVisibility();
   const [newProjectSpaceName, setNewProjectSpaceName] = useState("");
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -82,15 +83,16 @@ export function BoardsPage() {
     queryFn: fetchBoardTemplates,
   });
 
-  const archivedWorkspacesQuery = useQuery({
-    queryKey: ["archived-workspaces"],
-    queryFn: fetchArchivedWorkspaces,
+  const archivedProjectSpacesQuery = useQuery({
+    queryKey: ["archived-project-spaces", activeWorkspace?.id] as const,
+    queryFn: () => fetchArchivedProjectSpaces(activeWorkspace!.id),
+    enabled: showArchives && Boolean(activeWorkspace),
   });
 
   const archivedBoardsQuery = useQuery({
     queryKey: ["archived-boards", activeWorkspace?.id] as const,
     queryFn: () => fetchArchivedBoards(activeWorkspace!.id),
-    enabled: Boolean(activeWorkspace),
+    enabled: showArchives && Boolean(activeWorkspace),
   });
 
   const createProjectSpaceMutation = useMutation({
@@ -160,15 +162,17 @@ export function BoardsPage() {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+      queryClient.invalidateQueries({ queryKey: ["archived-project-spaces"] });
     },
   });
 
-  const restoreWorkspaceMutation = useMutation({
-    mutationFn: (id: string) => patchWorkspace(id, { archived: false }),
+  const restoreProjectSpaceFromArchiveMutation = useMutation({
+    mutationFn: (id: string) => patchProjectSpace(id, { archived: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
-      queryClient.invalidateQueries({ queryKey: ["archived-workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["archived-project-spaces"] });
     },
   });
 
@@ -788,14 +792,38 @@ export function BoardsPage() {
         </div>
         ) : null}
 
-        {activeWorkspace ? (
+        {activeWorkspace && showArchives ? (
           <div className="mt-6 space-y-3">
-            {archivedBoardsQuery.isLoading && (
+            {(archivedProjectSpacesQuery.isLoading || archivedBoardsQuery.isLoading) && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                Loading archived project boards…
+                Loading archived project spaces and boards…
               </div>
             )}
+            {!archivedProjectSpacesQuery.isLoading &&
+              (archivedProjectSpacesQuery.data?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-dashed bg-muted/15 p-4">
+                  <p className="mb-2 text-sm font-medium">Archived project spaces</p>
+                  <ul className="space-y-2 text-sm">
+                    {archivedProjectSpacesQuery.data!.map((ps) => (
+                      <li key={ps.id} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-muted-foreground">{ps.name}</span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="shrink-0 gap-1"
+                          disabled={restoreProjectSpaceFromArchiveMutation.isPending}
+                          onClick={() => restoreProjectSpaceFromArchiveMutation.mutate(ps.id)}
+                        >
+                          <ArchiveRestore className="size-3.5" aria-hidden />
+                          Restore
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             {!archivedBoardsQuery.isLoading &&
               (archivedBoardsQuery.data?.length ?? 0) > 0 && (
                 <div className="rounded-lg border border-dashed bg-muted/15 p-4">
@@ -822,33 +850,6 @@ export function BoardsPage() {
               )}
           </div>
         ) : null}
-
-        {archivedWorkspacesQuery.data && archivedWorkspacesQuery.data.length > 0 && (
-          <div className="mt-6 space-y-3 rounded-lg border border-dashed bg-muted/15 p-4">
-            <p className="text-sm font-medium">Archived brand workspaces</p>
-            <p className="text-xs text-muted-foreground">
-              Restoring brings the whole brand ecosystem back (one workspace per brand).
-            </p>
-            <ul className="space-y-2 text-sm">
-              {archivedWorkspacesQuery.data.map((w) => (
-                <li key={w.id} className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate text-muted-foreground">{w.name}</span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="shrink-0 gap-1"
-                    disabled={restoreWorkspaceMutation.isPending}
-                    onClick={() => restoreWorkspaceMutation.mutate(w.id)}
-                  >
-                    <ArchiveRestore className="size-3.5" aria-hidden />
-                    Restore
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </section>
     </div>
   );

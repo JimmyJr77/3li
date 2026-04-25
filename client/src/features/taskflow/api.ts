@@ -273,6 +273,22 @@ export type ArchivedWorkspaceSummary = {
   archivedAt: string;
 };
 
+export type ArchivedProjectSpaceSummary = {
+  id: string;
+  name: string;
+  archivedAt: string;
+};
+
+/** Archived delivery threads for the given brand workspace only. */
+export async function fetchArchivedProjectSpaces(
+  workspaceId: string,
+): Promise<ArchivedProjectSpaceSummary[]> {
+  const { data } = await api.get<{ projectSpaces: ArchivedProjectSpaceSummary[] }>(
+    `/api/task-app/workspaces/${workspaceId}/archived-project-spaces`,
+  );
+  return data.projectSpaces;
+}
+
 export async function fetchArchivedWorkspaces(): Promise<ArchivedWorkspaceSummary[]> {
   const { data } = await api.get<ArchivedWorkspaceSummary[]>("/api/task-app/workspaces/archived");
   return data;

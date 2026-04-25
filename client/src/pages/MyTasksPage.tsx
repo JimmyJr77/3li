@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, ListTodo, Loader2, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
 import { fetchAllTasks, fetchBoard, patchTask } from "@/features/taskflow/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,13 @@ export function MyTasksPage() {
   const [archivedOnly, setArchivedOnly] = useState(false);
 
   const { activeWorkspace, activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
+  const { showArchives } = useArchivesVisibility();
+
+  useEffect(() => {
+    if (!showArchives) {
+      setArchivedOnly(false);
+    }
+  }, [showArchives]);
   const defaultBoardId = activeWorkspace?.projectSpaces?.[0]?.boards?.[0]?.id ?? null;
 
   const boardQuery = useQuery({
@@ -29,6 +37,8 @@ export function MyTasksPage() {
   const boardLabels = boardQuery.data?.labels ?? [];
   const workspaceId = activeWorkspaceId;
 
+  const archivedFilterActive = showArchives && archivedOnly;
+
   const params = useMemo(
     () => ({
       workspaceId: workspaceId!,
@@ -37,9 +47,9 @@ export function MyTasksPage() {
       completed: completed === "all" ? undefined : completed,
       priority: priority === "all" ? undefined : priority,
       sort,
-      ...(archivedOnly ? { archived: "true" as const } : {}),
+      ...(archivedFilterActive ? { archived: "true" as const } : {}),
     }),
-    [workspaceId, q, labelId, completed, priority, sort, archivedOnly],
+    [workspaceId, q, labelId, completed, priority, sort, archivedFilterActive],
   );
 
   const tasksQuery = useQuery({
@@ -178,15 +188,17 @@ export function MyTasksPage() {
         >
           Reset
         </Button>
-        <label className="flex w-full cursor-pointer items-center gap-2 text-sm lg:ml-2 lg:w-auto">
-          <input
-            type="checkbox"
-            checked={archivedOnly}
-            className="size-4 rounded border"
-            onChange={(e) => setArchivedOnly(e.target.checked)}
-          />
-          <span className="text-muted-foreground">Archived tasks only</span>
-        </label>
+        {showArchives ? (
+          <label className="flex w-full cursor-pointer items-center gap-2 text-sm lg:ml-2 lg:w-auto">
+            <input
+              type="checkbox"
+              checked={archivedOnly}
+              className="size-4 rounded border"
+              onChange={(e) => setArchivedOnly(e.target.checked)}
+            />
+            <span className="text-muted-foreground">Archived tasks only</span>
+          </label>
+        ) : null}
       </div>
 
       {loading && (

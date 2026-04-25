@@ -39,7 +39,7 @@ const defaultProfile: WorkspaceProfile = { displayName: "", email: "" };
 
 const defaultsV2: PersistedV2 = {
   v: 2,
-  sidebarBehavior: "overlay",
+  sidebarBehavior: "pinned",
   profile: defaultProfile,
   notesToolbarHiddenIds: [],
 };

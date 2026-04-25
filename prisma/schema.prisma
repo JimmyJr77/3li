@@ -31,6 +31,8 @@ model AppUser {
   sessions     AppSession[]
   /// Task board events attributed to this login (Activity Tracker).
   authoredTaskActivities Activity[] @relation("TaskActivityActor")
+  /// Custom project board column layouts; not shared with other logins.
+  customBoardTemplates CustomBoardTemplate[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 }
@@ -261,10 +263,13 @@ model ProjectSpace {
   @@index([workspaceId, archivedAt])
 }
 
-/// User-defined board column layouts (global or legacy workspace-scoped), merged with built-in templates in the UI.
+/// User-defined board column layouts (per signed-in user), merged with built-in templates in the UI.
 model CustomBoardTemplate {
   id          String     @id @default(cuid())
-  /// Null = usable from any workspace; set for legacy rows only.
+  /// Owner; only this login sees the template. Null = legacy pre-per-user row (not listed in API).
+  createdByUserId String?
+  createdBy   AppUser?   @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  /// Legacy: previously workspace-scoped; kept for back-compat rows only.
   workspaceId String?
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   name        String
@@ -274,6 +279,7 @@ model CustomBoardTemplate {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  @@index([createdByUserId])
   @@index([workspaceId])
 }
 
