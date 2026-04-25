@@ -20,33 +20,78 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, EllipsisVertical, GripVertical, MoreHorizontal, Pin, PinOff, Settings2, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   applyBoardPositions,
   createBoardTask,
   deleteBoardList,
+  fetchBoardSubBoardPreferences,
   patchBoardList,
+  patchSubBoardPreference,
   patchTask,
   reorderBoardLists,
 } from "./api";
-import type { BoardDto, BoardListDto, TaskFlowTask } from "./types";
+import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
+import type { BoardDto, BoardListDto, SubBoardPreferenceDto, TaskFlowTask } from "./types";
+import {
+  laneKey,
+  normalizeTrackerStatus,
+  parseLaneKey,
+  TRACKER_LABELS,
+  TRACKER_STATUSES,
+  type TrackerStatus,
+} from "./trackerMeta";
 import {
   clearRoutedGlow,
   useRoutedTaskGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { cn } from "@/lib/utils";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
-const COL_PREFIX = "board-col:";
+const SB_PREFIX = "board-subboard:";
+const PIN_PREFIX = "board-pinned-subboard:";
+const PIN_DROP_ZONE_ID = "board-pinned-drop-zone";
+const SUB_BOARD_COLOR_OPTIONS = [
+  "#64748b",
+  "#3b82f6",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#a855f7",
+  "#14b8a6",
+  "#f97316",
+] as const;
 
-function colDragId(listId: string) {
-  return `${COL_PREFIX}${listId}`;
+function sbDragId(subBoardId: string) {
+  return `${SB_PREFIX}${subBoardId}`;
 }
 
-function findContainer(id: string, items: Record<string, string[]>): string | undefined {
+function pinnedDragId(subBoardId: string) {
+  return `${PIN_PREFIX}${subBoardId}`;
+}
+
+function findLaneContainer(id: string, items: Record<string, string[]>): string | undefined {
   if (id in items) return id;
   for (const [cid, ids] of Object.entries(items)) {
     if (ids.includes(id)) return cid;
@@ -54,12 +99,84 @@ function findContainer(id: string, items: Record<string, string[]>): string | un
   return undefined;
 }
 
-function buildItems(board: BoardDto): Record<string, string[]> {
+function buildLaneItems(sub: BoardListDto): Record<string, string[]> {
   const o: Record<string, string[]> = {};
-  for (const list of board.lists) {
-    o[list.id] = list.tasks.map((t) => t.id);
+  for (const st of TRACKER_STATUSES) {
+    o[laneKey(sub.id, st)] = [];
+  }
+  for (const t of sub.tasks) {
+    const st = normalizeTrackerStatus(t.trackerStatus);
+    const k = laneKey(sub.id, st);
+    (o[k] ?? o[laneKey(sub.id, "BACKLOG")]).push(t.id);
   }
   return o;
+}
+
+function mergeLaneItems(subBoards: BoardListDto[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const sb of subBoards) {
+    Object.assign(out, buildLaneItems(sb));
+  }
+  return out;
+}
+
+function visibleStatusesForSubBoard(
+  subBoardId: string,
+  prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
+): TrackerStatus[] {
+  const hidden = new Set(prefBySubBoard[subBoardId]?.hiddenTrackerStatuses ?? []);
+  const visible = TRACKER_STATUSES.filter((s) => !hidden.has(s));
+  return visible.length > 0 ? visible : ["BACKLOG"];
+}
+
+function cardColorForSubBoard(
+  subBoardId: string,
+  prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
+): string | undefined {
+  return prefBySubBoard[subBoardId]?.ticketCardColor ?? undefined;
+}
+
+/** Fills defaults when the user has no saved row yet for this sub-board. */
+function normalizedSubBoardPref(
+  subBoardId: string,
+  row?: SubBoardPreferenceDto,
+): SubBoardPreferenceDto {
+  return {
+    subBoardId,
+    ticketCardColor: row?.ticketCardColor ?? null,
+    cardFaceLayout: row?.cardFaceLayout === "minimal" ? "minimal" : "standard",
+    completeCheckboxVisibleByDefault: row?.completeCheckboxVisibleByDefault !== false,
+    hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
+    updatedAt: row?.updatedAt ?? null,
+  };
+}
+
+function effectiveCompleteCheckboxOnCard(
+  task: TaskFlowTask,
+  pref: SubBoardPreferenceDto,
+): boolean {
+  if (task.showCompleteCheckbox === true) return true;
+  if (task.showCompleteCheckbox === false) return false;
+  return pref.completeCheckboxVisibleByDefault;
+}
+
+type SubBoardPrefSavePayload = {
+  subBoardId: string;
+  ticketCardColor: string | null;
+  hiddenTrackerStatuses: TrackerStatus[];
+  cardFaceLayout: string;
+  completeCheckboxVisibleByDefault: boolean;
+};
+
+function upsertPrefRows(
+  prev: SubBoardPreferenceDto[] | undefined,
+  next: SubBoardPreferenceDto,
+): SubBoardPreferenceDto[] {
+  const rows = [...(prev ?? [])];
+  const i = rows.findIndex((r) => r.subBoardId === next.subBoardId);
+  if (i >= 0) rows[i] = next;
+  else rows.push(next);
+  return rows;
 }
 
 function buildTaskMap(board: BoardDto): Map<string, TaskFlowTask> {
@@ -76,52 +193,57 @@ const dropAnimation: DropAnimation = {
   }),
 };
 
-function confirmDeleteList(list: BoardListDto): boolean {
+function confirmDeleteSubBoard(list: BoardListDto): boolean {
   const n = list.tasks.length;
   const detail =
     n > 0
-      ? ` ${n} card${n === 1 ? "" : "s"} will move to another column (Backlog if it exists on this board).`
+      ? ` ${n} ticket${n === 1 ? "" : "s"} will move to another sub-board (Backlog lane if that sub-board exists).`
       : "";
-  return window.confirm(`Delete the column “${list.title}”?${detail}`);
+  return window.confirm(`Delete the sub-board “${list.title}”?${detail}`);
 }
 
 function TaskCardFace({
   task,
   onOpen,
   onToggleComplete,
+  sendTargets,
+  onSendTo,
+  subBoardPref,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
+  sendTargets?: { id: string; title: string }[];
+  onSendTo?: (taskId: string, subBoardId: string) => void;
+  subBoardPref: SubBoardPreferenceDto;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const doneCount = task.checklist?.filter((c) => c.completed).length ?? 0;
   const checkTotal = task.checklist?.length ?? 0;
-  const glow = useRoutedTaskGlow(task.id, taskWs);
+  const sbId = task.subBoardId ?? task.listId ?? task.list?.id;
+  const others = sendTargets?.filter((s) => s.id !== sbId) ?? [];
+  const minimal = subBoardPref.cardFaceLayout === "minimal";
+  const showDoneCheckbox = effectiveCompleteCheckboxOnCard(task, subBoardPref);
 
   return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-1 gap-2 rounded-md",
-        glow &&
-          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
-      )}
-    >
-      <input
-        type="checkbox"
-        checked={task.completed}
-        className="mt-0.5 size-4 shrink-0 rounded border"
-        aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => {
-          if (taskWs) clearRoutedGlow("task", task.id, taskWs);
-          onToggleComplete(task);
-        }}
-      />
+    <div className="flex min-w-0 flex-1 gap-2">
+      {showDoneCheckbox ? (
+        <input
+          type="checkbox"
+          checked={task.completed}
+          className="mt-0.5 size-4 shrink-0 rounded border"
+          aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => {
+            if (taskWs) clearRoutedGlow("task", task.id, taskWs);
+            onToggleComplete(task);
+          }}
+        />
+      ) : null}
       <button
         type="button"
-        className="min-w-0 flex-1 text-left"
+        className={cn("min-w-0 flex-1 text-left", !showDoneCheckbox && "pl-0.5")}
         onClick={() => {
           if (taskWs) clearRoutedGlow("task", task.id, taskWs);
           onOpen(task);
@@ -135,31 +257,60 @@ function TaskCardFace({
         >
           {task.title}
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          {task.labels.map(({ label }) => (
-            <span
-              key={label.id}
-              className="rounded-md px-1.5 py-0.5 text-[10px] font-medium text-white"
-              style={{ backgroundColor: label.color }}
-            >
-              {label.name}
-            </span>
-          ))}
-        </div>
-        {task.ideaNode && (
-          <p className="mt-1 text-xs text-muted-foreground">Idea: {task.ideaNode.title}</p>
-        )}
-        {checkTotal > 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Checklist {doneCount}/{checkTotal}
-          </p>
-        )}
-        {task.dueDate && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Due {new Date(task.dueDate).toLocaleDateString()}
-          </p>
-        )}
+        {!minimal ? (
+          <>
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {task.labels.map(({ label }) => (
+                <span
+                  key={label.id}
+                  className="rounded px-2 py-0.5 text-[10px] font-medium leading-none text-white"
+                  style={{ backgroundColor: label.color }}
+                >
+                  {label.name}
+                </span>
+              ))}
+            </div>
+            {task.ideaNode && (
+              <p className="mt-1 text-xs text-muted-foreground">Idea: {task.ideaNode.title}</p>
+            )}
+            {checkTotal > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Checklist {doneCount}/{checkTotal}
+              </p>
+            )}
+            {task.dueDate && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Due {new Date(task.dueDate).toLocaleDateString()}
+              </p>
+            )}
+          </>
+        ) : null}
       </button>
+      {others.length > 0 && onSendTo ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground"
+              aria-label="Ticket actions"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Send to…</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {others.map((s) => (
+              <DropdownMenuItem key={s.id} onSelect={() => onSendTo(task.id, s.id)}>
+                {s.title}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
@@ -168,17 +319,29 @@ function SortableTaskCard({
   task,
   onOpen,
   onToggleComplete,
+  sendTargets,
+  onSendTo,
+  cardColor,
+  subBoardPref,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
+  sendTargets?: { id: string; title: string }[];
+  onSendTo?: (taskId: string, subBoardId: string) => void;
+  cardColor?: string;
+  subBoardPref: SubBoardPreferenceDto;
 }) {
+  const { activeWorkspaceId } = useActiveWorkspace();
+  const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
+  const glow = useRoutedTaskGlow(task.id, taskWs);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    ...(cardColor ? { borderColor: cardColor } : {}),
   };
 
   return (
@@ -187,6 +350,9 @@ function SortableTaskCard({
       style={style}
       className={cn(
         "group flex gap-1 rounded-xl border bg-card px-2 py-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        cardColor ? "border-2" : "border",
+        glow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
         isDragging && "z-10 opacity-40",
       )}
     >
@@ -199,7 +365,14 @@ function SortableTaskCard({
       >
         <GripVertical className="size-4" />
       </button>
-      <TaskCardFace task={task} onOpen={onOpen} onToggleComplete={onToggleComplete} />
+      <TaskCardFace
+        task={task}
+        onOpen={onOpen}
+        onToggleComplete={onToggleComplete}
+        sendTargets={sendTargets}
+        onSendTo={onSendTo}
+        subBoardPref={subBoardPref}
+      />
     </div>
   );
 }
@@ -208,26 +381,53 @@ function ReadOnlyTaskCard({
   task,
   onOpen,
   onToggleComplete,
+  sendTargets,
+  onSendTo,
+  cardColor,
+  subBoardPref,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
+  sendTargets?: { id: string; title: string }[];
+  onSendTo?: (taskId: string, subBoardId: string) => void;
+  cardColor?: string;
+  subBoardPref: SubBoardPreferenceDto;
 }) {
+  const { activeWorkspaceId } = useActiveWorkspace();
+  const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
+  const glow = useRoutedTaskGlow(task.id, taskWs);
+
   return (
-    <div className="rounded-xl border bg-card px-2 py-2 text-sm shadow-sm transition-shadow hover:shadow-md">
-      <TaskCardFace task={task} onOpen={onOpen} onToggleComplete={onToggleComplete} />
+    <div
+      className={cn(
+        "rounded-xl border bg-card px-2 py-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        cardColor ? "border-2" : "border",
+        glow &&
+          "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
+      )}
+      style={cardColor ? { borderColor: cardColor } : undefined}
+    >
+      <TaskCardFace
+        task={task}
+        onOpen={onOpen}
+        onToggleComplete={onToggleComplete}
+        sendTargets={sendTargets}
+        onSendTo={onSendTo}
+        subBoardPref={subBoardPref}
+      />
     </div>
   );
 }
 
-function ColumnTitleInput({
-  listId,
+function SubBoardTitleInput({
+  subBoardId,
   title,
   onCommit,
 }: {
-  listId: string;
+  subBoardId: string;
   title: string;
-  onCommit: (listId: string, nextTitle: string) => void;
+  onCommit: (subBoardId: string, nextTitle: string) => void;
 }) {
   const [value, setValue] = useState(title);
   useEffect(() => setValue(title), [title]);
@@ -238,104 +438,122 @@ function ColumnTitleInput({
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => {
         const t = value.trim();
-        if (t && t !== title) onCommit(listId, t);
+        if (t && t !== title) onCommit(subBoardId, t);
         if (!t) setValue(title);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
-      className="border-input bg-background text-foreground focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-sm font-semibold tracking-tight focus-visible:ring-2 focus-visible:outline-none"
+      className="border-input bg-background text-foreground focus-visible:ring-ring max-w-[min(100%,20rem)] rounded-md border px-2 py-1 text-base font-semibold tracking-tight focus-visible:ring-2 focus-visible:outline-none"
     />
   );
 }
 
-function DndKanbanColumn({
+function SortableSubBoardTab({
   list,
-  taskIds,
-  taskMap,
-  onOpen,
-  quickAddPlaceholder,
-  onQuickAdd,
-  onTitleCommit,
-  onToggleComplete,
-  canDeleteColumn,
-  deleteBusy,
-  onRequestDelete,
+  isActive,
+  onActivate,
+  onEdit,
 }: {
   list: BoardListDto;
-  taskIds: string[];
-  taskMap: Map<string, TaskFlowTask>;
-  onOpen: (t: TaskFlowTask) => void;
-  quickAddPlaceholder: string;
-  onQuickAdd: (listId: string, title: string) => void;
-  onTitleCommit: (listId: string, title: string) => void;
-  onToggleComplete: (t: TaskFlowTask) => void;
-  canDeleteColumn: boolean;
-  deleteBusy: boolean;
-  onRequestDelete: (list: BoardListDto) => void;
+  isActive: boolean;
+  onActivate: () => void;
+  onEdit: (subBoardId: string) => void;
 }) {
-  const listId = list.id;
-  const sortId = colDragId(listId);
+  const sortId = sbDragId(list.id);
   const {
     attributes,
     listeners,
-    setNodeRef: setSortRef,
+    setNodeRef,
     transform,
     transition,
     isDragging,
   } = useSortable({ id: sortId });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: listId });
-  const [draft, setDraft] = useState("");
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
 
   return (
-    <div
-      ref={setSortRef}
+    <button
+      type="button"
+      ref={setNodeRef}
       style={style}
+      onClick={onActivate}
       className={cn(
-        "flex w-72 shrink-0 flex-col rounded-2xl border bg-muted/20 p-3 transition-colors",
-        isDragging && "z-20 opacity-90 shadow-lg ring-2 ring-primary/20",
+        "relative flex min-w-[140px] max-w-[220px] shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-all",
+        isActive && "bg-background text-foreground shadow-sm ring-1 ring-primary/30",
+        !isActive && "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+        isDragging && "z-20 opacity-95 shadow-lg",
       )}
     >
-      <div className="mb-3 flex items-start gap-1">
-        <button
-          type="button"
-          className="mt-1.5 cursor-grab touch-none text-muted-foreground"
-          {...attributes}
-          {...listeners}
-          aria-label="Drag column"
-        >
-          <GripVertical className="size-4" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <ColumnTitleInput listId={listId} title={list.title} onCommit={onTitleCommit} />
-        </div>
-        {canDeleteColumn ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="mt-0.5 size-8 shrink-0 text-muted-foreground hover:text-destructive"
-            disabled={deleteBusy}
-            aria-label={`Delete column ${list.title}`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onRequestDelete(list);
-            }}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        ) : null}
+      <span
+        className="cursor-grab touch-none text-muted-foreground"
+        {...attributes}
+        {...listeners}
+        aria-label="Reorder sub-board"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="size-4 shrink-0" />
+      </span>
+      <span className="min-w-0 flex-1 truncate font-medium">{list.title}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 text-muted-foreground"
+        aria-label={`Edit sub-board ${list.title}`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onEdit(list.id);
+        }}
+      >
+        <Settings2 className="size-3.5" />
+      </Button>
+    </button>
+  );
+}
+
+function TrackerLane({
+  laneId,
+  label,
+  taskIds,
+  taskMap,
+  onOpen,
+  onToggleComplete,
+  quickAddPlaceholder,
+  onQuickAdd,
+  sendTargets,
+  onSendTo,
+  cardColor,
+  subBoardPref,
+}: {
+  laneId: string;
+  label: string;
+  taskIds: string[];
+  taskMap: Map<string, TaskFlowTask>;
+  onOpen: (t: TaskFlowTask) => void;
+  onToggleComplete: (t: TaskFlowTask) => void;
+  quickAddPlaceholder: string;
+  onQuickAdd: (laneId: string, title: string) => void;
+  sendTargets?: { id: string; title: string }[];
+  onSendTo?: (taskId: string, subBoardId: string) => void;
+  cardColor?: string;
+  subBoardPref: SubBoardPreferenceDto;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: laneId });
+  const [draft, setDraft] = useState("");
+
+  return (
+    <div className="flex w-64 shrink-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
+      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
       </div>
       <div
-        ref={setDropRef}
+        ref={setNodeRef}
         className={cn(
-          "flex min-h-[120px] flex-col gap-2 rounded-lg transition-colors",
+          "flex min-h-[100px] flex-col gap-2 rounded-lg p-1 transition-colors",
           isOver && "bg-primary/10 ring-2 ring-primary/25",
         )}
       >
@@ -349,24 +567,28 @@ function DndKanbanColumn({
                 task={task}
                 onOpen={onOpen}
                 onToggleComplete={onToggleComplete}
+                sendTargets={sendTargets}
+                onSendTo={onSendTo}
+                cardColor={cardColor}
+                subBoardPref={subBoardPref}
               />
             );
           })}
         </SortableContext>
       </div>
-      <div className="mt-3 border-t pt-3">
+      <div className="mt-2 border-t border-border/60 pt-2">
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && draft.trim()) {
-              onQuickAdd(listId, draft.trim());
+              onQuickAdd(laneId, draft.trim());
               setDraft("");
             }
           }}
           placeholder={quickAddPlaceholder}
-          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
         />
       </div>
     </div>
@@ -376,125 +598,640 @@ function DndKanbanColumn({
 type BoardKanbanProps = {
   board: BoardDto;
   onOpenTask: (task: TaskFlowTask) => void;
+  onAddSubBoard?: () => void;
   /** When filters/search are active, drag-and-drop is disabled so positions stay consistent. */
   dragDisabled?: boolean;
 };
 
-function KanbanReadOnly({
+function ReadOnlyTrackerGrid({
   board,
+  activeSub,
   onOpenTask,
   onQuickAdd,
   onTitleCommit,
   onToggleComplete,
-  canDeleteColumn,
+  canDeleteSubBoard,
   deleteBusy,
   onRequestDelete,
+  sendMutation,
+  visibleStatuses,
+  cardColor,
+  prefBySubBoard,
 }: {
   board: BoardDto;
+  activeSub: BoardListDto;
   onOpenTask: (t: TaskFlowTask) => void;
-  onQuickAdd: (listId: string, title: string) => void;
-  onTitleCommit: (listId: string, title: string) => void;
+  onQuickAdd: (laneId: string, title: string) => void;
+  onTitleCommit: (subBoardId: string, title: string) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  canDeleteColumn: boolean;
+  canDeleteSubBoard: boolean;
   deleteBusy: boolean;
   onRequestDelete: (list: BoardListDto) => void;
+  sendMutation: { isPending: boolean; mutate: (p: { taskId: string; subBoardId: string }) => void };
+  visibleStatuses: TrackerStatus[];
+  cardColor?: string;
+  prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
 }) {
-  return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
-      {board.lists.map((list) => (
-        <ReadOnlyColumn
-          key={list.id}
-          list={list}
-          onOpen={onOpenTask}
-          onQuickAdd={onQuickAdd}
-          onTitleCommit={onTitleCommit}
-          onToggleComplete={onToggleComplete}
-          canDeleteColumn={canDeleteColumn}
-          deleteBusy={deleteBusy}
-          onRequestDelete={onRequestDelete}
-        />
-      ))}
-    </div>
-  );
-}
+  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
+  const byLane = buildLaneItems(activeSub);
 
-function ReadOnlyColumn({
-  list,
-  onOpen,
-  onQuickAdd,
-  onTitleCommit,
-  onToggleComplete,
-  canDeleteColumn,
-  deleteBusy,
-  onRequestDelete,
-}: {
-  list: BoardListDto;
-  onOpen: (t: TaskFlowTask) => void;
-  onQuickAdd: (listId: string, title: string) => void;
-  onTitleCommit: (listId: string, title: string) => void;
-  onToggleComplete: (t: TaskFlowTask) => void;
-  canDeleteColumn: boolean;
-  deleteBusy: boolean;
-  onRequestDelete: (list: BoardListDto) => void;
-}) {
-  const listId = list.id;
-  const [draft, setDraft] = useState("");
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-2xl border bg-muted/20 p-3">
-      <div className="mb-3 flex items-start gap-1">
-        <div className="min-w-0 flex-1">
-          <ColumnTitleInput listId={listId} title={list.title} onCommit={onTitleCommit} />
-        </div>
-        {canDeleteColumn ? (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <SubBoardTitleInput
+          subBoardId={activeSub.id}
+          title={activeSub.title}
+          onCommit={onTitleCommit}
+        />
+        {canDeleteSubBoard ? (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="mt-0.5 size-8 shrink-0 text-muted-foreground hover:text-destructive"
+            className="size-8 text-muted-foreground hover:text-destructive"
             disabled={deleteBusy}
-            aria-label={`Delete column ${list.title}`}
-            onClick={() => onRequestDelete(list)}
+            aria-label={`Delete sub-board ${activeSub.title}`}
+            onClick={() => onRequestDelete(activeSub)}
           >
             <Trash2 className="size-4" />
           </Button>
         ) : null}
       </div>
-      <div className="flex min-h-[120px] flex-col gap-2">
-        {list.tasks.map((task) => (
-          <ReadOnlyTaskCard
-            key={task.id}
-            task={task}
-            onOpen={onOpen}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {visibleStatuses.map((st) => (
+          <ReadOnlyLaneInner
+            key={st}
+            laneId={laneKey(activeSub.id, st)}
+            label={TRACKER_LABELS[st]}
+            taskIds={byLane[laneKey(activeSub.id, st)] ?? []}
+            taskMap={buildTaskMap(board)}
+            onOpen={onOpenTask}
             onToggleComplete={onToggleComplete}
+            onQuickAdd={onQuickAdd}
+            sendTargets={sendTargets}
+            onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
+            cardColor={cardColor}
+            prefBySubBoard={prefBySubBoard}
           />
         ))}
       </div>
-      <div className="mt-3 border-t pt-3">
+    </div>
+  );
+}
+
+function ReadOnlyLaneInner({
+  laneId,
+  label,
+  taskIds,
+  taskMap,
+  onOpen,
+  onToggleComplete,
+  onQuickAdd,
+  sendTargets,
+  onSendTo,
+  cardColor,
+  prefBySubBoard,
+}: {
+  laneId: string;
+  label: string;
+  taskIds: string[];
+  taskMap: Map<string, TaskFlowTask>;
+  onOpen: (t: TaskFlowTask) => void;
+  onToggleComplete: (t: TaskFlowTask) => void;
+  onQuickAdd: (laneId: string, title: string) => void;
+  sendTargets: { id: string; title: string }[];
+  onSendTo: (taskId: string, subBoardId: string) => void;
+  cardColor?: string;
+  prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
+}) {
+  const [draft, setDraft] = useState("");
+  const laneSubBoardId = parseLaneKey(laneId)?.subBoardId ?? "";
+  const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId]);
+  return (
+    <div className="flex w-64 shrink-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
+      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="flex min-h-[100px] flex-col gap-2 rounded-lg p-1">
+        {taskIds.map((id) => {
+          const task = taskMap.get(id);
+          if (!task) return null;
+          return (
+            <ReadOnlyTaskCard
+              key={id}
+              task={task}
+              onOpen={onOpen}
+              onToggleComplete={onToggleComplete}
+              sendTargets={sendTargets}
+              onSendTo={onSendTo}
+              cardColor={cardColor}
+              subBoardPref={subBoardPref}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-2 border-t border-border/60 pt-2">
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && draft.trim()) {
-              onQuickAdd(listId, draft.trim());
+              onQuickAdd(laneId, draft.trim());
               setDraft("");
             }
           }}
-          placeholder="Add a card…"
-          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
+          placeholder="Add a ticket…"
+          className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:outline-none"
         />
       </div>
     </div>
   );
 }
 
-function BoardKanbanFiltered({ board, onOpenTask }: BoardKanbanProps) {
+function SubBoardPrefsEditor({
+  editorSubBoard,
+  pinnedSubBoardIds,
+  pinSubBoard,
+  unpinSubBoard,
+  editorColorDraft,
+  setEditorColorDraft,
+  editorHiddenDraft,
+  setEditorHiddenDraft,
+  editorCardFaceDraft,
+  setEditorCardFaceDraft,
+  editorCheckboxDefaultDraft,
+  setEditorCheckboxDefaultDraft,
+  savePref,
+  brandId,
+  boardId,
+}: {
+  editorSubBoard: BoardListDto;
+  pinnedSubBoardIds: string[];
+  pinSubBoard: (id: string) => void;
+  unpinSubBoard: (id: string) => void;
+  editorColorDraft: string;
+  setEditorColorDraft: (s: string) => void;
+  editorHiddenDraft: TrackerStatus[];
+  setEditorHiddenDraft: Dispatch<SetStateAction<TrackerStatus[]>>;
+  editorCardFaceDraft: string;
+  setEditorCardFaceDraft: (s: string) => void;
+  editorCheckboxDefaultDraft: boolean;
+  setEditorCheckboxDefaultDraft: (b: boolean) => void;
+  savePref: (payload: SubBoardPrefSavePayload) => void;
+  brandId?: string | null;
+  boardId?: string;
+}) {
+  const flush = (overrides?: Partial<SubBoardPrefSavePayload>) => {
+    savePref({
+      subBoardId: editorSubBoard.id,
+      ticketCardColor: overrides?.ticketCardColor ?? (editorColorDraft.trim() || null),
+      hiddenTrackerStatuses: overrides?.hiddenTrackerStatuses ?? editorHiddenDraft,
+      cardFaceLayout: overrides?.cardFaceLayout ?? editorCardFaceDraft,
+      completeCheckboxVisibleByDefault:
+        overrides?.completeCheckboxVisibleByDefault ?? editorCheckboxDefaultDraft,
+    });
+  };
+
+  return (
+    <div className="space-y-4 py-4 pl-3 pr-1">
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Pinned secondary view</p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() =>
+            pinnedSubBoardIds.includes(editorSubBoard.id)
+              ? unpinSubBoard(editorSubBoard.id)
+              : pinSubBoard(editorSubBoard.id)
+          }
+        >
+          {pinnedSubBoardIds.includes(editorSubBoard.id) ? (
+            <>
+              <PinOff className="mr-1 size-3.5" />
+              Unpin from secondary area
+            </>
+          ) : (
+            <>
+              <Pin className="mr-1 size-3.5" />
+              Pin to secondary area
+            </>
+          )}
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Ticket card color</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={cn(
+              "rounded-md border px-2 py-1 text-xs",
+              !editorColorDraft ? "border-primary text-foreground" : "text-muted-foreground",
+            )}
+            onClick={() => {
+              setEditorColorDraft("");
+              flush({ ticketCardColor: null });
+            }}
+          >
+            None
+          </button>
+          {SUB_BOARD_COLOR_OPTIONS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={cn(
+                "size-7 rounded-md border-2",
+                editorColorDraft === color ? "border-primary ring-2 ring-primary/30" : "border-border",
+              )}
+              style={{ backgroundColor: color }}
+              aria-label={`Use ${color} card color`}
+              onClick={() => {
+                setEditorColorDraft(color);
+                flush({ ticketCardColor: color });
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Card face</p>
+        <select
+          className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+          value={editorCardFaceDraft}
+          onChange={(e) => {
+            const v = e.target.value;
+            setEditorCardFaceDraft(v);
+            flush({ cardFaceLayout: v });
+          }}
+        >
+          <option value="standard">Standard (title + meta)</option>
+          <option value="minimal">Title only</option>
+        </select>
+        <p className="text-xs text-muted-foreground">
+          Applies to every ticket on this sub-board on the board for you.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={editorCheckboxDefaultDraft}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setEditorCheckboxDefaultDraft(next);
+              flush({ completeCheckboxVisibleByDefault: next });
+            }}
+          />
+          <span>Show complete checkbox on ticket cards by default</span>
+        </label>
+        <p className="text-xs text-muted-foreground">
+          You can still show or hide the checkbox per ticket in ticket settings.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Visible tracker lanes</p>
+        <div className="space-y-2">
+          {TRACKER_STATUSES.map((st) => {
+            const checked = !editorHiddenDraft.includes(st);
+            return (
+              <label key={st} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    setEditorHiddenDraft((prev) => {
+                      const nextHidden = e.target.checked
+                        ? prev.filter((x) => x !== st)
+                        : [...prev, st];
+                      const normalized =
+                        nextHidden.length >= TRACKER_STATUSES.length
+                          ? TRACKER_STATUSES.filter((x) => x !== "BACKLOG")
+                          : nextHidden;
+                      queueMicrotask(() => {
+                        flush({ hiddenTrackerStatuses: normalized });
+                      });
+                      return normalized;
+                    });
+                  }}
+                />
+                {TRACKER_LABELS[st]}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+      {brandId ? (
+        <div className="space-y-2 border-t border-border/60 pt-4">
+          <p className="text-sm font-medium">Your ticket labels (this brand)</p>
+          <p className="text-xs text-muted-foreground">
+            Reusable across all project boards in this brand. Full edit is under Settings → Ticket labels.
+          </p>
+          <UserTicketLabelsPanel brandId={brandId} boardId={boardId} mode="quick" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PlainSubBoardStrip({
+  orderedLists,
+  activeSubId,
+  onSelect,
+  listOrder,
+  onEditSubBoard,
+}: {
+  orderedLists: BoardListDto[];
+  activeSubId: string;
+  onSelect: (id: string) => void;
+  listOrder: string[];
+  onEditSubBoard: (subBoardId: string) => void;
+}) {
+  const activeIdx = Math.max(0, listOrder.indexOf(activeSubId));
+  const canScroll = orderedLists.length > 1;
+
+  return (
+    <div className="relative mb-4 flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0"
+        disabled={!canScroll}
+        aria-label="Previous sub-board"
+        onClick={() => {
+          const ids = listOrder;
+          const i = ids.indexOf(activeSubId);
+          const next = ids[(i - 1 + ids.length) % ids.length];
+          onSelect(next);
+        }}
+      >
+        <ChevronLeft className="size-4" />
+      </Button>
+      <div className="flex min-h-[44px] flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-muted/30 px-2 py-1.5 [scrollbar-width:thin]">
+        {orderedLists.map((list) => (
+          <div
+            key={list.id}
+            className={cn(
+              "flex min-w-[120px] max-w-[220px] shrink-0 items-center gap-1 rounded-lg px-2 py-1",
+              list.id === activeSubId
+                ? "bg-background text-foreground shadow-sm ring-1 ring-primary/30"
+                : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onSelect(list.id)}
+              className="min-w-0 flex-1 truncate text-left text-sm font-medium"
+            >
+              {list.title}
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 text-muted-foreground"
+              aria-label={`Edit sub-board ${list.title}`}
+              onClick={() => onEditSubBoard(list.id)}
+            >
+              <Settings2 className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0"
+        disabled={!canScroll}
+        aria-label="Next sub-board"
+        onClick={() => {
+          const ids = listOrder;
+          const i = ids.indexOf(activeSubId);
+          const next = ids[(i + 1) % ids.length];
+          onSelect(next);
+        }}
+      >
+        <ChevronRight className="size-4" />
+      </Button>
+      <span className="sr-only" aria-live="polite">
+        Sub-board {activeIdx + 1} of {orderedLists.length}
+      </span>
+    </div>
+  );
+}
+
+function SubBoardCarouselStrip({
+  orderedLists,
+  activeSubId,
+  onSelect,
+  listOrder,
+  sortable,
+  onEditSubBoard,
+}: {
+  orderedLists: BoardListDto[];
+  activeSubId: string;
+  onSelect: (id: string) => void;
+  listOrder: string[];
+  sortable: boolean;
+  onEditSubBoard: (subBoardId: string) => void;
+}) {
+  if (!sortable) {
+    return (
+      <PlainSubBoardStrip
+        orderedLists={orderedLists}
+        activeSubId={activeSubId}
+        onSelect={onSelect}
+        listOrder={listOrder}
+        onEditSubBoard={onEditSubBoard}
+      />
+    );
+  }
+
+  const activeIdx = Math.max(0, listOrder.indexOf(activeSubId));
+  const canScroll = orderedLists.length > 1;
+
+  return (
+    <div className="relative mb-4 flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0"
+        disabled={!canScroll}
+        aria-label="Previous sub-board"
+        onClick={() => {
+          const ids = listOrder;
+          const i = ids.indexOf(activeSubId);
+          const next = ids[(i - 1 + ids.length) % ids.length];
+          onSelect(next);
+        }}
+      >
+        <ChevronLeft className="size-4" />
+      </Button>
+      <SortableContext items={listOrder.map(sbDragId)} strategy={horizontalListSortingStrategy}>
+        <div className="flex min-h-[52px] flex-1 items-center gap-2 overflow-x-auto rounded-xl bg-muted/30 px-2 py-1.5 [scrollbar-width:thin]">
+          {orderedLists.map((list) => (
+            <SortableSubBoardTab
+              key={list.id}
+              list={list}
+              isActive={list.id === activeSubId}
+              onActivate={() => onSelect(list.id)}
+              onEdit={onEditSubBoard}
+            />
+          ))}
+        </div>
+      </SortableContext>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0"
+        disabled={!canScroll}
+        aria-label="Next sub-board"
+        onClick={() => {
+          const ids = listOrder;
+          const i = ids.indexOf(activeSubId);
+          const next = ids[(i + 1) % ids.length];
+          onSelect(next);
+        }}
+      >
+        <ChevronRight className="size-4" />
+      </Button>
+      <span className="sr-only" aria-live="polite">
+        Sub-board {activeIdx + 1} of {orderedLists.length}
+      </span>
+    </div>
+  );
+}
+
+function PinnedDropZone({
+  draggingSubBoard,
+  onDropZoneElement,
+}: {
+  draggingSubBoard: boolean;
+  onDropZoneElement?: (el: HTMLDivElement | null) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: PIN_DROP_ZONE_ID });
+  return (
+    <div className="space-y-2">
+      <div
+        ref={(el) => {
+          setNodeRef(el);
+          onDropZoneElement?.(el);
+        }}
+        className={cn(
+          "flex min-h-[56px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-sm text-muted-foreground transition-colors",
+          isOver && "border-primary bg-primary/5 text-foreground",
+        )}
+      >
+        {draggingSubBoard
+          ? "Drop sub-board here to open an additional pinned view"
+          : "Drag a sub-board tab here to open an additional pinned view"}
+      </div>
+    </div>
+  );
+}
+
+function SortablePinnedPanel({
+  subBoard,
+  onUnpin,
+  children,
+}: {
+  subBoard: BoardListDto;
+  onUnpin: (subBoardId: string) => void;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: pinnedDragId(subBoard.id),
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <section
+      ref={setNodeRef}
+      style={style}
+      className={cn("space-y-2 rounded-xl border bg-background/70 p-3", isDragging && "opacity-70")}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="cursor-grab touch-none text-muted-foreground"
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder pinned sub-board ${subBoard.title}`}
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold">{subBoard.title}</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground"
+          onClick={() => onUnpin(subBoard.id)}
+        >
+          <PinOff className="mr-1 size-3.5" />
+          Unpin
+        </Button>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function BoardKanbanFiltered({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) {
   const queryClient = useQueryClient();
-  const canDeleteColumn = board.lists.length > 1;
+  const canDeleteSubBoard = board.lists.length > 1;
+  const [activeSubId, setActiveSubId] = useState(() => board.lists[0]?.id ?? "");
+  const [pinnedSubBoardIds, setPinnedSubBoardIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!board.lists.some((l) => l.id === activeSubId) && board.lists[0]) {
+      setActiveSubId(board.lists[0].id);
+    }
+  }, [board, activeSubId]);
+
+  const activeSub = board.lists.find((l) => l.id === activeSubId) ?? board.lists[0];
+  if (!activeSub) {
+    return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
+  }
+  const pinnedSubBoards = pinnedSubBoardIds
+    .map((id) => board.lists.find((l) => l.id === id))
+    .filter((s): s is BoardListDto => Boolean(s));
+  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
+  const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
+  const [editorColorDraft, setEditorColorDraft] = useState("");
+  const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
+  const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
+  const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+
+  const prefQuery = useQuery({
+    queryKey: ["sub-board-prefs", board.id],
+    queryFn: () => fetchBoardSubBoardPreferences(board.id),
+  });
+  const prefBySubBoard = useMemo<Record<string, SubBoardPreferenceDto | undefined>>(() => {
+    const map: Record<string, SubBoardPreferenceDto | undefined> = {};
+    for (const row of prefQuery.data ?? []) map[row.subBoardId] = row;
+    return map;
+  }, [prefQuery.data]);
+
+  const pinSubBoard = (subBoardId: string) => {
+    setPinnedSubBoardIds((prev) => (prev.includes(subBoardId) ? prev : [...prev, subBoardId]));
+  };
+  const unpinSubBoard = (subBoardId: string) => {
+    setPinnedSubBoardIds((prev) => prev.filter((id) => id !== subBoardId));
+  };
 
   const createMutation = useMutation({
-    mutationFn: ({ listId, title }: { listId: string; title: string }) =>
-      createBoardTask(board.id, { title, listId }),
+    mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
+      const tail = laneId.split("|")[1] as TrackerStatus | undefined;
+      const trackerStatus =
+        tail && (TRACKER_STATUSES as readonly string[]).includes(tail) ? tail : "BACKLOG";
+      return createBoardTask(board.id, { title, subBoardId: activeSub.id, trackerStatus });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["board", board.id] });
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
@@ -502,8 +1239,8 @@ function BoardKanbanFiltered({ board, onOpenTask }: BoardKanbanProps) {
   });
 
   const titleMutation = useMutation({
-    mutationFn: ({ listId, title }: { listId: string; title: string }) =>
-      patchBoardList(board.id, listId, { title }),
+    mutationFn: ({ subBoardId, title }: { subBoardId: string; title: string }) =>
+      patchBoardList(board.id, subBoardId, { title }),
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
     },
@@ -518,45 +1255,207 @@ function BoardKanbanFiltered({ board, onOpenTask }: BoardKanbanProps) {
   });
 
   const deleteListMutation = useMutation({
-    mutationFn: (listId: string) => deleteBoardList(board.id, listId),
+    mutationFn: (subBoardId: string) => deleteBoardList(board.id, subBoardId),
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
     },
   });
 
-  const requestDeleteList = (list: BoardListDto) => {
-    if (!canDeleteColumn) return;
-    if (!confirmDeleteList(list)) return;
+  const sendMutation = useMutation({
+    mutationFn: ({ taskId, subBoardId }: { taskId: string; subBoardId: string }) =>
+      patchTask(taskId, { subBoardId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+  const prefMutation = useMutation({
+    mutationFn: (payload: SubBoardPrefSavePayload) =>
+      patchSubBoardPreference(payload.subBoardId, {
+        ticketCardColor: payload.ticketCardColor,
+        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+        cardFaceLayout: payload.cardFaceLayout,
+        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
+    },
+    onMutate: async (payload) => {
+      const optimistic: SubBoardPreferenceDto = {
+        subBoardId: payload.subBoardId,
+        ticketCardColor: payload.ticketCardColor ?? null,
+        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+        cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
+        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        updatedAt: new Date().toISOString(),
+      };
+      queryClient.setQueryData<SubBoardPreferenceDto[]>(
+        ["sub-board-prefs", board.id],
+        (prev) => upsertPrefRows(prev, optimistic),
+      );
+    },
+  });
+
+  const requestDeleteSubBoard = (list: BoardListDto) => {
+    if (!canDeleteSubBoard) return;
+    if (!confirmDeleteSubBoard(list)) return;
     deleteListMutation.mutate(list.id);
   };
 
+  const listOrder = board.lists.map((l) => l.id);
+  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard);
+  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard);
+  const editorSubBoard = editorSubBoardId
+    ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!editorSubBoardId) return;
+    const pref = prefBySubBoard[editorSubBoardId];
+    setEditorColorDraft(pref?.ticketCardColor ?? "");
+    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
+    setEditorCardFaceDraft(pref?.cardFaceLayout === "minimal" ? "minimal" : "standard");
+    setEditorCheckboxDefaultDraft(pref?.completeCheckboxVisibleByDefault !== false);
+  }, [editorSubBoardId, prefBySubBoard]);
+
   return (
-    <div className="space-y-2">
+    <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Project board
+        </p>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
+              <EllipsisVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <p className="text-xs text-muted-foreground">
-        Filters are on — drag-and-drop is paused. Clear filters to move cards and columns.
+        Filters are on — drag-and-drop is paused. Clear filters to move tickets.
       </p>
-      <KanbanReadOnly
-        board={board}
-        onOpenTask={onOpenTask}
-        onQuickAdd={(listId, title) => createMutation.mutate({ listId, title })}
-        onTitleCommit={(listId, title) => titleMutation.mutate({ listId, title })}
-        onToggleComplete={(t) => toggleMutation.mutate(t)}
-        canDeleteColumn={canDeleteColumn}
-        deleteBusy={deleteListMutation.isPending}
-        onRequestDelete={requestDeleteList}
+      <SubBoardCarouselStrip
+        orderedLists={board.lists}
+        activeSubId={activeSub.id}
+        onSelect={setActiveSubId}
+        listOrder={listOrder}
+        sortable={false}
+        onEditSubBoard={setEditorSubBoardId}
       />
-    </div>
+      <ReadOnlyTrackerGrid
+        board={board}
+        activeSub={activeSub}
+        onOpenTask={onOpenTask}
+        onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+        onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+        onToggleComplete={(t) => toggleMutation.mutate(t)}
+        canDeleteSubBoard={canDeleteSubBoard}
+        deleteBusy={deleteListMutation.isPending}
+        onRequestDelete={requestDeleteSubBoard}
+        sendMutation={sendMutation}
+        visibleStatuses={activeVisibleStatuses}
+        cardColor={activeCardColor}
+        prefBySubBoard={prefBySubBoard}
+      />
+      <div className="space-y-3">
+        <PinnedDropZone draggingSubBoard={false} />
+        {pinnedSubBoards.map((sb) => {
+          const byLane = buildLaneItems(sb);
+          return (
+            <section key={sb.id} className="space-y-2 rounded-xl border bg-background/70 p-3">
+              <div className="flex items-center justify-between">
+                <p className="min-w-0 truncate text-sm font-semibold">{sb.title}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  onClick={() => unpinSubBoard(sb.id)}
+                >
+                  <PinOff className="mr-1 size-3.5" />
+                  Unpin
+                </Button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {visibleStatusesForSubBoard(sb.id, prefBySubBoard).map((st) => (
+                  <ReadOnlyLaneInner
+                    key={`${sb.id}-${st}`}
+                    laneId={laneKey(sb.id, st)}
+                    label={TRACKER_LABELS[st]}
+                    taskIds={byLane[laneKey(sb.id, st)] ?? []}
+                    taskMap={buildTaskMap(board)}
+                    onOpen={onOpenTask}
+                    onToggleComplete={(t) => toggleMutation.mutate(t)}
+                    onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+                    sendTargets={sendTargets}
+                    onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
+                    cardColor={cardColorForSubBoard(sb.id, prefBySubBoard)}
+                    prefBySubBoard={prefBySubBoard}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Sub-board options</SheetTitle>
+            <SheetDescription>
+              {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
+            </SheetDescription>
+          </SheetHeader>
+          {editorSubBoard ? (
+            <SubBoardPrefsEditor
+              editorSubBoard={editorSubBoard}
+              pinnedSubBoardIds={pinnedSubBoardIds}
+              pinSubBoard={pinSubBoard}
+              unpinSubBoard={unpinSubBoard}
+              editorColorDraft={editorColorDraft}
+              setEditorColorDraft={setEditorColorDraft}
+              editorHiddenDraft={editorHiddenDraft}
+              setEditorHiddenDraft={setEditorHiddenDraft}
+              editorCardFaceDraft={editorCardFaceDraft}
+              setEditorCardFaceDraft={setEditorCardFaceDraft}
+              editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
+              setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              savePref={(p) => prefMutation.mutate(p)}
+              brandId={board.brandId}
+              boardId={board.id}
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </section>
   );
 }
 
-function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
+function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard }: BoardKanbanProps) {
   const queryClient = useQueryClient();
-  const canDeleteColumn = board.lists.length > 1;
+  const canDeleteSubBoard = board.lists.length > 1;
 
-  const [items, setItems] = useState<Record<string, string[]>>(() => buildItems(board));
   const [listOrder, setListOrder] = useState<string[]>(() => board.lists.map((l) => l.id));
+  const [activeSubId, setActiveSubId] = useState(() => board.lists[0]?.id ?? "");
+  const [pinnedSubBoardIds, setPinnedSubBoardIds] = useState<string[]>([]);
+  const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
+  const [editorColorDraft, setEditorColorDraft] = useState("");
+  const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
+  const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
+  const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+  const activeSub = useMemo(() => {
+    const sub = board.lists.find((l) => l.id === activeSubId) ?? board.lists[0];
+    return sub ?? null;
+  }, [board.lists, activeSubId]);
+
+  const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [pinnedDropZoneEl, setPinnedDropZoneEl] = useState<HTMLDivElement | null>(null);
   const itemsRef = useRef(items);
   const listOrderRef = useRef(listOrder);
   itemsRef.current = items;
@@ -565,6 +1464,27 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
   const taskMap = useMemo(() => buildTaskMap(board), [board]);
 
   const listById = useMemo(() => new Map(board.lists.map((l) => [l.id, l])), [board.lists]);
+  const pinnedSubBoards = useMemo(
+    () =>
+      pinnedSubBoardIds
+        .map((id) => listById.get(id))
+        .filter((s): s is BoardListDto => Boolean(s)),
+    [pinnedSubBoardIds, listById],
+  );
+  const visibleSubBoards = useMemo(() => {
+    if (!activeSub) return pinnedSubBoards;
+    const seen = new Set<string>([activeSub.id]);
+    return [activeSub, ...pinnedSubBoards.filter((s) => !seen.has(s.id))];
+  }, [activeSub, pinnedSubBoards]);
+  const prefQuery = useQuery({
+    queryKey: ["sub-board-prefs", board.id],
+    queryFn: () => fetchBoardSubBoardPreferences(board.id),
+  });
+  const prefBySubBoard = useMemo<Record<string, SubBoardPreferenceDto | undefined>>(() => {
+    const map: Record<string, SubBoardPreferenceDto | undefined> = {};
+    for (const row of prefQuery.data ?? []) map[row.subBoardId] = row;
+    return map;
+  }, [prefQuery.data]);
 
   const orderedLists = useMemo(() => {
     const out: BoardListDto[] = [];
@@ -576,13 +1496,45 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
   }, [listOrder, listById]);
 
   useEffect(() => {
-    const next = buildItems(board);
+    const nextOrder = board.lists.map((l) => l.id);
+    listOrderRef.current = nextOrder;
+    setListOrder(nextOrder);
+    setActiveSubId((cur) => (nextOrder.includes(cur) ? cur : nextOrder[0] ?? ""));
+    setPinnedSubBoardIds((prev) => prev.filter((id) => nextOrder.includes(id)));
+  }, [board]);
+
+  useEffect(() => {
+    if (!activeSub && visibleSubBoards.length === 0) {
+      setItems({});
+      return;
+    }
+    const next = mergeLaneItems(visibleSubBoards);
     itemsRef.current = next;
     setItems(next);
-    const nextOrder = board.lists.map((l) => l.id);
-    setListOrder(nextOrder);
-    listOrderRef.current = nextOrder;
-  }, [board]);
+  }, [activeSub, visibleSubBoards]);
+
+  const pinSubBoard = (subBoardId: string) => {
+    setPinnedSubBoardIds((prev) => (prev.includes(subBoardId) ? prev : [...prev, subBoardId]));
+  };
+  const unpinSubBoard = (subBoardId: string) => {
+    setPinnedSubBoardIds((prev) => prev.filter((id) => id !== subBoardId));
+  };
+  const resolveLaneTarget = useCallback(
+    (overId: string, activeTaskId: string): string | undefined => {
+      const direct = findLaneContainer(overId, itemsRef.current);
+      if (direct) return direct;
+      if (overId.startsWith(PIN_PREFIX)) {
+        const subBoardId = overId.slice(PIN_PREFIX.length);
+        const activeTask = taskMap.get(activeTaskId);
+        const preferred = laneKey(subBoardId, normalizeTrackerStatus(activeTask?.trackerStatus));
+        if (preferred in itemsRef.current) return preferred;
+        const fallback = laneKey(subBoardId, "BACKLOG");
+        if (fallback in itemsRef.current) return fallback;
+      }
+      return undefined;
+    },
+    [taskMap],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -606,8 +1558,14 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
   });
 
   const createMutation = useMutation({
-    mutationFn: ({ listId, title }: { listId: string; title: string }) =>
-      createBoardTask(board.id, { title, listId }),
+    mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
+      const parsed = laneId.split("|");
+      const subBoardId = parsed[0];
+      const st = parsed[1] as TrackerStatus | undefined;
+      const trackerStatus =
+        st && (TRACKER_STATUSES as readonly string[]).includes(st) ? st : "BACKLOG";
+      return createBoardTask(board.id, { title, subBoardId, trackerStatus });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["board", board.id] });
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
@@ -615,8 +1573,8 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
   });
 
   const titleMutation = useMutation({
-    mutationFn: ({ listId, title }: { listId: string; title: string }) =>
-      patchBoardList(board.id, listId, { title }),
+    mutationFn: ({ subBoardId, title }: { subBoardId: string; title: string }) =>
+      patchBoardList(board.id, subBoardId, { title }),
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
     },
@@ -631,16 +1589,51 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
   });
 
   const deleteListMutation = useMutation({
-    mutationFn: (listId: string) => deleteBoardList(board.id, listId),
+    mutationFn: (subBoardId: string) => deleteBoardList(board.id, subBoardId),
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
     },
   });
 
-  const requestDeleteList = (list: BoardListDto) => {
-    if (!canDeleteColumn) return;
-    if (!confirmDeleteList(list)) return;
+  const sendMutation = useMutation({
+    mutationFn: ({ taskId, subBoardId }: { taskId: string; subBoardId: string }) =>
+      patchTask(taskId, { subBoardId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+  const prefMutation = useMutation({
+    mutationFn: (payload: SubBoardPrefSavePayload) =>
+      patchSubBoardPreference(payload.subBoardId, {
+        ticketCardColor: payload.ticketCardColor,
+        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+        cardFaceLayout: payload.cardFaceLayout,
+        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
+    },
+    onMutate: async (payload) => {
+      const optimistic: SubBoardPreferenceDto = {
+        subBoardId: payload.subBoardId,
+        ticketCardColor: payload.ticketCardColor ?? null,
+        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+        cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
+        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        updatedAt: new Date().toISOString(),
+      };
+      queryClient.setQueryData<SubBoardPreferenceDto[]>(
+        ["sub-board-prefs", board.id],
+        (prev) => upsertPrefRows(prev, optimistic),
+      );
+    },
+  });
+
+  const requestDeleteSubBoard = (list: BoardListDto) => {
+    if (!canDeleteSubBoard) return;
+    if (!confirmDeleteSubBoard(list)) return;
     deleteListMutation.mutate(list.id);
   };
 
@@ -652,12 +1645,13 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
     const { active, over } = event;
     const activeStr = String(active.id);
 
-    if (activeStr.startsWith(COL_PREFIX)) {
+    if (activeStr.startsWith(SB_PREFIX)) {
       const overId = over?.id != null ? String(over.id) : null;
-      if (!overId || !overId.startsWith(COL_PREFIX)) return;
+      if (overId === PIN_DROP_ZONE_ID) return;
+      if (!overId || !overId.startsWith(SB_PREFIX)) return;
       setListOrder((prev) => {
-        const a = activeStr.slice(COL_PREFIX.length);
-        const b = overId.slice(COL_PREFIX.length);
+        const a = activeStr.slice(SB_PREFIX.length);
+        const b = overId.slice(SB_PREFIX.length);
         const oldIndex = prev.indexOf(a);
         const newIndex = prev.indexOf(b);
         if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return prev;
@@ -667,13 +1661,26 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
       });
       return;
     }
+    if (activeStr.startsWith(PIN_PREFIX)) {
+      const overId = over?.id != null ? String(over.id) : null;
+      if (!overId || !overId.startsWith(PIN_PREFIX)) return;
+      setPinnedSubBoardIds((prev) => {
+        const a = activeStr.slice(PIN_PREFIX.length);
+        const b = overId.slice(PIN_PREFIX.length);
+        const oldIndex = prev.indexOf(a);
+        const newIndex = prev.indexOf(b);
+        if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return prev;
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+      return;
+    }
 
     const overId = over?.id != null ? String(over.id) : null;
     if (!overId) return;
 
     setItems((prev) => {
-      const activeContainer = findContainer(String(active.id), prev);
-      const overContainer = findContainer(overId, prev);
+      const activeContainer = findLaneContainer(String(active.id), prev);
+      const overContainer = resolveLaneTarget(overId, String(active.id));
       if (!activeContainer || !overContainer || activeContainer === overContainer) return prev;
 
       const activeItems = [...prev[activeContainer]];
@@ -710,9 +1717,31 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
       const { active, over } = event;
       const activeStr = String(active.id);
 
-      if (activeStr.startsWith(COL_PREFIX)) {
+      if (activeStr.startsWith(SB_PREFIX)) {
         setActiveId(null);
+        const overId = over?.id != null ? String(over.id) : null;
+        const pointerInPinnedZone = (() => {
+          if (!pinnedDropZoneEl) return false;
+          const ev = event.activatorEvent;
+          if (!(ev instanceof MouseEvent)) return false;
+          const rect = pinnedDropZoneEl.getBoundingClientRect();
+          return (
+            ev.clientX >= rect.left &&
+            ev.clientX <= rect.right &&
+            ev.clientY >= rect.top &&
+            ev.clientY <= rect.bottom
+          );
+        })();
+        if (overId === PIN_DROP_ZONE_ID || pointerInPinnedZone) {
+          const subBoardId = activeStr.slice(SB_PREFIX.length);
+          pinSubBoard(subBoardId);
+          return;
+        }
         queueMicrotask(() => reorderMutation.mutate([...listOrderRef.current]));
+        return;
+      }
+      if (activeStr.startsWith(PIN_PREFIX)) {
+        setActiveId(null);
         return;
       }
 
@@ -720,8 +1749,8 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
       if (!over) return;
 
       setItems((prev) => {
-        const activeContainer = findContainer(String(active.id), prev);
-        const overContainer = findContainer(String(over.id), prev);
+        const activeContainer = findLaneContainer(String(active.id), prev);
+        const overContainer = resolveLaneTarget(String(over.id), String(active.id));
         if (!activeContainer || !overContainer) return prev;
 
         let next = prev;
@@ -740,15 +1769,36 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
         return next;
       });
     },
-    [moveMutation, reorderMutation],
+    [moveMutation, reorderMutation, resolveLaneTarget, pinnedDropZoneEl],
   );
 
-  const activeTask = activeId && !activeId.startsWith(COL_PREFIX) ? taskMap.get(activeId) : undefined;
-  const activeColListId =
-    activeId?.startsWith(COL_PREFIX) ? activeId.slice(COL_PREFIX.length) : null;
-  const activeColumnList = activeColListId ? listById.get(activeColListId) : undefined;
+  const draggingSubBoardTab = Boolean(activeId?.startsWith(SB_PREFIX));
+  const activeTask =
+    activeId && !activeId.startsWith(SB_PREFIX) && !activeId.startsWith(PIN_PREFIX)
+      ? taskMap.get(activeId)
+      : undefined;
+  const activeSbPrefix = activeId?.startsWith(SB_PREFIX) ? activeId.slice(SB_PREFIX.length) : null;
+  const activeTabList = activeSbPrefix ? listById.get(activeSbPrefix) : undefined;
 
-  const sortableColumnIds = useMemo(() => listOrder.map(colDragId), [listOrder]);
+  if (!activeSub) {
+    return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
+  }
+
+  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
+  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard);
+  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard);
+  const editorSubBoard = editorSubBoardId
+    ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!editorSubBoardId) return;
+    const pref = prefBySubBoard[editorSubBoardId];
+    setEditorColorDraft(pref?.ticketCardColor ?? "");
+    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
+    setEditorCardFaceDraft(pref?.cardFaceLayout === "minimal" ? "minimal" : "standard");
+    setEditorCheckboxDefaultDraft(pref?.completeCheckboxVisibleByDefault !== false);
+  }, [editorSubBoardId, prefBySubBoard]);
 
   return (
     <DndContext
@@ -758,35 +1808,155 @@ function BoardKanbanDnd({ board, onOpenTask }: BoardKanbanProps) {
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext items={sortableColumnIds} strategy={horizontalListSortingStrategy}>
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {orderedLists.map((list) => (
-            <DndKanbanColumn
-              key={list.id}
-              list={list}
-              taskIds={items[list.id] ?? []}
-              taskMap={taskMap}
-              onOpen={onOpenTask}
-              quickAddPlaceholder="Add a card…"
-              onQuickAdd={(listId, title) => createMutation.mutate({ listId, title })}
-              onTitleCommit={(listId, title) => titleMutation.mutate({ listId, title })}
-              onToggleComplete={(t) => toggleMutation.mutate(t)}
-              canDeleteColumn={canDeleteColumn}
-              deleteBusy={deleteListMutation.isPending}
-              onRequestDelete={requestDeleteList}
-            />
-          ))}
+      <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Project board
+          </p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground">
+                <EllipsisVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      </SortableContext>
+        <SubBoardCarouselStrip
+          orderedLists={orderedLists}
+          activeSubId={activeSub.id}
+          onSelect={setActiveSubId}
+          listOrder={listOrder}
+          sortable
+          onEditSubBoard={setEditorSubBoardId}
+        />
+        <div className="mb-1 flex flex-wrap items-center gap-3">
+          <SubBoardTitleInput
+            subBoardId={activeSub.id}
+            title={activeSub.title}
+            onCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+          />
+          {canDeleteSubBoard ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-destructive"
+              disabled={deleteListMutation.isPending}
+              aria-label={`Delete sub-board ${activeSub.title}`}
+              onClick={() => requestDeleteSubBoard(activeSub)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {activeVisibleStatuses.map((st) => {
+            const lid = laneKey(activeSub.id, st);
+            return (
+              <TrackerLane
+                key={lid}
+                laneId={lid}
+                label={TRACKER_LABELS[st]}
+                taskIds={items[lid] ?? []}
+                taskMap={taskMap}
+                onOpen={onOpenTask}
+                onToggleComplete={(t) => toggleMutation.mutate(t)}
+                quickAddPlaceholder="Add a ticket…"
+                onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+                sendTargets={sendTargets}
+                onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
+                cardColor={activeCardColor}
+                subBoardPref={normalizedSubBoardPref(activeSub.id, prefBySubBoard[activeSub.id])}
+              />
+            );
+          })}
+        </div>
+      </section>
+      <section className="space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Pinned sub-board views
+          </p>
+          <span className="text-xs text-muted-foreground">
+            {pinnedSubBoardIds.length} pinned
+          </span>
+        </div>
+        <PinnedDropZone
+          draggingSubBoard={draggingSubBoardTab}
+          onDropZoneElement={setPinnedDropZoneEl}
+        />
+        <SortableContext items={pinnedSubBoardIds.map(pinnedDragId)} strategy={verticalListSortingStrategy}>
+          <div className="space-y-3">
+            {pinnedSubBoards.map((sb) => (
+              <SortablePinnedPanel key={sb.id} subBoard={sb} onUnpin={unpinSubBoard}>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {visibleStatusesForSubBoard(sb.id, prefBySubBoard).map((st) => {
+                    const lid = laneKey(sb.id, st);
+                    return (
+                      <TrackerLane
+                        key={lid}
+                        laneId={lid}
+                        label={TRACKER_LABELS[st]}
+                        taskIds={items[lid] ?? []}
+                        taskMap={taskMap}
+                        onOpen={onOpenTask}
+                        onToggleComplete={(t) => toggleMutation.mutate(t)}
+                        quickAddPlaceholder="Add a ticket…"
+                        onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+                        sendTargets={sendTargets}
+                        onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
+                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard)}
+                        subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id])}
+                      />
+                    );
+                  })}
+                </div>
+              </SortablePinnedPanel>
+            ))}
+          </div>
+        </SortableContext>
+      </section>
+      <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Sub-board options</SheetTitle>
+            <SheetDescription>
+              {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
+            </SheetDescription>
+          </SheetHeader>
+          {editorSubBoard ? (
+            <SubBoardPrefsEditor
+              editorSubBoard={editorSubBoard}
+              pinnedSubBoardIds={pinnedSubBoardIds}
+              pinSubBoard={pinSubBoard}
+              unpinSubBoard={unpinSubBoard}
+              editorColorDraft={editorColorDraft}
+              setEditorColorDraft={setEditorColorDraft}
+              editorHiddenDraft={editorHiddenDraft}
+              setEditorHiddenDraft={setEditorHiddenDraft}
+              editorCardFaceDraft={editorCardFaceDraft}
+              setEditorCardFaceDraft={setEditorCardFaceDraft}
+              editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
+              setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              savePref={(p) => prefMutation.mutate(p)}
+              brandId={board.brandId}
+              boardId={board.id}
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
       <DragOverlay dropAnimation={dropAnimation}>
         {activeTask ? (
-          <div className="w-72 rounded-xl border bg-card px-3 py-2 text-sm shadow-lg">
+          <div className="w-64 rounded-xl border bg-card px-3 py-2 text-sm shadow-lg">
             <p className="font-medium">{activeTask.title}</p>
           </div>
-        ) : activeColumnList ? (
-          <div className="flex w-72 items-center gap-2 rounded-2xl border bg-muted/30 px-3 py-3 text-sm font-semibold shadow-lg">
+        ) : activeTabList ? (
+          <div className="flex min-w-[140px] items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-sm font-semibold shadow-lg">
             <GripVertical className="size-4 shrink-0 text-muted-foreground" />
-            {activeColumnList.title}
+            {activeTabList.title}
           </div>
         ) : null}
       </DragOverlay>

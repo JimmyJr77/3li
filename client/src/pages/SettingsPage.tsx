@@ -11,6 +11,7 @@ import {
   Loader2,
   MousePointerClick,
   Palette,
+  Tags,
   User,
   Users,
 } from "lucide-react";
@@ -35,8 +36,17 @@ import { formatUsPhoneInput } from "@/lib/phoneUs";
 import { formatApiError } from "@/lib/apiErrorMessage";
 import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { cn } from "@/lib/utils";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { UserTicketLabelsPanel } from "@/features/taskflow/UserTicketLabelsPanel";
 
-type GeneralSettingsCategoryId = "profile" | "brand" | "shortcuts" | "appearance" | "layout" | "user-accounts";
+type GeneralSettingsCategoryId =
+  | "profile"
+  | "brand"
+  | "ticket-labels"
+  | "shortcuts"
+  | "appearance"
+  | "layout"
+  | "user-accounts";
 
 type SettingsCategoryId = GeneralSettingsCategoryId | WorkspacePageSettingsId;
 
@@ -47,6 +57,7 @@ const GENERAL_SETTINGS_NAV: {
 }[] = [
   { id: "profile", label: "Profile", icon: User },
   { id: "brand", label: "Brands", icon: Building2 },
+  { id: "ticket-labels", label: "Ticket labels", icon: Tags },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "layout", label: "Workspace layout", icon: LayoutPanelLeft },
@@ -469,6 +480,7 @@ export function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { sidebarBehavior, setSidebarBehavior } = useWorkspacePrefs();
+  const { activeWorkspace } = useActiveWorkspace();
   const { data: authUser } = useQuery({ queryKey: ["auth", "me"], queryFn: fetchMe });
 
   const deepLinkCategory = useMemo(() => {
@@ -663,6 +675,28 @@ export function SettingsPage() {
                     title="Hide until needed"
                     description="Move the pointer to the left edge to open the sidebar; it floats above the page."
                   />
+                </CardContent>
+              </>
+            )}
+
+            {category === "ticket-labels" && (
+              <>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Tags className="size-4 opacity-70" aria-hidden />
+                    Ticket labels
+                  </CardTitle>
+                  <CardDescription>
+                    Custom labels are saved to your account for the{" "}
+                    <span className="font-medium text-foreground">
+                      {activeWorkspace?.brandName ?? "active brand"}
+                    </span>{" "}
+                    workspace. They appear on every project board in that brand. Board-specific labels are still
+                    managed on each board.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UserTicketLabelsPanel brandId={activeWorkspace?.brandId} mode="manage" />
                 </CardContent>
               </>
             )}

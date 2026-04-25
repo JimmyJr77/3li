@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, Plus, Search } from "lucide-react";
+import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
@@ -12,7 +12,7 @@ import {
   filterBoard,
   type BoardFilterState,
 } from "@/features/taskflow/filters";
-import { createBoardList, fetchBoard, patchBoard } from "@/features/taskflow/api";
+import { createBoardList, fetchBoard, fetchMyTicketLabels, patchBoard } from "@/features/taskflow/api";
 import type { BoardDto, TaskFlowTask } from "@/features/taskflow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,8 +53,8 @@ export function BoardPage() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("board");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [newListTitle, setNewListTitle] = useState("");
   const [filters, setFilters] = useState<BoardFilterState>(defaultBoardFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [boardNameDraft, setBoardNameDraft] = useState("");
 
   const boardQuery = useQuery({
@@ -64,6 +64,12 @@ export function BoardPage() {
   });
 
   const board = boardQuery.data;
+
+  const myTicketLabelsQuery = useQuery({
+    queryKey: ["my-ticket-labels", board?.brandId],
+    queryFn: () => fetchMyTicketLabels(board!.brandId!),
+    enabled: Boolean(board?.brandId),
+  });
 
   useEffect(() => {
     if (board) setBoardNameDraft(board.name);
@@ -111,12 +117,18 @@ export function BoardPage() {
   );
 
   const addListMutation = useMutation({
-    mutationFn: () => createBoardList(board!.id, newListTitle.trim()),
+    mutationFn: (title: string) => createBoardList(board!.id, title.trim()),
     onSuccess: () => {
-      setNewListTitle("");
       queryClient.invalidateQueries({ queryKey: ["board", board?.id] });
     },
   });
+
+  const requestAddSubBoard = () => {
+    if (boardArchived) return;
+    const title = window.prompt("Sub-board name");
+    if (!title?.trim()) return;
+    addListMutation.mutate(title.trim());
+  };
 
   const requestArchiveBoard = () => {
     if (
@@ -217,6 +229,16 @@ export function BoardPage() {
           </div>
           <Button
             type="button"
+            variant={filtersOpen ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1"
+            onClick={() => setFiltersOpen((v) => !v)}
+          >
+            <Search className="size-4" />
+            Search & filters
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={() => queryClient.invalidateQueries({ queryKey: ["board", board.id] })}
@@ -280,7 +302,8 @@ export function BoardPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-muted/15 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+      {filtersOpen ? (
+        <div className="flex flex-col gap-3 rounded-xl border bg-muted/15 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="min-w-[180px] flex-1 space-y-1">
           <Label className="text-xs text-muted-foreground">Search</Label>
           <div className="relative">
@@ -303,11 +326,22 @@ export function BoardPage() {
             }
           >
             <option value="">Any</option>
-            {board.labels.map((lb) => (
-              <option key={lb.id} value={lb.id}>
-                {lb.name}
-              </option>
-            ))}
+            <optgroup label="Board labels">
+              {board.labels.map((lb) => (
+                <option key={lb.id} value={lb.id}>
+                  {lb.name}
+                </option>
+              ))}
+            </optgroup>
+            {(myTicketLabelsQuery.data ?? []).length > 0 ? (
+              <optgroup label="Your labels (this brand)">
+                {(myTicketLabelsQuery.data ?? []).map((lb) => (
+                  <option key={lb.id} value={lb.id}>
+                    {lb.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
         </div>
         <div className="w-full min-w-[120px] space-y-1 sm:w-auto">
@@ -357,12 +391,14 @@ export function BoardPage() {
         >
           Clear filters
         </Button>
-      </div>
+        </div>
+      ) : null}
 
       {view === "board" && displayBoard ? (
         <BoardKanban
           board={displayBoard}
           dragDisabled={filtersOn || boardArchived}
+          onAddSubBoard={requestAddSubBoard}
           onOpenTask={(t) => {
             setSelectedTaskId(t.id);
           }}
@@ -375,31 +411,6 @@ export function BoardPage() {
           }}
         />
       ) : null}
-
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-muted/10 p-3">
-        <div className="min-w-[200px] flex-1 space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Add column</p>
-          <Input
-            placeholder="New list title"
-            value={newListTitle}
-            disabled={boardArchived}
-            onChange={(e) => setNewListTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newListTitle.trim()) addListMutation.mutate();
-            }}
-          />
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          className="gap-1"
-          onClick={() => newListTitle.trim() && addListMutation.mutate()}
-          disabled={boardArchived || addListMutation.isPending || !newListTitle.trim()}
-        >
-          <Plus className="size-4" />
-          Add list
-        </Button>
-      </div>
 
       <TaskDetailSheet
         board={board}

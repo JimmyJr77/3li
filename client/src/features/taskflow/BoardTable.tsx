@@ -15,11 +15,13 @@ import {
   useRoutedTaskGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
 import type { TaskFlowTask } from "./types";
+import { TRACKER_LABELS, normalizeTrackerStatus } from "./trackerMeta";
 import { cn } from "@/lib/utils";
 
 type Row = TaskFlowTask & {
   listTitle: string;
   boardName: string;
+  trackerLabel: string;
 };
 
 function BoardTableRow({
@@ -69,6 +71,7 @@ export function BoardTable({
         ...t,
         listTitle: t.list?.title ?? "—",
         boardName: t.list?.board?.name ?? "—",
+        trackerLabel: TRACKER_LABELS[normalizeTrackerStatus(t.trackerStatus)],
       })),
     [tasks],
   );
@@ -86,7 +89,11 @@ export function BoardTable({
       },
       {
         accessorKey: "listTitle",
-        header: "List",
+        header: "Sub-board",
+      },
+      {
+        accessorKey: "trackerLabel",
+        header: "Tracker",
       },
       {
         accessorKey: "priority",

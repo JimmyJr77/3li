@@ -21,11 +21,7 @@ export function BrainstormEdgeToolbar() {
 
   const edge = edges.find((e) => e.id === selectedEdgeId);
   if (!edge) {
-    return (
-      <div className="rounded-md border bg-card/95 px-2 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur-sm">
-        Click an edge to edit link text and line style.
-      </div>
-    );
+    return null;
   }
 
   const current = edge.data?.lineStyle ?? "solid";

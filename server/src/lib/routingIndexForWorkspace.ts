@@ -1,7 +1,9 @@
 import { prisma } from "./db.js";
 import { brandDisplayNameFromProfileJson } from "./brandDisplayName.js";
+import { TRACKER_STATUS_LABELS, TRACKER_STATUS_ORDER } from "./trackerStatus.js";
+import type { TrackerStatus } from "@prisma/client";
 
-const MAX_TASKS_PER_LIST = 24;
+const MAX_TASKS_PER_SUBBOARD = 48;
 const MAX_NOTE_TITLES = 40;
 
 export type RoutingIndexPayload = {
@@ -17,11 +19,12 @@ export type RoutingIndexPayload = {
     boards: {
       id: string;
       name: string;
-      lists: {
+      subBoards: {
         id: string;
         title: string;
         key: string | null;
-        taskTitles: string[];
+        /** Sample tickets grouped by tracker lane (fixed columns per sub-board). */
+        tasksByTracker: Partial<Record<TrackerStatus, string[]>>;
       }[];
     }[];
   }[];
@@ -65,9 +68,9 @@ export async function buildRoutingIndexPayload(workspaceId: string): Promise<Rou
                   key: true,
                   tasks: {
                     where: { archivedAt: null },
-                    orderBy: { order: "asc" },
-                    take: MAX_TASKS_PER_LIST,
-                    select: { title: true },
+                    orderBy: [{ trackerStatus: "asc" }, { order: "asc" }],
+                    take: MAX_TASKS_PER_SUBBOARD,
+                    select: { title: true, trackerStatus: true },
                   },
                 },
               },
@@ -104,12 +107,22 @@ export async function buildRoutingIndexPayload(workspaceId: string): Promise<Rou
       boards: ps.boards.map((b) => ({
         id: b.id,
         name: b.name,
-        lists: b.lists.map((l) => ({
-          id: l.id,
-          title: l.title,
-          key: l.key,
-          taskTitles: l.tasks.map((t) => t.title),
-        })),
+        subBoards: b.lists.map((l) => {
+          const tasksByTracker: Partial<Record<TrackerStatus, string[]>> = {};
+          for (const st of TRACKER_STATUS_ORDER) {
+            tasksByTracker[st] = [];
+          }
+          for (const t of l.tasks) {
+            const bucket = tasksByTracker[t.trackerStatus];
+            if (bucket) bucket.push(t.title);
+          }
+          return {
+            id: l.id,
+            title: l.title,
+            key: l.key,
+            tasksByTracker,
+          };
+        }),
       })),
     })),
   };
@@ -132,21 +145,26 @@ export function routingIndexToPromptText(idx: RoutingIndexPayload): string {
   lines.push("");
   lines.push("## Brainstorm sessions");
   if (idx.brainstormSessions.length === 0) lines.push("(none — new session may be created on send)");
-  else
-    idx.brainstormSessions.forEach((s) => lines.push(`- ${s.title} [session:${s.id}]`));
+  else idx.brainstormSessions.forEach((s) => lines.push(`- ${s.title} [session:${s.id}]`));
   lines.push("");
-  lines.push("## Boards & lists (tasks sample)");
+  lines.push("## Boards, project sub-boards, and ticket samples by tracker lane");
   for (const ps of idx.projectSpaces) {
     lines.push(`### Project space: ${ps.name} [space:${ps.id}]`);
     for (const b of ps.boards) {
       lines.push(`  Board: ${b.name} [board:${b.id}]`);
-      for (const l of b.lists) {
-        const key = l.key ? ` key=${l.key}` : "";
-        lines.push(`    List: ${l.title}${key} [list:${l.id}]`);
-        for (const title of l.taskTitles.slice(0, 8)) {
-          lines.push(`      • ${title}`);
+      for (const sb of b.subBoards) {
+        const key = sb.key ? ` key=${sb.key}` : "";
+        lines.push(`    Sub-board: ${sb.title}${key} [subBoard:${sb.id}]`);
+        for (const st of TRACKER_STATUS_ORDER) {
+          const titles = sb.tasksByTracker[st] ?? [];
+          if (titles.length === 0) continue;
+          const label = TRACKER_STATUS_LABELS[st];
+          lines.push(`      ${label} [tracker:${st}]:`);
+          for (const title of titles.slice(0, 6)) {
+            lines.push(`        • ${title}`);
+          }
+          if (titles.length > 6) lines.push(`        … +${titles.length - 6} more in this lane`);
         }
-        if (l.taskTitles.length > 8) lines.push(`      … +${l.taskTitles.length - 8} more`);
       }
     }
   }

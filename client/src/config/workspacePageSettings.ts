@@ -66,7 +66,7 @@ export const WORKSPACE_PAGE_SETTINGS = [
   {
     id: "wp-my-tasks",
     to: "/app/my-tasks",
-    label: "Task Lists",
+    label: "Ticket Tracker",
     description: "Your tasks across boards in the active project space.",
     icon: ListTodo,
   },

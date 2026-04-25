@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma, type RoutingHold } from "@prisma/client";
+import { Prisma, type RoutingHold, type TrackerStatus } from "@prisma/client";
 import { Router } from "express";
 import {
   BOARD_TEMPLATES,
@@ -22,7 +22,8 @@ import {
 import { newInviteToken } from "../lib/auth/brandInvite.js";
 import { EMAIL_RE, normalizeEmail } from "../lib/auth/identifiers.js";
 import { prisma } from "../lib/db.js";
-import { ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
+import { ensurePersonalWorkspaceBoard, getDefaultSubBoardIdForBoard } from "../lib/taskDefaults.js";
+import { parseLaneKey, TRACKER_STATUS_ORDER } from "../lib/trackerStatus.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
 import { parseBrandProfileForSave } from "../lib/brandProfileSchema.js";
 import { brandDisplayNameFromProfileJson } from "../lib/brandDisplayName.js";
@@ -113,7 +114,12 @@ function appPublicOrigin(req: import("express").Request): string {
   return `${proto}://${host}`;
 }
 
-const boardProjectSpaceRef = { select: { workspaceId: true } } as const;
+const boardProjectSpaceRef = {
+  select: {
+    workspaceId: true,
+    workspace: { select: { brandId: true } },
+  },
+} as const;
 
 function parseTemplateListsPayload(raw: unknown): BoardTemplateList[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -185,20 +191,40 @@ function taskActivitiesInclude(take: number) {
   };
 }
 
-function buildTaskInclude(user: AppUserPrincipal) {
+function taskSubBoardSelect() {
   return {
-    list: {
+    id: true,
+    title: true,
+    key: true,
+    position: true,
+    boardId: true,
+    board: {
       select: {
         id: true,
-        title: true,
-        key: true,
-        position: true,
-        boardId: true,
-        board: { select: { id: true, name: true, projectSpace: boardProjectSpaceRef } },
+        name: true,
+        projectSpace: {
+          select: {
+            id: true,
+            name: true,
+            workspaceId: true,
+            workspace: { select: { brandId: true } },
+          },
+        },
       },
     },
+  } as const;
+}
+
+function buildTaskInclude(_user: AppUserPrincipal, includeUserTicketLabels = true) {
+  return {
+    subBoard: { select: taskSubBoardSelect() },
+    createdBy: { select: activityActorSelect },
+    assignee: { select: activityActorSelect },
     ideaNode: { select: { id: true, title: true } },
     labels: { include: { label: true } },
+    ...(includeUserTicketLabels
+      ? { userBrandTicketLabels: { include: { userBrandTicketLabel: true } } }
+      : {}),
     comments: { orderBy: { createdAt: "asc" as const } },
     checklist: { orderBy: { position: "asc" as const } },
     activities: taskActivitiesInclude(30),
@@ -208,6 +234,22 @@ function buildTaskInclude(user: AppUserPrincipal) {
 /** Kanban and API responses only surface non-archived tasks on a board. */
 const activeTaskWhere: Prisma.TaskWhereInput = { archivedAt: null };
 
+const taskIncludeBoardCardBase = {
+  subBoard: { select: taskSubBoardSelect() },
+  createdBy: { select: activityActorSelect },
+  assignee: { select: activityActorSelect },
+  ideaNode: { select: { id: true, title: true } },
+  labels: { include: { label: true } },
+} as const;
+
+/** Same as full card but omits user-brand labels (for DBs not migrated yet). */
+const taskIncludeBoardCardMinimal = taskIncludeBoardCardBase;
+
+const taskIncludeBoardCard = {
+  ...taskIncludeBoardCardBase,
+  userBrandTicketLabels: { include: { userBrandTicketLabel: true } },
+} as const;
+
 const boardIncludeBootstrap = {
   projectSpace: boardProjectSpaceRef,
   lists: {
@@ -216,17 +258,15 @@ const boardIncludeBootstrap = {
       tasks: {
         where: activeTaskWhere,
         orderBy: { order: "asc" as const },
-        include: {
-          ideaNode: { select: { id: true, title: true } },
-          labels: { include: { label: true } },
-        },
+        include: taskIncludeBoardCardMinimal,
       },
     },
   },
   labels: { orderBy: { name: "asc" as const } },
 } as const;
 
-function buildBoardIncludeFull(user: AppUserPrincipal) {
+function buildBoardIncludeFull(_user: AppUserPrincipal, includeUserTicketLabels = true) {
+  const card = includeUserTicketLabels ? taskIncludeBoardCard : taskIncludeBoardCardMinimal;
   return {
     projectSpace: boardProjectSpaceRef,
     lists: {
@@ -236,8 +276,7 @@ function buildBoardIncludeFull(user: AppUserPrincipal) {
           where: activeTaskWhere,
           orderBy: { order: "asc" as const },
           include: {
-            ideaNode: { select: { id: true, title: true } },
-            labels: { include: { label: true } },
+            ...card,
             comments: { orderBy: { createdAt: "asc" as const } },
             checklist: { orderBy: { position: "asc" as const } },
             activities: taskActivitiesInclude(20),
@@ -249,6 +288,24 @@ function buildBoardIncludeFull(user: AppUserPrincipal) {
   } as const;
 }
 
+async function findBoardWithApiInclude(boardId: string, user: AppUserPrincipal) {
+  try {
+    return await prisma.board.findUnique({
+      where: { id: boardId },
+      include: buildBoardIncludeFull(user),
+    });
+  } catch (e) {
+    console.error(
+      "[task-app] board query full include failed; retrying without user ticket labels",
+      e,
+    );
+    return prisma.board.findUnique({
+      where: { id: boardId },
+      include: buildBoardIncludeFull(user, false),
+    });
+  }
+}
+
 const boardIncludePositions = {
   projectSpace: boardProjectSpaceRef,
   lists: {
@@ -257,10 +314,7 @@ const boardIncludePositions = {
       tasks: {
         where: activeTaskWhere,
         orderBy: { order: "asc" as const },
-        include: {
-          ideaNode: { select: { id: true, title: true } },
-          labels: { include: { label: true } },
-        },
+        include: taskIncludeBoardCardMinimal,
       },
     },
   },
@@ -269,6 +323,98 @@ const boardIncludePositions = {
 
 async function logActivity(taskId: string, actorUserId: string, action: string, detail = "") {
   await prisma.activity.create({ data: { taskId, actorUserId, action, detail } });
+}
+
+function parseTrackerStatusParam(raw: string | undefined): TrackerStatus[] | undefined {
+  if (!raw?.trim()) return undefined;
+  const parts = raw.split(",").map((s) => s.trim());
+  const out: TrackerStatus[] = [];
+  for (const p of parts) {
+    if (TRACKER_STATUS_ORDER.includes(p as TrackerStatus)) out.push(p as TrackerStatus);
+  }
+  return out.length ? out : undefined;
+}
+
+function isTrackerStatus(s: string): s is TrackerStatus {
+  return TRACKER_STATUS_ORDER.includes(s as TrackerStatus);
+}
+
+async function nextOrderInLane(
+  client: Pick<typeof prisma, "task">,
+  subBoardId: string,
+  trackerStatus: TrackerStatus,
+): Promise<number> {
+  const maxOrder = await client.task.aggregate({
+    where: { subBoardId, trackerStatus, archivedAt: null },
+    _max: { order: true },
+  });
+  return (maxOrder._max.order ?? -1) + 1;
+}
+
+function sanitizeTicketCardColor(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim();
+  if (!v) return null;
+  // Accept hex colors and compact semantic tokens.
+  if (/^#[0-9a-fA-F]{6}$/.test(v) || /^[a-z0-9_-]{1,24}$/.test(v)) return v;
+  return null;
+}
+
+function sanitizeCardFaceLayout(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim().slice(0, 64);
+  if (v === "standard" || v === "minimal") return v;
+  return undefined;
+}
+
+function parseCompleteCheckboxVisibleByDefault(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "boolean") return undefined;
+  return raw;
+}
+
+function sanitizeUserTicketLabelName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  if (!t || t.length > 128) return null;
+  return t;
+}
+
+function sanitizeUserTicketLabelColor(raw: unknown): string {
+  if (typeof raw !== "string") return "#6366f1";
+  const v = raw.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+  return "#6366f1";
+}
+
+async function taskBrandIdForUserLabel(taskId: string): Promise<string | null> {
+  const row = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      subBoard: {
+        select: {
+          board: { select: { projectSpace: { select: { workspace: { select: { brandId: true } } } } } },
+        },
+      },
+    },
+  });
+  return row?.subBoard.board.projectSpace.workspace.brandId ?? null;
+}
+
+function parseHiddenTrackerStatuses(raw: unknown): TrackerStatus[] | null {
+  if (raw === undefined) return null;
+  if (!Array.isArray(raw)) return null;
+  const uniq = new Set<TrackerStatus>();
+  for (const entry of raw) {
+    if (typeof entry !== "string" || !isTrackerStatus(entry)) return null;
+    uniq.add(entry);
+  }
+  const hidden = [...uniq];
+  if (hidden.length >= TRACKER_STATUS_ORDER.length) {
+    return TRACKER_STATUS_ORDER.filter((s) => s !== "BACKLOG");
+  }
+  return hidden;
 }
 
 router.get("/bootstrap", async (req, res) => {
@@ -468,7 +614,7 @@ router.put("/workspaces/:workspaceId/context-instructions", async (req, res) => 
   }
 });
 
-/** Boards, lists, notebook folders, brainstorm sessions — for Mail Clerk / Rapid Router. */
+/** Boards, sub-boards, notebook folders, brainstorm sessions — for Mail Clerk / Rapid Router. */
 router.get("/workspaces/:workspaceId/routing-index", async (req, res) => {
   try {
     const workspaceId = req.params.workspaceId;
@@ -715,17 +861,168 @@ router.get("/workspaces/:workspaceId/archived-project-spaces", async (req, res) 
 
 router.get("/boards/:boardId", async (req, res) => {
   try {
-    const board = await prisma.board.findUnique({
-      where: { id: req.params.boardId },
-      include: buildBoardIncludeFull(req.appUser!),
-    });
+    const board = await findBoardWithApiInclude(req.params.boardId, req.appUser!);
     if (!board) {
       res.status(404).json({ error: "Board not found" });
       return;
     }
     res.json(boardJsonForApi(board));
-  } catch {
+  } catch (e) {
+    console.error("[task-app] GET /boards/:boardId failed", e);
     res.status(500).json({ error: "Failed to load board" });
+  }
+});
+
+router.get("/boards/:boardId/sub-board-preferences", async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const rows = await prisma.subBoardPreference.findMany({
+      where: {
+        userId: req.appUser!.id,
+        subBoard: { boardId },
+      },
+      select: {
+        subBoardId: true,
+        ticketCardColor: true,
+        cardFaceLayout: true,
+        completeCheckboxVisibleByDefault: true,
+        hiddenTrackerStatuses: true,
+        updatedAt: true,
+      },
+    });
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load sub-board preferences" });
+  }
+});
+
+router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
+  try {
+    const subBoardId = req.params.subBoardId;
+    const sb = await prisma.boardList.findUnique({
+      where: { id: subBoardId },
+      select: { boardId: true },
+    });
+    if (!sb) {
+      res.status(404).json({ error: "Sub-board not found" });
+      return;
+    }
+    const ok = await assertBoardAccess(req.appUser!, sb.boardId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const row = await prisma.subBoardPreference.findUnique({
+      where: { userId_subBoardId: { userId: req.appUser!.id, subBoardId } },
+      select: {
+        subBoardId: true,
+        ticketCardColor: true,
+        cardFaceLayout: true,
+        completeCheckboxVisibleByDefault: true,
+        hiddenTrackerStatuses: true,
+        updatedAt: true,
+      },
+    });
+    res.json(
+      row ?? {
+        subBoardId,
+        ticketCardColor: null,
+        cardFaceLayout: "standard",
+        completeCheckboxVisibleByDefault: true,
+        hiddenTrackerStatuses: [],
+        updatedAt: null,
+      },
+    );
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load sub-board preferences" });
+  }
+});
+
+router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
+  try {
+    const subBoardId = req.params.subBoardId;
+    const sb = await prisma.boardList.findUnique({
+      where: { id: subBoardId },
+      select: { boardId: true },
+    });
+    if (!sb) {
+      res.status(404).json({ error: "Sub-board not found" });
+      return;
+    }
+    const ok = await assertBoardAccess(req.appUser!, sb.boardId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    const body = req.body as {
+      ticketCardColor?: string | null;
+      hiddenTrackerStatuses?: string[];
+      cardFaceLayout?: string;
+      completeCheckboxVisibleByDefault?: boolean;
+    };
+
+    const patch: Prisma.SubBoardPreferenceUncheckedUpdateInput = {};
+    if (Object.prototype.hasOwnProperty.call(body, "ticketCardColor")) {
+      patch.ticketCardColor = sanitizeTicketCardColor(body.ticketCardColor);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "hiddenTrackerStatuses")) {
+      const hidden = parseHiddenTrackerStatuses(body.hiddenTrackerStatuses);
+      if (hidden == null) {
+        res.status(400).json({ error: "Invalid hiddenTrackerStatuses" });
+        return;
+      }
+      patch.hiddenTrackerStatuses = hidden;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "cardFaceLayout")) {
+      const layout = sanitizeCardFaceLayout(body.cardFaceLayout);
+      if (layout === undefined) {
+        res.status(400).json({ error: "Invalid cardFaceLayout" });
+        return;
+      }
+      patch.cardFaceLayout = layout;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "completeCheckboxVisibleByDefault")) {
+      const vis = parseCompleteCheckboxVisibleByDefault(body.completeCheckboxVisibleByDefault);
+      if (vis === undefined) {
+        res.status(400).json({ error: "Invalid completeCheckboxVisibleByDefault" });
+        return;
+      }
+      patch.completeCheckboxVisibleByDefault = vis;
+    }
+
+    const createHidden = parseHiddenTrackerStatuses(body.hiddenTrackerStatuses) ?? [];
+    const createLayout = sanitizeCardFaceLayout(body.cardFaceLayout) ?? "standard";
+    const createCheckboxVis =
+      parseCompleteCheckboxVisibleByDefault(body.completeCheckboxVisibleByDefault) ?? true;
+
+    const pref = await prisma.subBoardPreference.upsert({
+      where: { userId_subBoardId: { userId: req.appUser!.id, subBoardId } },
+      create: {
+        userId: req.appUser!.id,
+        subBoardId,
+        ticketCardColor: sanitizeTicketCardColor(body.ticketCardColor),
+        hiddenTrackerStatuses: createHidden,
+        cardFaceLayout: createLayout,
+        completeCheckboxVisibleByDefault: createCheckboxVis,
+      },
+      update: patch,
+      select: {
+        subBoardId: true,
+        ticketCardColor: true,
+        cardFaceLayout: true,
+        completeCheckboxVisibleByDefault: true,
+        hiddenTrackerStatuses: true,
+        updatedAt: true,
+      },
+    });
+    res.json(pref);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to save sub-board preferences" });
   }
 });
 
@@ -745,18 +1042,30 @@ function parseTaskListSort(sortRaw: string | undefined): Prisma.TaskOrderByWithR
   return [{ updatedAt: direction }, { id: "asc" }];
 }
 
-/** Flat tasks — filters: workspace, board, search, label, priority, completed, chat thread, sort */
+/** Flat tasks / tickets — filters: workspace, board, sub-board, tracker, assignee, search, … */
 router.get("/tasks", async (req, res) => {
   try {
     const user = req.appUser!;
     const workspaceId = typeof req.query.workspaceId === "string" ? req.query.workspaceId : undefined;
     const boardId = typeof req.query.boardId === "string" ? req.query.boardId : undefined;
+    const projectSpaceId =
+      typeof req.query.projectSpaceId === "string" ? req.query.projectSpaceId : undefined;
+    const subBoardId = typeof req.query.subBoardId === "string" ? req.query.subBoardId : undefined;
     const chatThreadId = typeof req.query.chatThreadId === "string" ? req.query.chatThreadId : undefined;
+    const assigneeUserId =
+      typeof req.query.assigneeUserId === "string" ? req.query.assigneeUserId : undefined;
+    const createdByUserId =
+      typeof req.query.createdByUserId === "string" ? req.query.createdByUserId : undefined;
+    const dueBefore = typeof req.query.dueBefore === "string" ? req.query.dueBefore : undefined;
+    const dueAfter = typeof req.query.dueAfter === "string" ? req.query.dueAfter : undefined;
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const labelId = typeof req.query.labelId === "string" ? req.query.labelId : undefined;
     const priority = typeof req.query.priority === "string" ? req.query.priority : undefined;
     const completedRaw = typeof req.query.completed === "string" ? req.query.completed : undefined;
     const sortRaw = typeof req.query.sort === "string" ? req.query.sort : undefined;
+    const trackerStatuses = parseTrackerStatusParam(
+      typeof req.query.trackerStatus === "string" ? req.query.trackerStatus : undefined,
+    );
 
     const andFilters: Prisma.TaskWhereInput[] = [];
 
@@ -769,13 +1078,39 @@ router.get("/tasks", async (req, res) => {
       andFilters.push({ archivedAt: null });
     }
 
+    if (subBoardId) {
+      const sb = await prisma.boardList.findUnique({
+        where: { id: subBoardId },
+        select: { boardId: true },
+      });
+      if (!sb) {
+        res.status(400).json({ error: "Unknown sub-board" });
+        return;
+      }
+      const okBoard = await assertBoardAccess(user, sb.boardId);
+      if (!okBoard) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      andFilters.push({ subBoardId });
+    }
+
+    if (projectSpaceId) {
+      const okPs = await assertProjectSpaceAccess(user, projectSpaceId);
+      if (!okPs) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      andFilters.push({ subBoard: { board: { projectSpaceId } } });
+    }
+
     if (boardId) {
       const okBoard = await assertBoardAccess(user, boardId);
       if (!okBoard) {
         res.status(403).json({ error: "Forbidden" });
         return;
       }
-      andFilters.push({ list: { is: { boardId } } });
+      andFilters.push({ subBoard: { is: { boardId } } });
     } else if (workspaceId) {
       const okWs = await assertWorkspaceAccess(user, workspaceId);
       if (!okWs) {
@@ -783,9 +1118,9 @@ router.get("/tasks", async (req, res) => {
         return;
       }
       andFilters.push({
-        list: { is: { board: { is: { projectSpace: { is: { workspaceId } } } } } },
+        subBoard: { is: { board: { is: { projectSpace: { is: { workspaceId } } } } } },
       });
-    } else {
+    } else if (!subBoardId && !projectSpaceId) {
       const ids = await listAccessibleWorkspaceIds(user);
       if (ids.length === 0) {
         res.json([]);
@@ -793,12 +1128,29 @@ router.get("/tasks", async (req, res) => {
       }
       andFilters.push({
         OR: ids.map((id) => ({
-          list: { is: { board: { is: { projectSpace: { is: { workspaceId: id } } } } } },
+          subBoard: { is: { board: { is: { projectSpace: { is: { workspaceId: id } } } } } },
         })),
       });
     }
     if (chatThreadId) {
       andFilters.push({ chatThreadId });
+    }
+    if (assigneeUserId) {
+      andFilters.push({ assigneeUserId });
+    }
+    if (createdByUserId) {
+      andFilters.push({ createdByUserId });
+    }
+    if (dueBefore) {
+      const d = new Date(dueBefore);
+      if (!Number.isNaN(d.getTime())) andFilters.push({ dueDate: { lte: d } });
+    }
+    if (dueAfter) {
+      const d = new Date(dueAfter);
+      if (!Number.isNaN(d.getTime())) andFilters.push({ dueDate: { gte: d } });
+    }
+    if (trackerStatuses?.length) {
+      andFilters.push({ trackerStatus: { in: trackerStatuses } });
     }
     if (q) {
       andFilters.push({
@@ -809,7 +1161,12 @@ router.get("/tasks", async (req, res) => {
       });
     }
     if (labelId) {
-      andFilters.push({ labels: { some: { labelId } } });
+      andFilters.push({
+        OR: [
+          { labels: { some: { labelId } } },
+          { userBrandTicketLabels: { some: { userBrandTicketLabelId: labelId } } },
+        ],
+      });
     }
     if (priority && priority !== "all") {
       andFilters.push({ priority });
@@ -822,11 +1179,24 @@ router.get("/tasks", async (req, res) => {
 
     const where: Prisma.TaskWhereInput = andFilters.length ? { AND: andFilters } : {};
 
-    const tasks = await prisma.task.findMany({
-      where,
-      orderBy: parseTaskListSort(sortRaw),
-      include: buildTaskInclude(req.appUser!),
-    });
+    let tasks;
+    try {
+      tasks = await prisma.task.findMany({
+        where,
+        orderBy: parseTaskListSort(sortRaw),
+        include: buildTaskInclude(req.appUser!),
+      });
+    } catch (e) {
+      console.error(
+        "[task-app] GET /tasks full include failed; retrying without user ticket labels",
+        e,
+      );
+      tasks = await prisma.task.findMany({
+        where,
+        orderBy: parseTaskListSort(sortRaw),
+        include: buildTaskInclude(req.appUser!, false),
+      });
+    }
     res.json(tasks.map((t) => taskJsonForApi(t)));
   } catch (e) {
     console.error(e);
@@ -839,7 +1209,7 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
     const workspaceId = req.params.workspaceId;
     const taskScope = {
       archivedAt: null,
-      list: { board: { projectSpace: { workspaceId } } },
+      subBoard: { board: { projectSpace: { workspaceId } } },
     };
     const rows = await prisma.activity.findMany({
       where: { task: taskScope },
@@ -851,14 +1221,15 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
           select: {
             id: true,
             title: true,
-            list: { select: { title: true, board: { select: { id: true, name: true } } } },
+            subBoard: { select: { title: true, board: { select: { id: true, name: true } } } },
           },
         },
       },
     });
     res.json(
       rows.map((row) => {
-        const { actorUser, ...rest } = row;
+        const { actorUser, task, ...rest } = row;
+        const sb = task?.subBoard;
         return {
           id: rest.id,
           actorUserId: rest.actorUserId,
@@ -866,7 +1237,16 @@ router.get("/workspaces/:workspaceId/activity-feed", async (req, res) => {
           detail: rest.detail,
           createdAt: rest.createdAt,
           actor: activityActorDto(actorUser),
-          task: rest.task,
+          task: task
+            ? {
+                id: task.id,
+                title: task.title,
+                list: {
+                  title: sb?.title ?? "",
+                  board: sb?.board ?? { id: "", name: "" },
+                },
+              }
+            : null,
         };
       }),
     );
@@ -2160,7 +2540,11 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
   try {
     const boardId = req.params.boardId;
     const body = req.body as {
+      /** Sub-board (`BoardList` id). */
+      subBoardId?: string;
+      /** @deprecated Same as `subBoardId` (legacy client field). */
       listId?: string;
+      trackerStatus?: string;
       title?: string;
       description?: string;
       priority?: string;
@@ -2179,33 +2563,38 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
       return;
     }
 
-    let listId = body.listId;
-    if (!listId) {
-      listId = await getBacklogListId(boardId);
+    const requestedSub = body.subBoardId ?? body.listId;
+    let subBoardId = requestedSub;
+    if (!subBoardId) {
+      subBoardId = await getDefaultSubBoardIdForBoard(boardId);
     } else {
-      const list = await prisma.boardList.findFirst({
-        where: { id: listId, boardId },
+      const sb = await prisma.boardList.findFirst({
+        where: { id: subBoardId, boardId },
       });
-      if (!list) {
-        res.status(400).json({ error: "Invalid list for this board" });
+      if (!sb) {
+        res.status(400).json({ error: "Invalid sub-board for this board" });
         return;
       }
     }
 
-    const maxOrder = await prisma.task.aggregate({
-      where: { listId },
-      _max: { order: true },
-    });
-    const order = (maxOrder._max.order ?? -1) + 1;
+    let trackerStatus: TrackerStatus = "BACKLOG";
+    if (body.trackerStatus && isTrackerStatus(body.trackerStatus)) {
+      trackerStatus = body.trackerStatus;
+    }
+
+    const order = await nextOrderInLane(prisma, subBoardId, trackerStatus);
 
     const routingSource =
       typeof body.routingSource === "string" && body.routingSource.trim()
         ? body.routingSource.trim().slice(0, 64)
         : undefined;
 
+    const actorId = req.appUser!.id;
+
     const task = await prisma.task.create({
       data: {
-        listId,
+        subBoardId,
+        trackerStatus,
         title: body.title.trim(),
         description: typeof body.description === "string" ? body.description : "",
         ...(body.priority !== undefined &&
@@ -2217,11 +2606,22 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
         chatThreadId: body.chatThreadId ?? undefined,
         sourceMessageId: body.sourceMessageId ?? undefined,
         ...(routingSource ? { routingSource } : {}),
+        createdByUserId: actorId,
+        assigneeUserId: actorId,
+        lastAssignedAt: new Date(),
       },
       include: buildTaskInclude(req.appUser!),
     });
-    await logActivity(task.id, req.appUser!.id, "created", task.title);
-    res.status(201).json(task);
+    await prisma.ticketAssignmentEvent.create({
+      data: {
+        taskId: task.id,
+        fromUserId: null,
+        toUserId: actorId,
+        actorUserId: actorId,
+      },
+    });
+    await logActivity(task.id, actorId, "created", task.title);
+    res.status(201).json(taskJsonForApi(task));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to create task" });
@@ -2238,78 +2638,148 @@ router.patch("/tasks/:taskId", async (req, res) => {
       priority?: string;
       dueDate?: string | null;
       startDate?: string | null;
+      /** @deprecated Use `subBoardId`. */
       listId?: string;
+      subBoardId?: string;
+      trackerStatus?: string;
+      assigneeUserId?: string | null;
+      cardFaceLayout?: string;
+      /** null = inherit sub-board default for whether the done checkbox appears on the kanban card. */
+      showCompleteCheckbox?: boolean | null;
       archived?: boolean;
     };
 
-    const existing = await prisma.task.findUnique({ where: { id: taskId } });
+    const existing = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { subBoard: { select: { id: true, title: true, boardId: true } } },
+    });
     if (!existing) {
       res.status(404).json({ error: "Task not found" });
       return;
     }
 
-    if (body.listId && body.listId !== existing.listId) {
-      const list = await prisma.boardList.findUnique({ where: { id: body.listId } });
-      const prevList = await prisma.boardList.findUnique({ where: { id: existing.listId } });
-      if (!list || !prevList || list.boardId !== prevList.boardId) {
-        res.status(400).json({ error: "Invalid list" });
+    const requestedSub = body.subBoardId ?? body.listId;
+    let nextSubBoardId = existing.subBoardId;
+    let nextTracker: TrackerStatus = existing.trackerStatus;
+    let subDirty = false;
+    let trackerDirty = false;
+
+    if (requestedSub !== undefined && requestedSub !== existing.subBoardId) {
+      const sb = await prisma.boardList.findUnique({ where: { id: requestedSub } });
+      if (!sb || sb.boardId !== existing.subBoard.boardId) {
+        res.status(400).json({ error: "Invalid sub-board" });
         return;
       }
-      const maxOrder = await prisma.task.aggregate({
-        where: { listId: body.listId },
-        _max: { order: true },
-      });
-      const order = (maxOrder._max.order ?? -1) + 1;
-      const task = await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          listId: body.listId,
-          order,
-          archivedAt: null,
-          ...(body.title !== undefined ? { title: body.title } : {}),
-          ...(body.description !== undefined ? { description: body.description } : {}),
-          ...(body.completed !== undefined ? { completed: body.completed } : {}),
-          ...(body.priority !== undefined ? { priority: body.priority } : {}),
-          ...(body.dueDate !== undefined
-            ? { dueDate: body.dueDate ? new Date(body.dueDate) : null }
-            : {}),
-          ...(body.startDate !== undefined
-            ? { startDate: body.startDate ? new Date(body.startDate) : null }
-            : {}),
-        },
-        include: buildTaskInclude(req.appUser!),
-      });
-      await logActivity(taskId, req.appUser!.id, "moved", list.title);
-      res.json(taskJsonForApi(task));
-      return;
+      nextSubBoardId = requestedSub;
+      subDirty = true;
     }
 
-    const archiveData: Prisma.TaskUpdateInput = {};
+    if (body.trackerStatus !== undefined) {
+      if (!isTrackerStatus(body.trackerStatus)) {
+        res.status(400).json({ error: "Invalid trackerStatus" });
+        return;
+      }
+      if (body.trackerStatus !== existing.trackerStatus) {
+        nextTracker = body.trackerStatus;
+        trackerDirty = true;
+      }
+    }
+
+    const placementDirty = subDirty || trackerDirty;
+    const nextOrder = placementDirty
+      ? await nextOrderInLane(prisma, nextSubBoardId, nextTracker)
+      : existing.order;
+
+    const patch: Prisma.TaskUncheckedUpdateInput = {};
     if (body.archived === true) {
-      archiveData.archivedAt = new Date();
+      patch.archivedAt = new Date();
     } else if (body.archived === false) {
-      archiveData.archivedAt = null;
+      patch.archivedAt = null;
+    }
+
+    let assigneeUserIdNext: string | null | undefined = undefined;
+    if (body.assigneeUserId !== undefined) {
+      const raw = body.assigneeUserId;
+      if (raw === null || raw === "") {
+        assigneeUserIdNext = null;
+      } else {
+        const u = await prisma.appUser.findUnique({ where: { id: raw } });
+        if (!u) {
+          res.status(400).json({ error: "Unknown assignee" });
+          return;
+        }
+        assigneeUserIdNext = raw;
+      }
+    }
+
+    const assigneeDirty =
+      assigneeUserIdNext !== undefined && assigneeUserIdNext !== existing.assigneeUserId;
+
+    if (placementDirty) {
+      patch.subBoardId = nextSubBoardId;
+      patch.trackerStatus = nextTracker;
+      patch.order = nextOrder;
+      if (body.archived !== true) {
+        patch.archivedAt = null;
+      }
+    }
+    if (assigneeDirty) {
+      patch.assigneeUserId = assigneeUserIdNext!;
+      patch.lastAssignedAt = new Date();
+    }
+    if (body.title !== undefined) patch.title = body.title;
+    if (body.description !== undefined) patch.description = body.description;
+    if (body.completed !== undefined) patch.completed = body.completed;
+    if (body.priority !== undefined) patch.priority = body.priority;
+    if (body.dueDate !== undefined) patch.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+    if (body.startDate !== undefined) patch.startDate = body.startDate ? new Date(body.startDate) : null;
+    if (body.cardFaceLayout !== undefined && typeof body.cardFaceLayout === "string") {
+      patch.cardFaceLayout = body.cardFaceLayout.trim().slice(0, 64);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "showCompleteCheckbox")) {
+      const v = body.showCompleteCheckbox;
+      if (v !== null && v !== undefined && typeof v !== "boolean") {
+        res.status(400).json({ error: "Invalid showCompleteCheckbox" });
+        return;
+      }
+      patch.showCompleteCheckbox = v ?? null;
     }
 
     const task = await prisma.task.update({
       where: { id: taskId },
-      data: {
-        ...archiveData,
-        ...(body.title !== undefined ? { title: body.title } : {}),
-        ...(body.description !== undefined ? { description: body.description } : {}),
-        ...(body.completed !== undefined ? { completed: body.completed } : {}),
-        ...(body.priority !== undefined ? { priority: body.priority } : {}),
-        ...(body.dueDate !== undefined ? { dueDate: body.dueDate ? new Date(body.dueDate) : null } : {}),
-        ...(body.startDate !== undefined
-          ? { startDate: body.startDate ? new Date(body.startDate) : null }
-          : {}),
-      },
+      data: patch,
       include: buildTaskInclude(req.appUser!),
     });
+
+    const actorId = req.appUser!.id;
+    if (subDirty) {
+      const prevTitle = existing.subBoard.title;
+      const nextSb = await prisma.boardList.findUnique({ where: { id: nextSubBoardId } });
+      await logActivity(taskId, actorId, "sub_board_changed", `${prevTitle} → ${nextSb?.title ?? ""}`);
+    }
+    if (trackerDirty) {
+      await logActivity(
+        taskId,
+        actorId,
+        "tracker_status_changed",
+        `${existing.trackerStatus} → ${nextTracker}`,
+      );
+    }
+    if (assigneeDirty) {
+      await prisma.ticketAssignmentEvent.create({
+        data: {
+          taskId,
+          fromUserId: existing.assigneeUserId ?? null,
+          toUserId: assigneeUserIdNext ?? null,
+          actorUserId: actorId,
+        },
+      });
+      await logActivity(taskId, actorId, "assignee_changed", "");
+    }
     if (body.archived === true) {
-      await logActivity(taskId, req.appUser!.id, "archived", task.title);
+      await logActivity(taskId, actorId, "archived", task.title);
     } else if (body.archived === false) {
-      await logActivity(taskId, req.appUser!.id, "unarchived", task.title);
+      await logActivity(taskId, actorId, "unarchived", task.title);
     }
     res.json(taskJsonForApi(task));
   } catch {
@@ -2334,20 +2804,24 @@ router.post("/boards/:boardId/positions", async (req, res) => {
 
     const lists = await prisma.boardList.findMany({ where: { boardId } });
     const listIds = new Set(lists.map((l) => l.id));
-    for (const listId of Object.keys(body.positions)) {
-      if (!listIds.has(listId)) {
-        res.status(400).json({ error: `Unknown list ${listId}` });
+    for (const laneKey of Object.keys(body.positions)) {
+      const parsed = parseLaneKey(laneKey);
+      if (!parsed || !listIds.has(parsed.subBoardId)) {
+        res.status(400).json({ error: `Unknown lane ${laneKey}` });
         return;
       }
     }
 
     await prisma.$transaction(async (tx) => {
-      for (const [listId, taskIds] of Object.entries(body.positions!)) {
+      for (const [laneKey, taskIds] of Object.entries(body.positions!)) {
+        const parsed = parseLaneKey(laneKey);
+        if (!parsed) continue;
+        const { subBoardId, trackerStatus } = parsed;
         let order = 0;
         for (const taskId of taskIds) {
           await tx.task.updateMany({
-            where: { id: taskId, list: { boardId }, archivedAt: null },
-            data: { listId, order },
+            where: { id: taskId, subBoard: { boardId }, archivedAt: null },
+            data: { subBoardId, trackerStatus, order },
           });
           order += 1;
         }
@@ -2391,11 +2865,18 @@ router.patch("/boards/:boardId", async (req, res) => {
       res.status(400).json({ error: "No updates" });
       return;
     }
-    const board = await prisma.board.update({
-      where: { id: boardId },
-      data,
-      include: buildBoardIncludeFull(req.appUser!),
-    });
+    let board;
+    try {
+      board = await prisma.board.update({
+        where: { id: boardId },
+        data,
+        include: buildBoardIncludeFull(req.appUser!),
+      });
+    } catch (e) {
+      console.error("[task-app] PATCH /boards/:boardId full include failed; retrying", e);
+      await prisma.board.update({ where: { id: boardId }, data });
+      board = await findBoardWithApiInclude(boardId, req.appUser!);
+    }
     res.json(boardJsonForApi(board));
   } catch (e) {
     console.error(e);
@@ -2427,10 +2908,7 @@ router.patch("/boards/:boardId/lists/:listId", async (req, res) => {
       where: { id: listId },
       data: body.title !== undefined ? { title: String(body.title).trim() } : {},
     });
-    const board = await prisma.board.findUnique({
-      where: { id: boardId },
-      include: buildBoardIncludeFull(req.appUser!),
-    });
+    const board = await findBoardWithApiInclude(boardId, req.appUser!);
     res.json(boardJsonForApi(board));
   } catch (e) {
     console.error(e);
@@ -2473,19 +2951,23 @@ router.delete("/boards/:boardId/lists/:listId", async (req, res) => {
 
     await prisma.$transaction(async (tx) => {
       const tasksToMove = await tx.task.findMany({
-        where: { listId },
+        where: { subBoardId: listId },
         orderBy: { order: "asc" },
       });
       let nextOrder =
         (await tx.task.aggregate({
-          where: { listId: targetList.id },
+          where: { subBoardId: targetList.id, trackerStatus: "BACKLOG", archivedAt: null },
           _max: { order: true },
         }))._max.order ?? -1;
       nextOrder += 1;
       for (const task of tasksToMove) {
         await tx.task.update({
           where: { id: task.id },
-          data: { listId: targetList.id, order: nextOrder++ },
+          data: {
+            subBoardId: targetList.id,
+            trackerStatus: "BACKLOG",
+            order: nextOrder++,
+          },
         });
       }
       await tx.boardList.delete({ where: { id: listId } });
@@ -2503,10 +2985,7 @@ router.delete("/boards/:boardId/lists/:listId", async (req, res) => {
       );
     });
 
-    const board = await prisma.board.findUnique({
-      where: { id: boardId },
-      include: buildBoardIncludeFull(req.appUser!),
-    });
+    const board = await findBoardWithApiInclude(boardId, req.appUser!);
     res.json(boardJsonForApi(board));
   } catch (e) {
     console.error(e);
@@ -2671,6 +3150,164 @@ router.delete("/tasks/:taskId/labels/:labelId", async (req, res) => {
     res.json(taskJsonForApi(task));
   } catch {
     res.status(500).json({ error: "Failed to remove label" });
+  }
+});
+
+router.get("/brands/:brandId/my-ticket-labels", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    const rows = await prisma.userBrandTicketLabel.findMany({
+      where: { userId: req.appUser!.id, brandId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, color: true, updatedAt: true },
+    });
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to list ticket labels" });
+  }
+});
+
+router.post("/brands/:brandId/my-ticket-labels", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    const body = req.body as { name?: unknown; color?: unknown };
+    const name = sanitizeUserTicketLabelName(body.name);
+    if (!name) {
+      res.status(400).json({ error: "Invalid name" });
+      return;
+    }
+    const color = sanitizeUserTicketLabelColor(body.color);
+    const row = await prisma.userBrandTicketLabel.create({
+      data: { userId: req.appUser!.id, brandId, name, color },
+      select: { id: true, name: true, color: true, updatedAt: true },
+    });
+    res.status(201).json(row);
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002") {
+      res.status(409).json({ error: "A label with this name already exists for this brand" });
+      return;
+    }
+    console.error(e);
+    res.status(500).json({ error: "Failed to create ticket label" });
+  }
+});
+
+router.patch("/brands/:brandId/my-ticket-labels/:labelId", async (req, res) => {
+  try {
+    const { brandId, labelId } = req.params;
+    const body = req.body as { name?: unknown; color?: unknown };
+    const existing = await prisma.userBrandTicketLabel.findFirst({
+      where: { id: labelId, userId: req.appUser!.id, brandId },
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Label not found" });
+      return;
+    }
+    const patch: Prisma.UserBrandTicketLabelUpdateInput = {};
+    if (Object.prototype.hasOwnProperty.call(body, "name")) {
+      const name = sanitizeUserTicketLabelName(body.name);
+      if (!name) {
+        res.status(400).json({ error: "Invalid name" });
+        return;
+      }
+      patch.name = name;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "color")) {
+      patch.color = sanitizeUserTicketLabelColor(body.color);
+    }
+    const row = await prisma.userBrandTicketLabel.update({
+      where: { id: labelId },
+      data: patch,
+      select: { id: true, name: true, color: true, updatedAt: true },
+    });
+    res.json(row);
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002") {
+      res.status(409).json({ error: "A label with this name already exists for this brand" });
+      return;
+    }
+    console.error(e);
+    res.status(500).json({ error: "Failed to update ticket label" });
+  }
+});
+
+router.delete("/brands/:brandId/my-ticket-labels/:labelId", async (req, res) => {
+  try {
+    const { brandId, labelId } = req.params;
+    const n = await prisma.userBrandTicketLabel.deleteMany({
+      where: { id: labelId, userId: req.appUser!.id, brandId },
+    });
+    if (n.count === 0) {
+      res.status(404).json({ error: "Label not found" });
+      return;
+    }
+    res.status(204).end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to delete ticket label" });
+  }
+});
+
+router.post("/tasks/:taskId/my-ticket-labels", async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
+    const body = req.body as { userBrandTicketLabelId?: string };
+    if (!body.userBrandTicketLabelId) {
+      res.status(400).json({ error: "userBrandTicketLabelId required" });
+      return;
+    }
+    const label = await prisma.userBrandTicketLabel.findFirst({
+      where: { id: body.userBrandTicketLabelId, userId: req.appUser!.id },
+    });
+    if (!label) {
+      res.status(404).json({ error: "Label not found" });
+      return;
+    }
+    const taskBrandId = await taskBrandIdForUserLabel(taskId);
+    if (!taskBrandId || taskBrandId !== label.brandId) {
+      res.status(400).json({ error: "Label brand does not match task workspace" });
+      return;
+    }
+    await prisma.taskUserBrandTicketLabel.upsert({
+      where: {
+        taskId_userBrandTicketLabelId: { taskId, userBrandTicketLabelId: label.id },
+      },
+      create: { taskId, userBrandTicketLabelId: label.id },
+      update: {},
+    });
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: buildTaskInclude(req.appUser!),
+    });
+    res.json(taskJsonForApi(task));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to add ticket label" });
+  }
+});
+
+router.delete("/tasks/:taskId/my-ticket-labels/:userBrandTicketLabelId", async (req, res) => {
+  try {
+    const { taskId, userBrandTicketLabelId } = req.params;
+    const label = await prisma.userBrandTicketLabel.findFirst({
+      where: { id: userBrandTicketLabelId, userId: req.appUser!.id },
+    });
+    if (!label) {
+      res.status(404).json({ error: "Label not found" });
+      return;
+    }
+    await prisma.taskUserBrandTicketLabel.deleteMany({
+      where: { taskId, userBrandTicketLabelId },
+    });
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: buildTaskInclude(req.appUser!),
+    });
+    res.json(taskJsonForApi(task));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to remove ticket label" });
   }
 });
 

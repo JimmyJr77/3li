@@ -139,12 +139,20 @@ export async function ensurePersonalWorkspaceBoard(user: AppUserPrincipal) {
   return ensureDefaultBoardForWorkspace(workspace.id);
 }
 
-export async function getBacklogListId(boardId: string) {
-  const list = await prisma.boardList.findFirst({
-    where: { boardId, key: "backlog" },
+/** Default sub-board for new tickets: backlog column if present, else first sub-board on the board. */
+export async function getDefaultSubBoardIdForBoard(boardId: string): Promise<string> {
+  const lists = await prisma.boardList.findMany({
+    where: { boardId },
+    orderBy: { position: "asc" },
   });
-  if (!list) {
-    throw new Error("Backlog list not found for board");
+  const backlog = lists.find((l) => l.key === "backlog");
+  if (backlog) return backlog.id;
+  const first = lists[0];
+  if (!first) {
+    throw new Error("No sub-boards on board");
   }
-  return list.id;
+  return first.id;
 }
+
+/** @deprecated Alias for older call sites — returns a `BoardList` id (sub-board). */
+export const getBacklogListId = getDefaultSubBoardIdForBoard;

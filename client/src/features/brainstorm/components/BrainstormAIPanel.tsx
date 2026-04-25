@@ -262,7 +262,7 @@ export function BrainstormAIPanel({
     },
     onSuccess: (data: { tasks: ConvertPlanTaskDto[] }) => {
       setOutput(
-        `Created ${data.tasks.length} task(s) on the backlog. Open Tasks or Board to manage them.`,
+        `Created ${data.tasks.length} ticket(s) on the backlog. Open Ticket Tracker or a board to manage them.`,
       );
       setPendingProposals(null);
       queryClient.invalidateQueries({ queryKey: ["tasks"] });

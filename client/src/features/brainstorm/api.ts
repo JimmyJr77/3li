@@ -128,7 +128,7 @@ export type ConvertPlanTaskDto = {
   id: string;
   title: string;
   completed: boolean;
-  listId: string;
+  subBoardId: string;
   order: number;
   ideaNodeId: string | null;
   ideaNode: { id: string; title: string };

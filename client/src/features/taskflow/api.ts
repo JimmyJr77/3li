@@ -5,13 +5,22 @@ import type {
   BrandInviteCreatedDto,
   BrandTeamDto,
   BrandTreeDto,
+  SubBoardPreferenceDto,
   TaskFlowTask,
+  UserTicketLabelDto,
   WorkspaceDto,
 } from "./types";
 
 export type TaskListParams = {
   workspaceId?: string;
   boardId?: string;
+  projectSpaceId?: string;
+  subBoardId?: string;
+  trackerStatus?: string;
+  assigneeUserId?: string;
+  createdByUserId?: string;
+  dueBefore?: string;
+  dueAfter?: string;
   q?: string;
   labelId?: string;
   priority?: string;
@@ -29,6 +38,36 @@ export async function fetchBootstrap(): Promise<BootstrapDto> {
 
 export async function fetchBoard(boardId: string): Promise<BoardDto> {
   const { data } = await api.get<BoardDto>(`/api/task-app/boards/${boardId}`);
+  return data;
+}
+
+export async function fetchBoardSubBoardPreferences(boardId: string): Promise<SubBoardPreferenceDto[]> {
+  const { data } = await api.get<SubBoardPreferenceDto[]>(
+    `/api/task-app/boards/${boardId}/sub-board-preferences`,
+  );
+  return data;
+}
+
+export async function fetchSubBoardPreference(subBoardId: string): Promise<SubBoardPreferenceDto> {
+  const { data } = await api.get<SubBoardPreferenceDto>(
+    `/api/task-app/sub-boards/${subBoardId}/preferences`,
+  );
+  return data;
+}
+
+export async function patchSubBoardPreference(
+  subBoardId: string,
+  body: Partial<{
+    ticketCardColor: string | null;
+    hiddenTrackerStatuses: string[];
+    cardFaceLayout: string;
+    completeCheckboxVisibleByDefault: boolean;
+  }>,
+): Promise<SubBoardPreferenceDto> {
+  const { data } = await api.patch<SubBoardPreferenceDto>(
+    `/api/task-app/sub-boards/${subBoardId}/preferences`,
+    body,
+  );
   return data;
 }
 
@@ -50,11 +89,11 @@ export type RoutingIndexDto = {
     boards: {
       id: string;
       name: string;
-      lists: {
+      subBoards: {
         id: string;
         title: string;
         key: string | null;
-        taskTitles: string[];
+        tasksByTracker: Partial<Record<string, string[]>>;
       }[];
     }[];
   }[];
@@ -400,12 +439,19 @@ export async function createBoardTask(
   body: {
     title: string;
     description?: string;
+    subBoardId?: string;
+    /** @deprecated Use `subBoardId`. */
     listId?: string;
+    trackerStatus?: string;
     priority?: string;
     routingSource?: string | null;
   },
 ): Promise<TaskFlowTask> {
-  const { data } = await api.post<TaskFlowTask>(`/api/task-app/boards/${boardId}/tasks`, body);
+  const { subBoardId, listId, ...rest } = body;
+  const { data } = await api.post<TaskFlowTask>(`/api/task-app/boards/${boardId}/tasks`, {
+    ...rest,
+    ...(subBoardId ? { subBoardId } : listId ? { subBoardId: listId } : {}),
+  });
   return data;
 }
 
@@ -461,10 +507,19 @@ export async function patchTask(
     dueDate: string | null;
     startDate: string | null;
     listId: string;
+    subBoardId: string;
+    trackerStatus: string;
+    assigneeUserId: string | null;
+    cardFaceLayout: string;
+    showCompleteCheckbox: boolean | null;
     archived: boolean;
   }>,
 ): Promise<TaskFlowTask> {
-  const { data } = await api.patch<TaskFlowTask>(`/api/task-app/tasks/${taskId}`, body);
+  const { listId, subBoardId, ...rest } = body;
+  const { data } = await api.patch<TaskFlowTask>(`/api/task-app/tasks/${taskId}`, {
+    ...rest,
+    ...(subBoardId !== undefined ? { subBoardId } : listId !== undefined ? { subBoardId: listId } : {}),
+  });
   return data;
 }
 
@@ -499,5 +554,54 @@ export async function addTaskLabel(taskId: string, labelId: string): Promise<Tas
 
 export async function removeTaskLabel(taskId: string, labelId: string): Promise<TaskFlowTask> {
   const { data } = await api.delete<TaskFlowTask>(`/api/task-app/tasks/${taskId}/labels/${labelId}`);
+  return data;
+}
+
+export async function fetchMyTicketLabels(brandId: string): Promise<UserTicketLabelDto[]> {
+  const { data } = await api.get<UserTicketLabelDto[]>(`/api/task-app/brands/${brandId}/my-ticket-labels`);
+  return data;
+}
+
+export async function postMyTicketLabel(
+  brandId: string,
+  body: { name: string; color?: string },
+): Promise<UserTicketLabelDto> {
+  const { data } = await api.post<UserTicketLabelDto>(`/api/task-app/brands/${brandId}/my-ticket-labels`, body);
+  return data;
+}
+
+export async function patchMyTicketLabel(
+  brandId: string,
+  labelId: string,
+  body: Partial<{ name: string; color: string }>,
+): Promise<UserTicketLabelDto> {
+  const { data } = await api.patch<UserTicketLabelDto>(
+    `/api/task-app/brands/${brandId}/my-ticket-labels/${labelId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteMyTicketLabel(brandId: string, labelId: string): Promise<void> {
+  await api.delete(`/api/task-app/brands/${brandId}/my-ticket-labels/${labelId}`);
+}
+
+export async function addUserTicketLabelToTask(
+  taskId: string,
+  userBrandTicketLabelId: string,
+): Promise<TaskFlowTask> {
+  const { data } = await api.post<TaskFlowTask>(`/api/task-app/tasks/${taskId}/my-ticket-labels`, {
+    userBrandTicketLabelId,
+  });
+  return data;
+}
+
+export async function removeUserTicketLabelFromTask(
+  taskId: string,
+  userBrandTicketLabelId: string,
+): Promise<TaskFlowTask> {
+  const { data } = await api.delete<TaskFlowTask>(
+    `/api/task-app/tasks/${taskId}/my-ticket-labels/${userBrandTicketLabelId}`,
+  );
   return data;
 }

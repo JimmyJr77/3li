@@ -1,7 +1,17 @@
+import type { TrackerStatus } from "./trackerMeta";
+
 export type LabelDto = {
   id: string;
   name: string;
   color: string;
+};
+
+/** Your reusable labels for tickets in this brand (API: `/brands/:brandId/my-ticket-labels`). */
+export type UserTicketLabelDto = {
+  id: string;
+  name: string;
+  color: string;
+  updatedAt?: string | null;
 };
 
 export type TaskFlowTask = {
@@ -18,9 +28,20 @@ export type TaskFlowTask = {
   ideaNodeId: string | null;
   /** When set, task originated from Rapid Router / Mailroom-style capture. */
   routingSource?: string | null;
-  listId: string;
+  /** Placement: project sub-board (`BoardList` id). */
+  subBoardId: string;
+  trackerStatus: TrackerStatus;
+  createdByUserId?: string | null;
+  assigneeUserId?: string | null;
+  lastAssignedAt?: string | null;
+  /** @deprecated Use sub-board preference `cardFaceLayout`. */
+  cardFaceLayout?: string;
+  /** null = use sub-board `completeCheckboxVisibleByDefault`. */
+  showCompleteCheckbox?: boolean | null;
+  /** @deprecated Same as `subBoardId`; kept while API may send both. */
+  listId?: string;
   ideaNode: { id: string; title: string } | null;
-  labels: { label: LabelDto }[];
+  labels: { label: LabelDto; labelScope?: "board" | "user" }[];
   /** Present on flat `/tasks` responses for table/calendar views */
   list?: {
     id: string;
@@ -49,10 +70,23 @@ export type BoardListDto = {
   tasks: TaskFlowTask[];
 };
 
+export type SubBoardPreferenceDto = {
+  subBoardId: string;
+  ticketCardColor: string | null;
+  /** standard | minimal — ticket cards on this sub-board for this user. */
+  cardFaceLayout: string;
+  /** When true, kanban cards show the done checkbox unless a ticket overrides. */
+  completeCheckboxVisibleByDefault: boolean;
+  hiddenTrackerStatuses: TrackerStatus[];
+  updatedAt: string | null;
+};
+
 export type BoardDto = {
   id: string;
   name: string;
   workspaceId: string;
+  /** Parent brand for this board’s workspace (for personal ticket labels, etc.). */
+  brandId?: string;
   /** Set when the board is archived (hidden from default project space lists). */
   archivedAt?: string | null;
   lists: BoardListDto[];

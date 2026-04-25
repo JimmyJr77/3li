@@ -31,8 +31,14 @@ model AppUser {
   sessions     AppSession[]
   /// Task board events attributed to this login (Activity Tracker).
   authoredTaskActivities Activity[] @relation("TaskActivityActor")
+  tasksCreated           Task[]     @relation("TaskCreatedBy")
+  tasksAssigned          Task[]     @relation("TaskAssignee")
+  ticketAssignmentEvents TicketAssignmentEvent[]
+  subBoardPreferences    SubBoardPreference[]
   /// Custom project board column layouts; not shared with other logins.
   customBoardTemplates CustomBoardTemplate[]
+  /// Reusable ticket labels (name + color) scoped by brand; shown on tasks for this user.
+  userBrandTicketLabels UserBrandTicketLabel[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 }
@@ -131,6 +137,7 @@ model Brand {
   workspaces   Workspace[]
   members      BrandMember[]
   invites      BrandInvite[]
+  userBrandTicketLabels UserBrandTicketLabel[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -381,16 +388,17 @@ model Board {
   @@index([projectSpaceId, archivedAt])
 }
 
-/// Trello-style column on a board
+/// Project sub-board (horizontal swimlane on a project board); tickets live in fixed tracker columns within it.
 model BoardList {
   id        String   @id @default(cuid())
   boardId   String
   board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
   title     String
-  /// Stable key for default columns (backlog / in_progress / done) — optional for custom lists
+  /// Legacy template key (backlog / in_progress / done) — optional; tracker status is on each ticket.
   key       String?
   position  Int      @default(0)
   tasks     Task[]
+  preferences SubBoardPreference[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -398,10 +406,41 @@ model BoardList {
   @@index([boardId])
 }
 
+/// Per-user display preferences for a project sub-board.
+model SubBoardPreference {
+  id                    String          @id @default(cuid())
+  userId                String
+  user                  AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subBoardId            String
+  subBoard              BoardList       @relation(fields: [subBoardId], references: [id], onDelete: Cascade)
+  ticketCardColor                    String?  @db.VarChar(32)
+  /// standard | minimal — applies to all ticket cards on this sub-board for this user.
+  cardFaceLayout                   String   @default("standard") @db.VarChar(64)
+  /// When true, the done checkbox is shown on kanban cards unless a ticket overrides.
+  completeCheckboxVisibleByDefault Boolean  @default(true)
+  hiddenTrackerStatuses            TrackerStatus[]
+  createdAt                        DateTime @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([userId, subBoardId])
+  @@index([subBoardId])
+}
+
+enum TrackerStatus {
+  FREE_SPACE
+  CONTEXT
+  BRAINSTORM
+  BACKLOG
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
 model Task {
   id           String    @id @default(cuid())
-  listId       String
-  list         BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  subBoardId   String
+  subBoard     BoardList @relation(fields: [subBoardId], references: [id], onDelete: Cascade)
+  trackerStatus TrackerStatus @default(BACKLOG)
   title        String
   description  String    @default("")
   completed    Boolean   @default(false)
@@ -417,17 +456,46 @@ model Task {
   sourceMessageId String?
   /// Optional provenance: e.g. rapid_router, mailroom_plan (UI may show “from capture”).
   routingSource   String?
+  createdByUserId String?
+  createdBy       AppUser? @relation("TaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assigneeUserId  String?
+  assignee        AppUser? @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  lastAssignedAt  DateTime?
+  /// @deprecated Per-sub-board `SubBoardPreference.cardFaceLayout` replaces this.
+  cardFaceLayout  String    @default("standard")
+  /// null = inherit sub-board preference `completeCheckboxVisibleByDefault`.
+  showCompleteCheckbox Boolean?
   comments     Comment[]
   checklist    ChecklistItem[]
   labels       TaskLabel[]
+  userBrandTicketLabels TaskUserBrandTicketLabel[]
   activities   Activity[]
+  assignmentEvents TicketAssignmentEvent[]
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@index([listId])
-  @@index([listId, archivedAt])
+  @@index([subBoardId])
+  @@index([subBoardId, trackerStatus])
+  @@index([subBoardId, trackerStatus, archivedAt])
   @@index([ideaNodeId])
   @@index([chatThreadId])
+  @@index([assigneeUserId])
+  @@index([createdByUserId])
+}
+
+/// Append-only record of assignee changes for tickets.
+model TicketAssignmentEvent {
+  id          String   @id @default(cuid())
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromUserId  String?
+  toUserId    String?
+  actorUserId String
+  actorUser   AppUser  @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([taskId])
+  @@index([actorUserId])
 }
 
 // --- Consulting chat + RAG ---
@@ -503,6 +571,35 @@ model Label {
   tasks   TaskLabel[]
 
   @@index([boardId])
+}
+
+/// Personal ticket labels for one login within one brand (available on all boards in that brand).
+model UserBrandTicketLabel {
+  id        String   @id @default(cuid())
+  userId    String
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brandId   String
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  name      String   @db.VarChar(128)
+  color     String   @default("#6366f1") @db.VarChar(32)
+  taskLinks TaskUserBrandTicketLabel[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, brandId, name])
+  @@index([brandId])
+  @@index([userId, brandId])
+}
+
+model TaskUserBrandTicketLabel {
+  taskId                 String
+  userBrandTicketLabelId String
+  task                   Task                 @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userBrandTicketLabel   UserBrandTicketLabel @relation(fields: [userBrandTicketLabelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userBrandTicketLabelId])
+  @@index([userBrandTicketLabelId])
 }
 
 model TaskLabel {

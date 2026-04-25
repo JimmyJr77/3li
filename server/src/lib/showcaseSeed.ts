@@ -16,7 +16,7 @@ export async function resetShowcaseDemoData() {
   if (!board) return;
 
   await prisma.task.deleteMany({
-    where: { list: { boardId: board.id }, title: { startsWith: SHOWCASE } },
+    where: { subBoard: { boardId: board.id }, title: { startsWith: SHOWCASE } },
   });
   await prisma.ideaEdge.deleteMany({
     where: { id: { contains: "showcase-edge" } },
@@ -44,7 +44,7 @@ export async function resetShowcaseDemoData() {
  */
 export async function ensureTaskflowShowcase(boardId: string) {
   const already = await prisma.task.findFirst({
-    where: { list: { boardId }, title: { startsWith: SHOWCASE } },
+    where: { subBoard: { boardId }, title: { startsWith: SHOWCASE } },
     select: { id: true },
   });
   if (already) return;
@@ -77,7 +77,7 @@ export async function ensureTaskflowShowcase(boardId: string) {
       title: `${SHOWCASE} Client discovery workshops`,
       description:
         "Facilitate three sessions with stakeholders; capture pain points and success metrics for the engagement.",
-      priority: "urgent",
+      priority: "high",
       dueInDays: 3,
       label: "Feature",
     },
@@ -184,7 +184,7 @@ export async function ensureTaskflowShowcase(boardId: string) {
       listKey: "in_progress",
       title: `${SHOWCASE} Executive readout dry-run`,
       description: "45-minute storyline, appendix deep dives, and Q&A prep with SMEs.",
-      priority: "urgent",
+      priority: "high",
       dueInDays: 2,
       label: "Feature",
     },
@@ -199,6 +199,11 @@ export async function ensureTaskflowShowcase(boardId: string) {
   ];
 
   const listByKey = { backlog, in_progress: inProg, done };
+  const trackerForListKey: Record<string, "BACKLOG" | "IN_PROGRESS" | "DONE"> = {
+    backlog: "BACKLOG",
+    in_progress: "IN_PROGRESS",
+    done: "DONE",
+  };
 
   await prisma.$transaction(async (tx) => {
     let orderBacklog = 0;
@@ -206,7 +211,7 @@ export async function ensureTaskflowShowcase(boardId: string) {
     let orderDone = 0;
 
     for (const spec of specs) {
-      const list = listByKey[spec.listKey];
+      const list = listByKey[spec.listKey as keyof typeof listByKey];
       const order =
         spec.listKey === "backlog" ? orderBacklog++ : spec.listKey === "in_progress" ? orderProg++ : orderDone++;
       const due =
@@ -216,7 +221,8 @@ export async function ensureTaskflowShowcase(boardId: string) {
 
       const task = await tx.task.create({
         data: {
-          listId: list.id,
+          subBoardId: list.id,
+          trackerStatus: trackerForListKey[spec.listKey],
           title: spec.title,
           description: spec.description,
           priority: spec.priority,

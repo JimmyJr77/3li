@@ -619,7 +619,7 @@ export function RapidRouterPage() {
         if (!route.boardsBoardId || !route.boardsListId) throw new Error("no-board-target");
         const { title, description } = splitTaskTitleDescription(raw);
         const task = await createBoardTask(route.boardsBoardId, {
-          listId: route.boardsListId,
+          subBoardId: route.boardsListId,
           title,
           ...(description ? { description } : {}),
           routingSource: "mail_clerk_plan",
@@ -781,7 +781,7 @@ export function RapidRouterPage() {
           "Routing to notes needs notebooks loaded — open Notebooks once or choose a folder under Manual routing.",
         );
       } else if (msg === "no-board-target") {
-        setPlanChunkError("Pick a project board and list for this part, then try again.");
+        setPlanChunkError("Pick a project board and sub-board for this part, then try again.");
       } else if (msg === "no-session") {
         setPlanChunkError("Pick a brainstorm session for this part, then try again.");
       } else if (msg === "brand-storage") {
@@ -940,7 +940,7 @@ export function RapidRouterPage() {
         if (!boardsBoardId || !boardsListId) throw new Error("no-board-target");
         const { title, description } = splitTaskTitleDescription(raw);
         const task = await createBoardTask(boardsBoardId, {
-          listId: boardsListId,
+          subBoardId: boardsListId,
           title,
           ...(description ? { description } : {}),
           routingSource: "rapid_router",
@@ -1493,7 +1493,7 @@ export function RapidRouterPage() {
                                         </select>
                                       </div>
                                       <div className="space-y-1.5">
-                                        <Label className="text-xs">List</Label>
+                                        <Label className="text-xs">Sub-board</Label>
                                         <select
                                           className={selectClass}
                                           value={route.boardsListId ?? ""}
@@ -1805,7 +1805,7 @@ export function RapidRouterPage() {
                   </select>
                 </div>
                 <div className="min-w-[200px] flex-1 space-y-1.5">
-                  <Label htmlFor="rr-boards-list">List</Label>
+                  <Label htmlFor="rr-boards-list">Sub-board</Label>
                   <select
                     id="rr-boards-list"
                     className={selectClass}

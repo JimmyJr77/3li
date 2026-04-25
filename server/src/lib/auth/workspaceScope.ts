@@ -84,9 +84,11 @@ export async function assertBoardAccess(user: AppUserPrincipal, boardId: string)
 export async function getTaskWorkspaceId(taskId: string): Promise<string | null> {
   const t = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { list: { select: { board: { select: { projectSpace: { select: { workspaceId: true } } } } } } },
+    select: {
+      subBoard: { select: { board: { select: { projectSpace: { select: { workspaceId: true } } } } } },
+    },
   });
-  return t?.list.board.projectSpace.workspaceId ?? null;
+  return t?.subBoard?.board?.projectSpace?.workspaceId ?? null;
 }
 
 export async function assertTaskAccess(user: AppUserPrincipal, taskId: string): Promise<boolean> {

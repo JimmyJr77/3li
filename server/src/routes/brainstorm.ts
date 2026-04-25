@@ -482,7 +482,8 @@ async function handleConvertPlan(req: Request, res: Response, sessionId: string)
         prisma.task.create({
           data: {
             title,
-            listId: backlogListId,
+            subBoardId: backlogListId,
+            trackerStatus: "BACKLOG",
             order,
             ideaNodeId: idea.id,
           },
@@ -494,7 +495,7 @@ async function handleConvertPlan(req: Request, res: Response, sessionId: string)
       id: t.id,
       title: t.title,
       completed: t.completed,
-      listId: t.listId,
+      subBoardId: t.subBoardId,
       order: t.order,
       ideaNodeId: t.ideaNodeId,
       ideaNode: { id: idea.id, title: idea.title },

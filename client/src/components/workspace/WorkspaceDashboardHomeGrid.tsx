@@ -110,7 +110,7 @@ export const workspaceDashboardHomeTiles = [
     preview: "activity",
   },
   {
-    title: "Task Lists",
+    title: "Ticket Tracker",
     to: "/app/my-tasks",
     body: "All tasks across project boards.",
     preview: "task-lists",

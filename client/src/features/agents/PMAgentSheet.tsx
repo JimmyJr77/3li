@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { postProjectManagerAgent } from "@/features/agents/api";
 import type { BoardDto, TaskFlowTask } from "@/features/taskflow/types";
+import { TRACKER_LABELS, normalizeTrackerStatus } from "@/features/taskflow/trackerMeta";
 
 const SHEET_WIDTH_STORAGE_KEY = "pmAgentSheetWidthPx";
 const SHEET_WIDTH_DEFAULT = 640;
@@ -25,11 +26,12 @@ const textareaClass =
 export function buildBoardContextSnapshot(board: BoardDto): string {
   const lines: string[] = [`Board: ${board.name}`, `Board id: ${board.id}`];
   for (const list of board.lists) {
-    lines.push(`\n## ${list.title} (${list.key ?? "list"})`);
+    lines.push(`\n## Sub-board: ${list.title} (id: ${list.id}, key: ${list.key ?? "—"})`);
     for (const t of list.tasks) {
       const due = t.dueDate ? t.dueDate.slice(0, 10) : "none";
+      const tr = TRACKER_LABELS[normalizeTrackerStatus(t.trackerStatus)];
       lines.push(
-        `- [${t.completed ? "x" : " "}] ${t.title} | priority: ${t.priority} | due: ${due}`,
+        `- [${t.completed ? "x" : " "}] ${t.title} | tracker: ${tr} | priority: ${t.priority} | due: ${due}`,
       );
     }
   }
@@ -42,7 +44,8 @@ export function buildTasksContextSnapshot(title: string, tasks: TaskFlowTask[]):
     ...tasks.map((t) => {
       const due = t.dueDate ? t.dueDate.slice(0, 10) : "none";
       const boardName = t.list?.board?.name ?? "?";
-      return `- ${t.title} | ${boardName} | due: ${due} | done: ${t.completed}`;
+      const tr = TRACKER_LABELS[normalizeTrackerStatus(t.trackerStatus)];
+      return `- ${t.title} | ${boardName} | ${tr} | due: ${due} | done: ${t.completed}`;
     }),
   ];
   return lines.join("\n").slice(0, 14_000);

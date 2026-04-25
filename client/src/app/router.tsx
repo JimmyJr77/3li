@@ -56,6 +56,7 @@ const router = createBrowserRouter([
       { path: "rapid-router", element: <RapidRouterPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "my-tasks", element: <MyTasksPage /> },
+      { path: "ticket-tracker", element: <Navigate to="/app/my-tasks" replace /> },
       { path: "tasks", element: <TasksPage /> },
       {
         path: "boards",

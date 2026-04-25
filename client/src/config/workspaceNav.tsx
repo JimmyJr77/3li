@@ -33,7 +33,7 @@ export const workspaceNavSections: readonly {
       { to: "/app/notes", label: "Notebooks", icon: StickyNote },
       { to: "/app/brainstorm", label: "Brainstorm Studio", icon: Lightbulb },
       { to: "/app/boards", label: "Project Boards", icon: LayoutGrid },
-      { to: "/app/my-tasks", label: "Task Lists", icon: ListTodo },
+      { to: "/app/my-tasks", label: "Ticket Tracker", icon: ListTodo },
       { to: "/app/calendar", label: "Calendar", icon: CalendarDays },
     ],
   },
