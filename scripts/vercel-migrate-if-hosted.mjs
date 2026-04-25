@@ -30,8 +30,19 @@ if (migrateUrl !== url) {
 
 const migrateEnv = { ...process.env, DATABASE_URL: migrateUrl };
 
-/** One-shot recovery: an older deploy failed this migration before SQL was idempotent (P3018). Prisma then refuses all deploys (P3009) until `migrate resolve`. */
-const STUCK_FAILED_MIGRATION = "20260426120000_project_space_is_default";
+/**
+ * Migrations we may mark `--rolled-back` after a failed Vercel deploy so `migrate deploy` can retry.
+ * Only list migrations whose SQL is idempotent / safe to re-run after Prisma P3009.
+ */
+const SAFE_AUTO_ROLLBACK_MIGRATIONS = new Set([
+  "20260426120000_project_space_is_default",
+  "20260426180000_board_user_preferences",
+]);
+
+function parseP3009FailedMigrationName(output) {
+  const m = output.match(/The `([^`]+)` migration/);
+  return m?.[1] ?? null;
+}
 
 function migrateDeploy() {
   const r = spawnSync("npx", ["prisma", "migrate", "deploy"], {
@@ -45,25 +56,29 @@ function migrateDeploy() {
   return { status: typeof r.status === "number" ? r.status : 1, out };
 }
 
-let { status, out } = migrateDeploy();
+for (let i = 0; i < 6; i++) {
+  const { status, out } = migrateDeploy();
+  if (status === 0) process.exit(0);
 
-if (
-  status !== 0 &&
-  out.includes("P3009") &&
-  out.includes(`\`${STUCK_FAILED_MIGRATION}\``)
-) {
-  console.log(
-    `[vercel-build] P3009: clearing failed migration "${STUCK_FAILED_MIGRATION}" so deploy can re-run (idempotent SQL is in repo).`,
-  );
-  const resolveRb = spawnSync(
-    "npx",
-    ["prisma", "migrate", "resolve", "--rolled-back", STUCK_FAILED_MIGRATION],
-    { shell: true, env: migrateEnv, stdio: "inherit" },
-  );
-  if (resolveRb.status !== 0) {
-    process.exit(typeof resolveRb.status === "number" ? resolveRb.status : 1);
+  if (out.includes("P3009")) {
+    const name = parseP3009FailedMigrationName(out);
+    if (name && SAFE_AUTO_ROLLBACK_MIGRATIONS.has(name)) {
+      console.log(
+        `[vercel-build] P3009: clearing failed migration "${name}" so deploy can re-run (allowlisted recovery).`,
+      );
+      const resolveRb = spawnSync(
+        "npx",
+        ["prisma", "migrate", "resolve", "--rolled-back", name],
+        { shell: true, env: migrateEnv, stdio: "inherit" },
+      );
+      if (resolveRb.status !== 0) {
+        process.exit(typeof resolveRb.status === "number" ? resolveRb.status : 1);
+      }
+      continue;
+    }
   }
-  ({ status, out } = migrateDeploy());
+
+  process.exit(status);
 }
 
-process.exit(status);
+process.exit(1);

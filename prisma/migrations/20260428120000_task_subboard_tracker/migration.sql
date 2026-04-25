@@ -1,14 +1,18 @@
 -- Tickets: sub-board placement + tracker status; migrate from listId → subBoardId + BACKLOG.
 
-CREATE TYPE "TrackerStatus" AS ENUM (
-  'FREE_SPACE',
-  'CONTEXT',
-  'BRAINSTORM',
-  'BACKLOG',
-  'IN_PROGRESS',
-  'IN_REVIEW',
-  'DONE'
-);
+DO $$ BEGIN
+    CREATE TYPE "TrackerStatus" AS ENUM (
+      'FREE_SPACE',
+      'CONTEXT',
+      'BRAINSTORM',
+      'BACKLOG',
+      'IN_PROGRESS',
+      'IN_REVIEW',
+      'DONE'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 ALTER TABLE "Task" ADD COLUMN "subBoardId" TEXT;
 ALTER TABLE "Task" ADD COLUMN "trackerStatus" "TrackerStatus" NOT NULL DEFAULT 'BACKLOG';

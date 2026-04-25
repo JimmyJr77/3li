@@ -1,4 +1,20 @@
 -- Per-user project board defaults (tickets, lanes, sub-board tab visibility).
+-- `TrackerStatus` is also created in 20260428120000_task_subboard_tracker; define it here first
+-- so this migration runs in timestamp order (idempotent on Neon / fresh DBs).
+DO $$ BEGIN
+    CREATE TYPE "TrackerStatus" AS ENUM (
+      'FREE_SPACE',
+      'CONTEXT',
+      'BRAINSTORM',
+      'BACKLOG',
+      'IN_PROGRESS',
+      'IN_REVIEW',
+      'DONE'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE TABLE "BoardUserPreference" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
