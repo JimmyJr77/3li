@@ -1,15 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Archive,
-  ArchiveRestore,
-  Kanban,
-  LayoutGrid,
-  Loader2,
-  MoreHorizontal,
-  MoreVertical,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, MoreVertical, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -1234,7 +1224,7 @@ export function BoardsPage() {
                           onClick={(e) => e.stopPropagation()}
                           onPointerDown={(e) => e.stopPropagation()}
                         >
-                          <MoreHorizontal className="size-4" aria-hidden />
+                          <MoreVertical className="size-4" aria-hidden />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-40">
