@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, MoreVertical, Plus, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Kanban,
+  LayoutGrid,
+  Loader2,
+  MoreHorizontal,
+  MoreVertical,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -35,12 +45,14 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -167,6 +179,7 @@ export function BoardsPage() {
   const [boardEditError, setBoardEditError] = useState<string | null>(null);
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "edit">("create");
   const [templateEditId, setTemplateEditId] = useState<string | null>(null);
+  const [viewTemplateId, setViewTemplateId] = useState<string | null>(null);
 
   const workspacesQuery = useQuery({
     queryKey: ["workspaces"],
@@ -188,6 +201,12 @@ export function BoardsPage() {
     queryKey: ["board-template", templateEditId] as const,
     queryFn: () => fetchBoardTemplate(templateEditId!),
     enabled: Boolean(templateEditId) && templateDialogMode === "edit",
+  });
+
+  const viewTemplateQuery = useQuery({
+    queryKey: ["board-template", "view", viewTemplateId] as const,
+    queryFn: () => fetchBoardTemplate(viewTemplateId!),
+    enabled: Boolean(viewTemplateId),
   });
 
   const archivedProjectSpacesQuery = useQuery({
@@ -1089,6 +1108,61 @@ export function BoardsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        <Dialog
+          open={Boolean(viewTemplateId)}
+          onOpenChange={(open) => {
+            if (!open) setViewTemplateId(null);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {viewTemplateQuery.isLoading
+                  ? "Template"
+                  : (viewTemplateQuery.data?.name ?? "Template")}
+              </DialogTitle>
+              <DialogDescription>
+                {viewTemplateQuery.data?.description?.trim()
+                  ? viewTemplateQuery.data.description
+                  : "Sub-boards in this project board template. This list is read-only."}
+              </DialogDescription>
+            </DialogHeader>
+            {viewTemplateQuery.isLoading && (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Loading sub-boards…
+              </div>
+            )}
+            {viewTemplateQuery.isError && (
+              <p className="text-sm text-destructive">Could not load this template. Try again.</p>
+            )}
+            {viewTemplateQuery.data && !viewTemplateQuery.isLoading && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground" id="sub-boards-label">
+                  Sub-boards
+                </p>
+                <ol
+                  className="list-decimal space-y-1.5 pl-5 text-sm"
+                  aria-labelledby="sub-boards-label"
+                >
+                  {viewTemplateQuery.data.lists.map((list, i) => (
+                    <li
+                      key={`${list.title}-${i}`}
+                      className="text-foreground pl-0.5 marker:text-muted-foreground"
+                    >
+                      {list.title}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setViewTemplateId(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {templatesQuery.isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -1149,49 +1223,59 @@ export function BoardsPage() {
                     <div className="min-w-0 flex-1">
                       <CardTitle className="text-base">{t.name}</CardTitle>
                     </div>
-                    {!t.isBuiltin ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-                            aria-label={`Template options: ${t.name}`}
-                            onClick={(e) => e.stopPropagation()}
-                            onPointerDown={(e) => e.stopPropagation()}
-                          >
-                            <MoreVertical className="size-4" aria-hidden />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="min-w-40">
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setTemplateDialogMode("edit");
-                              setTemplateEditId(t.id);
-                              setTemplateFormError(null);
-                              setTemplateDialogOpen(true);
-                            }}
-                          >
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onSelect={() => {
-                              if (
-                                window.confirm(
-                                  `Delete template “${t.name}”? This cannot be undone.`,
-                                )
-                              ) {
-                                deleteTemplateMutation.mutate(t.id);
-                              }
-                            }}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          aria-label={`Template options: ${t.name}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal className="size-4" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-40">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setViewTemplateId(t.id);
+                          }}
+                        >
+                          View
+                        </DropdownMenuItem>
+                        {!t.isBuiltin ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setTemplateDialogMode("edit");
+                                setTemplateEditId(t.id);
+                                setTemplateFormError(null);
+                                setTemplateDialogOpen(true);
+                              }}
+                            >
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => {
+                                if (
+                                  window.confirm(
+                                    `Delete template “${t.name}”? This cannot be undone.`,
+                                  )
+                                ) {
+                                  deleteTemplateMutation.mutate(t.id);
+                                }
+                              }}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   <CardDescription className="mt-1.5">{t.description || "—"}</CardDescription>
                   <p className="mt-2 text-xs text-muted-foreground">
