@@ -11,6 +11,7 @@ import type {
   TaskFlowTask,
   UserTicketLabelDto,
   WorkspaceDto,
+  WorkspaceUserPreferenceDto,
 } from "./types";
 
 export type TaskListParams = {
@@ -66,10 +67,31 @@ export async function patchBoardUserPreferences(
     defaultCardFaceLayout: string;
     defaultCardFaceMeta: unknown;
     hiddenSubBoardIds: string[];
+    showBoardAccentBorder: boolean;
   }>,
 ): Promise<BoardUserPreferenceDto> {
   const { data } = await api.patch<BoardUserPreferenceDto>(
     `/api/task-app/boards/${boardId}/user-board-preferences`,
+    body,
+  );
+  return data;
+}
+
+export async function fetchWorkspaceUserPreferences(
+  workspaceId: string,
+): Promise<WorkspaceUserPreferenceDto> {
+  const { data } = await api.get<WorkspaceUserPreferenceDto>(
+    `/api/task-app/workspaces/${workspaceId}/user-workspace-preferences`,
+  );
+  return data;
+}
+
+export async function patchWorkspaceUserPreferences(
+  workspaceId: string,
+  body: Partial<{ ticketTrackerColorByBoard: boolean }>,
+): Promise<WorkspaceUserPreferenceDto> {
+  const { data } = await api.patch<WorkspaceUserPreferenceDto>(
+    `/api/task-app/workspaces/${workspaceId}/user-workspace-preferences`,
     body,
   );
   return data;
@@ -470,6 +492,12 @@ export async function createBoardFromTemplate(
   return data;
 }
 
+/** Same project space, same columns and board labels, no tickets. */
+export async function duplicateBoard(boardId: string, body?: { name?: string }): Promise<BoardDto> {
+  const { data } = await api.post<BoardDto>(`/api/task-app/boards/${boardId}/duplicate`, body ?? {});
+  return data;
+}
+
 export async function applyBoardPositions(
   boardId: string,
   positions: Record<string, string[]>,
@@ -510,7 +538,7 @@ export async function createBoardList(boardId: string, title: string): Promise<{
 
 export async function patchBoard(
   boardId: string,
-  body: { name?: string; archived?: boolean },
+  body: { name?: string; archived?: boolean; projectSpaceId?: string; accentColor?: string },
 ): Promise<BoardDto> {
   const { data } = await api.patch<BoardDto>(`/api/task-app/boards/${boardId}`, body);
   return data;

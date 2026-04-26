@@ -4,8 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { BoardDto, BoardUserPreferenceDto } from "./types";
-import { NewTicketLabelForm } from "./NewTicketLabelForm";
-import { patchBoard, patchBoardUserPreferences, postBoardLabel } from "./api";
+import { patchBoard, patchBoardUserPreferences } from "./api";
 import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
 import {
   CARD_FACE_META_KEYS,
@@ -36,8 +35,6 @@ export function ProjectBoardSettingsPanel({
 }) {
   const queryClient = useQueryClient();
   const [nameDraft, setNameDraft] = useState(board.name);
-  const [newBoardLabelName, setNewBoardLabelName] = useState("");
-  const [newBoardLabelColor, setNewBoardLabelColor] = useState("#6366f1");
 
   useEffect(() => {
     setNameDraft(board.name);
@@ -45,6 +42,15 @@ export function ProjectBoardSettingsPanel({
 
   const renameMutation = useMutation({
     mutationFn: (name: string) => patchBoard(board.id, { name }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["board", next.id], next);
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+    },
+  });
+
+  const accentMutation = useMutation({
+    mutationFn: (accentColor: string) => patchBoard(board.id, { accentColor }),
     onSuccess: (next) => {
       queryClient.setQueryData(["board", next.id], next);
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
@@ -72,17 +78,6 @@ export function ProjectBoardSettingsPanel({
   const flush = (body: PatchBody) => {
     mutation.mutate(body);
   };
-
-  const createBoardLabelMutation = useMutation({
-    mutationFn: () =>
-      postBoardLabel(board.id, { name: newBoardLabelName.trim(), color: newBoardLabelColor }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["board", next.id], next);
-      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
-      setNewBoardLabelName("");
-      setNewBoardLabelColor("#6366f1");
-    },
-  });
 
   const hiddenBoard = new Set(preference.defaultHiddenTrackerStatuses ?? []);
   const hiddenSubIds = new Set(preference.hiddenSubBoardIds ?? []);
@@ -113,52 +108,52 @@ export function ProjectBoardSettingsPanel({
         ) : null}
       </div>
 
-      <div className="space-y-3 border-b border-border/60 pb-6">
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Board labels (this board)</p>
-          <p className="text-xs text-muted-foreground">
-            Shared on every ticket on this board. Add labels here or from a ticket; creation looks the same everywhere.
-          </p>
-          {board.labels.length ? (
-            <div className="flex flex-wrap gap-2">
-              {board.labels.map((lb) => (
-                <span
-                  key={lb.id}
-                  className="inline-flex h-8 items-center rounded-md border border-border/80 px-2.5 text-xs font-medium"
-                  style={{ backgroundColor: `${lb.color}22`, borderColor: lb.color }}
-                >
-                  {lb.name}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No board labels yet.</p>
-          )}
+      <div className="space-y-2 border-b border-border/60 pb-6">
+        <p className="text-sm font-medium">Board accent color</p>
+        <p className="text-xs text-muted-foreground">
+          Used for Ticket Tracker when “color by board” is on, and as the ticket card border on this board when the
+          option below is enabled. Each board gets its own color when created; change it anytime.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {DEFAULT_CARD_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={cn(
+                "size-7 rounded-md border-2",
+                (board.accentColor ?? "").toLowerCase() === color.toLowerCase()
+                  ? "border-primary ring-2 ring-primary/30"
+                  : "border-border",
+              )}
+              style={{ backgroundColor: color }}
+              aria-label={`Board accent ${color}`}
+              disabled={accentMutation.isPending}
+              onClick={() => accentMutation.mutate(color)}
+            />
+          ))}
         </div>
-        <NewTicketLabelForm
-          title="New board label"
-          hint="Creates a label on this project board. Attach it to tickets from each ticket’s Labels section."
-          name={newBoardLabelName}
-          onNameChange={setNewBoardLabelName}
-          color={newBoardLabelColor}
-          onColorChange={setNewBoardLabelColor}
-          disabled={createBoardLabelMutation.isPending}
-          pending={createBoardLabelMutation.isPending}
-          onSubmit={() => createBoardLabelMutation.mutate()}
-          submitLabel="Create"
-          errorMessage={
-            createBoardLabelMutation.isError
-              ? "Could not create (duplicate name on this board?)."
-              : null
-          }
-        />
+        {accentMutation.isError ? (
+          <p className="text-xs text-destructive">Could not update accent. Try again.</p>
+        ) : null}
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={preference.showBoardAccentBorder !== false}
+            onChange={(e) => flush({ showBoardAccentBorder: e.target.checked })}
+          />
+          <span>Show colored border from board accent on ticket cards</span>
+        </label>
+        <p className="text-xs text-muted-foreground">
+          When off, only sub-board and default ticket colors apply. Sub-board ticket color still overrides the accent.
+        </p>
       </div>
 
       {board.brandId ? (
         <div className="space-y-2 border-b border-border/60 pb-6">
-          <p className="text-sm font-medium">Your ticket labels (this brand)</p>
+          <p className="text-sm font-medium">Brand ticket labels</p>
           <p className="text-xs text-muted-foreground">
-            Reusable across all project boards in this brand. Same create flow as on a ticket.
+            Labels are shared across this brand (all boards and tickets). Search, quick picks, and create here; full
+            list, rename, colors, and delete are under Settings → Ticket labels.
           </p>
           <UserTicketLabelsPanel brandId={board.brandId} boardId={board.id} mode="quick" />
         </div>

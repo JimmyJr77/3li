@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Check, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
 import { cn } from "@/lib/utils";
@@ -26,12 +26,18 @@ import {
   patchTask,
   postComment,
   postMyTicketLabel,
-  postBoardLabel,
   removeTaskLabel,
   removeUserTicketLabelFromTask,
 } from "./api";
-import { NewTicketLabelForm } from "./NewTicketLabelForm";
 import { TicketDescriptionEditor } from "./TicketDescriptionEditor";
+import { TicketStyleLabelsBlock } from "./TicketStyleLabelsBlock";
+import {
+  autoLabelColorFromName,
+  mergeFrequentRecentLabelChips,
+  searchRankLabelName,
+  sortByLabelSearchRelevance,
+  type LabelSuggestionChip,
+} from "./labelUiUtils";
 import { taskDescriptionStringToHTML, taskDescriptionsEqual } from "./taskDescriptionHtml";
 import type { BoardDto, TaskFlowTask } from "./types";
 import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus, normalizeTrackerStatus } from "./trackerMeta";
@@ -149,11 +155,13 @@ export function TaskDetailSheet({
   const [priority, setPriority] = useState("none");
   const [dueDate, setDueDate] = useState("");
   const [comment, setComment] = useState("");
-  const [newCustomLabelName, setNewCustomLabelName] = useState("");
-  const [newCustomLabelColor, setNewCustomLabelColor] = useState("#6366f1");
   const [labelSearch, setLabelSearch] = useState("");
-  const [showCreateLabelForm, setShowCreateLabelForm] = useState(false);
-  const [createLabelScope, setCreateLabelScope] = useState<"user" | "board">("user");
+  const ticketPanelScrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    ticketPanelScrollRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [open, task?.id]);
   const [detailTab, setDetailTab] = useState<TicketDetailTab>("main");
 
   useEffect(() => {
@@ -224,34 +232,14 @@ export function TaskDetailSheet({
   };
 
   const createMyLabelMutation = useMutation({
-    mutationFn: (p: { name: string; color: string }) => postMyTicketLabel(brandIdForMyLabels!, p),
+    mutationFn: (p: { name: string }) =>
+      postMyTicketLabel(brandIdForMyLabels!, { name: p.name, color: autoLabelColorFromName(p.name) }),
     onSuccess: async (row) => {
       if (!task || !brandIdForMyLabels) return;
       await queryClient.invalidateQueries({ queryKey: ["my-ticket-labels", brandIdForMyLabels] });
       await queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
       await addUserTicketLabelToTask(task.id, row.id);
-      setNewCustomLabelName("");
-      setNewCustomLabelColor("#6366f1");
       setLabelSearch("");
-      setShowCreateLabelForm(false);
-      invalidate();
-    },
-  });
-
-  const createBoardLabelMutation = useMutation({
-    mutationFn: async (p: { name: string; color: string }) => {
-      if (!task || !board) throw new Error("missing context");
-      const b = await postBoardLabel(board.id, { name: p.name, color: p.color });
-      const nameLower = p.name.trim().toLowerCase();
-      const created = b.labels.find((l) => l.name.toLowerCase() === nameLower) ?? null;
-      if (created) await addTaskLabel(task.id, created.id);
-    },
-    onSuccess: () => {
-      if (brandIdForMyLabels) {
-        void queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
-      }
-      setLabelSearch("");
-      setShowCreateLabelForm(false);
       invalidate();
     },
   });
@@ -294,24 +282,40 @@ export function TaskDetailSheet({
 
   const labelSearchMatches = useMemo(() => {
     if (!task || !board) return [];
-    const q = labelSearch.trim().toLowerCase();
+    const raw = labelSearch.trim();
+    const q = raw.toLowerCase();
     if (!q) return [];
-    const fromBoard = board.labels
-      .filter((l) => l.name.toLowerCase().includes(q))
-      .map((l) => ({ scope: "board" as const, id: l.id, name: l.name, color: l.color, boardId: board.id }));
-    const fromUser = (myTicketLabelsQuery.data ?? [])
-      .filter((l) => l.name.toLowerCase().includes(q))
-      .map((l) => ({ scope: "user" as const, id: l.id, name: l.name, color: l.color }));
+    const fromBoard = board.labels.map((l) => ({
+      scope: "board" as const,
+      id: l.id,
+      name: l.name,
+      color: l.color,
+      boardId: board.id,
+    }));
+    const fromUser = (myTicketLabelsQuery.data ?? []).map((l) => ({
+      scope: "user" as const,
+      id: l.id,
+      name: l.name,
+      color: l.color,
+    }));
     const seen = new Set<string>();
-    const res: ((typeof fromBoard)[number] | (typeof fromUser)[number])[] = [];
+    const merged: ((typeof fromBoard)[number] | (typeof fromUser)[number])[] = [];
     for (const x of [...fromBoard, ...fromUser]) {
       const k = `${x.scope}:${x.id}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      res.push(x);
+      merged.push(x);
     }
-    return res;
+    return sortByLabelSearchRelevance(merged, raw).filter(
+      (m) => searchRankLabelName(raw, m.name) < 9,
+    );
   }, [task, board, labelSearch, myTicketLabelsQuery.data]);
+
+  const labelQuickTiles = useMemo(() => {
+    const frequent = (labelSuggestQuery.data?.frequent ?? []) as LabelSuggestionChip[];
+    const recent = (labelSuggestQuery.data?.recent ?? []) as LabelSuggestionChip[];
+    return mergeFrequentRecentLabelChips(frequent, recent, 8, 8);
+  }, [labelSuggestQuery.data]);
 
   if (!task) return null;
 
@@ -320,13 +324,18 @@ export function TaskDetailSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="right"
-          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
           style={sheetWidthStyle}
         >
           <RightAppSheetResizeHandle onMouseDown={startResize} />
-          <div className="flex items-center gap-2 p-6 pl-10 text-sm text-muted-foreground sm:pl-12">
-            <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
-            Loading board context…
+          <div
+            ref={ticketPanelScrollRef}
+            className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
+          >
+            <div className="flex items-center gap-2 p-6 pl-10 pr-10 text-sm text-muted-foreground sm:pl-12 sm:pr-12">
+              <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+              Loading board context…
+            </div>
           </div>
         </SheetContent>
       </Sheet>
@@ -369,18 +378,22 @@ export function TaskDetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+        className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
         style={sheetWidthStyle}
       >
         <RightAppSheetResizeHandle onMouseDown={startResize} />
-        <SheetHeader className="border-b px-4 pb-4 pl-10 pr-4 pt-4 sm:pl-12">
-          <SheetTitle>Ticket</SheetTitle>
-          <SheetDescription>
-            Use the tabs below to switch between main ticket fields, comments, and ticket settings.
-          </SheetDescription>
-        </SheetHeader>
+        <div
+          ref={ticketPanelScrollRef}
+          className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
+        >
+          <SheetHeader className="border-b shrink-0 p-0 pb-4 pl-10 pr-16 pt-3 sm:pl-12 sm:pr-20">
+            <SheetTitle>Ticket</SheetTitle>
+            <SheetDescription>
+              Use the tabs below to switch between main ticket fields, comments, and ticket settings.
+            </SheetDescription>
+          </SheetHeader>
 
-        <div className="flex flex-col gap-5 px-4 py-4 pl-10 pr-4 sm:gap-6 sm:pl-12">
+          <div className="flex flex-col gap-5 py-4 pl-10 pr-10 pb-10 sm:gap-6 sm:pl-12 sm:pr-12 sm:pb-12">
           {sheetLocked ? (
             <p className="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
               This board is archived. Restore the board to edit tasks here.
@@ -423,15 +436,13 @@ export function TaskDetailSheet({
               </p>
             ) : null}
 
-            <p className="text-xs font-medium text-muted-foreground">
-              Ticket number:{" "}
-              <span className="text-foreground">
-                {task.brandTicketNumber != null ? String(task.brandTicketNumber) : "—"}
-              </span>
-            </p>
-
             <div className="space-y-2">
-              <FieldLabel>Title</FieldLabel>
+              <div className="flex items-baseline justify-between gap-3">
+                <FieldLabel>Title</FieldLabel>
+                <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                  {task.brandTicketNumber != null ? `Ticket #${task.brandTicketNumber}` : "—"}
+                </span>
+              </div>
               <Input
                 value={title}
                 disabled={sheetLocked}
@@ -444,6 +455,60 @@ export function TaskDetailSheet({
               onChange={setDescription}
               disabled={sheetLocked}
             />
+
+            {task ? (
+              <TicketStyleLabelsBlock
+                brandId={brandIdForMyLabels}
+                board={board}
+                attachedLabels={task.labels}
+                locked={sheetLocked}
+                labelSuggestLoading={labelSuggestQuery.isLoading}
+                labelSuggestError={labelSuggestQuery.isError}
+                labelSearch={labelSearch}
+                onLabelSearchChange={setLabelSearch}
+                labelSearchMatches={labelSearchMatches}
+                labelQuickTiles={labelQuickTiles}
+                hasLabel={hasLabelOnTask}
+                toggleBoardLabel={toggleBoardLabel}
+                toggleUserLabel={toggleUserLabel}
+                onPickSearchMatch={(m, onTask) => {
+                  if (onTask) {
+                    m.scope === "user" ? toggleUserLabel(m.id, true) : toggleBoardLabel(m.id, true);
+                  } else {
+                    const p =
+                      m.scope === "user"
+                        ? addUserTicketLabelToTask(task.id, m.id)
+                        : addTaskLabel(task.id, m.id);
+                    void p.then(() => {
+                      invalidate();
+                      if (brandIdForMyLabels) {
+                        void queryClient.invalidateQueries({
+                          queryKey: ["label-suggestions", brandIdForMyLabels],
+                        });
+                      }
+                    });
+                  }
+                }}
+                createFromSearch={
+                  !sheetLocked && brandIdForMyLabels
+                    ? (() => {
+                        const t = labelSearch.trim();
+                        const lq = t.toLowerCase();
+                        const anyExact = [...board.labels, ...(myTicketLabelsQuery.data ?? [])].some(
+                          (l) => l.name.toLowerCase() === lq,
+                        );
+                        if (!t || anyExact) return null;
+                        return {
+                          trimmedName: t,
+                          pending: createMyLabelMutation.isPending,
+                          error: createMyLabelMutation.isError,
+                          onClick: () => createMyLabelMutation.mutate({ name: t }),
+                        };
+                      })()
+                    : null
+                }
+              />
+            ) : null}
 
             <div className="space-y-1">
               <FieldLabel>Assigned to</FieldLabel>
@@ -537,204 +602,6 @@ export function TaskDetailSheet({
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <FieldLabel>Labels</FieldLabel>
-                {labelSuggestQuery.isLoading ? (
-                  <p className="text-xs text-muted-foreground">Loading label suggestions…</p>
-                ) : (
-                  <div className="space-y-2">
-                    {(labelSuggestQuery.data?.frequent.length ?? 0) > 0 ? (
-                      <div>
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Often used on this brand</p>
-                        <div className="flex flex-wrap gap-2">
-                          {(labelSuggestQuery.data?.frequent ?? []).map((r) => {
-                            const has = hasLabelOnTask(r.scope, r.id);
-                            return (
-                              <Button
-                                key={`f-${r.scope}-${r.id}`}
-                                type="button"
-                                size="sm"
-                                variant={has ? "default" : "outline"}
-                                className="h-8 max-w-full rounded-md"
-                                style={has ? { backgroundColor: r.color, borderColor: r.color } : undefined}
-                                disabled={sheetLocked}
-                                onClick={() =>
-                                  r.scope === "user"
-                                    ? toggleUserLabel(r.id, has)
-                                    : toggleBoardLabel(r.id, has)
-                                }
-                              >
-                                {r.name}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-                    {(labelSuggestQuery.data?.recent.length ?? 0) > 0 ? (
-                      <div>
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Recently used (not in top)</p>
-                        <div className="flex flex-wrap gap-2">
-                          {(labelSuggestQuery.data?.recent ?? []).map((r) => {
-                            const has = hasLabelOnTask(r.scope, r.id);
-                            return (
-                              <Button
-                                key={`r-${r.scope}-${r.id}`}
-                                type="button"
-                                size="sm"
-                                variant={has ? "default" : "outline"}
-                                className="h-8 max-w-full rounded-md"
-                                style={has ? { backgroundColor: r.color, borderColor: r.color } : undefined}
-                                disabled={sheetLocked}
-                                onClick={() =>
-                                  r.scope === "user"
-                                    ? toggleUserLabel(r.id, has)
-                                    : toggleBoardLabel(r.id, has)
-                                }
-                              >
-                                {r.name}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <FieldLabel>Search or add a label</FieldLabel>
-                  <Input
-                    value={labelSearch}
-                    onChange={(e) => {
-                      setLabelSearch(e.target.value);
-                      if (!showCreateLabelForm) setNewCustomLabelName(e.target.value);
-                    }}
-                    disabled={sheetLocked}
-                    placeholder="Type to filter or create…"
-                    className="h-9"
-                  />
-                </div>
-
-                {labelSearch.trim() ? (
-                  <div className="rounded-md border border-border/60 bg-muted/20 p-2">
-                    {labelSearchMatches.length > 0 ? (
-                      <ul className="space-y-0.5 text-sm">
-                        {labelSearchMatches.map((m) => {
-                          const onTask = hasLabelOnTask(m.scope, m.id);
-                          return (
-                            <li key={`${m.scope}-${m.id}`}>
-                              <button
-                                type="button"
-                                className="w-full rounded px-2 py-1.5 text-left hover:bg-muted"
-                                disabled={sheetLocked}
-                                onClick={() => {
-                                  if (onTask) {
-                                    m.scope === "user"
-                                      ? toggleUserLabel(m.id, true)
-                                      : toggleBoardLabel(m.id, true);
-                                  } else {
-                                    const p =
-                                      m.scope === "user"
-                                        ? addUserTicketLabelToTask(task.id, m.id)
-                                        : addTaskLabel(task.id, m.id);
-                                    void p.then(() => {
-                                      invalidate();
-                                      if (brandIdForMyLabels) {
-                                        void queryClient.invalidateQueries({
-                                          queryKey: ["label-suggestions", brandIdForMyLabels],
-                                        });
-                                      }
-                                    });
-                                  }
-                                }}
-                              >
-                                <span className="font-medium">{m.name}</span>{" "}
-                                <span className="text-xs text-muted-foreground">
-                                  ({m.scope === "user" ? "Yours" : "Board"})
-                                </span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : !sheetLocked && brandIdForMyLabels ? (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground">No matching label.</p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            setShowCreateLabelForm(true);
-                            setNewCustomLabelName(labelSearch.trim());
-                          }}
-                        >
-                          Create label…
-                        </Button>
-                        {showCreateLabelForm ? (
-                          <div className="space-y-2 pt-1">
-                            <div className="flex flex-wrap gap-1">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant={createLabelScope === "user" ? "default" : "outline"}
-                                onClick={() => setCreateLabelScope("user")}
-                              >
-                                My label (this brand)
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant={createLabelScope === "board" ? "default" : "outline"}
-                                onClick={() => setCreateLabelScope("board")}
-                              >
-                                This board
-                              </Button>
-                            </div>
-                            <NewTicketLabelForm
-                              title={createLabelScope === "user" ? "New personal label" : "New board label"}
-                              hint="Pick a name and color, then create."
-                              name={newCustomLabelName}
-                              onNameChange={setNewCustomLabelName}
-                              color={newCustomLabelColor}
-                              onColorChange={setNewCustomLabelColor}
-                              disabled={
-                                sheetLocked ||
-                                createMyLabelMutation.isPending ||
-                                createBoardLabelMutation.isPending
-                              }
-                              pending={
-                                createLabelScope === "user"
-                                  ? createMyLabelMutation.isPending
-                                  : createBoardLabelMutation.isPending
-                              }
-                              onSubmit={() => {
-                                const n = newCustomLabelName.trim();
-                                if (!n) return;
-                                if (createLabelScope === "user") {
-                                  createMyLabelMutation.mutate({ name: n, color: newCustomLabelColor });
-                                } else {
-                                  createBoardLabelMutation.mutate({ name: n, color: newCustomLabelColor });
-                                }
-                              }}
-                              submitLabel="Create and attach"
-                              errorMessage={
-                                createMyLabelMutation.isError || createBoardLabelMutation.isError
-                                  ? "Could not create (duplicate or server error?)."
-                                  : null
-                              }
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
             </div>
 
             {!sheetLocked ? (
@@ -891,6 +758,7 @@ export function TaskDetailSheet({
               </div>
             </div>
           ) : null}
+          </div>
         </div>
       </SheetContent>
     </Sheet>

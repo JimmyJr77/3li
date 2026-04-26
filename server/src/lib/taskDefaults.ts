@@ -3,6 +3,7 @@ import { prisma } from "./db.js";
 import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { workspaceWhereForAppUser } from "./auth/workspaceScope.js";
 import { defaultWorkspaceTitleFromBrandName } from "./workspaceLimits.js";
+import { nextBoardAccentColorForWorkspace } from "./boardAccentColor.js";
 
 const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
   { title: "Backlog", key: "backlog", position: 0 },
@@ -63,11 +64,13 @@ export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
 
   let board: NonNullable<typeof existingBoard>;
   if (!existingBoard) {
+    const accentColor = await nextBoardAccentColorForWorkspace(workspace.id);
     board = await prisma.board.create({
       data: {
         projectSpaceId: projectSpace.id,
         name: "Main project board",
         position: 0,
+        accentColor,
       },
     });
     await prisma.boardList.createMany({

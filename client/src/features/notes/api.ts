@@ -1,5 +1,11 @@
 import { api } from "@/lib/api/client";
-import type { AtlasNoteDto, NoteLinkSummaryDto, NoteTagDto, NotesBootstrapDto, NotesFolderDto } from "./types";
+import type {
+  AtlasNoteDto,
+  MailClerkAutotagResponseDto,
+  NoteLinkSummaryDto,
+  NotesBootstrapDto,
+  NotesFolderDto,
+} from "./types";
 
 export async function fetchNotesBootstrap(workspaceId?: string | null): Promise<NotesBootstrapDto> {
   const { data } = await api.get<NotesBootstrapDto>("/api/notes-app/bootstrap", {
@@ -55,7 +61,6 @@ export type PatchNoteBody = {
   isPinned?: boolean;
   isPublic?: boolean;
   publicSlug?: string | null;
-  tagIds?: string[];
   position?: number;
   rowAccentColor?: string | null;
 };
@@ -65,9 +70,9 @@ export async function patchNote(noteId: string, body: PatchNoteBody): Promise<At
   return data;
 }
 
-/** Mail Clerk agent: pick existing workspace tags from routing context + note body; merges onto the note. */
-export async function postNoteMailClerkAutotag(noteId: string): Promise<AtlasNoteDto> {
-  const { data } = await api.post<AtlasNoteDto>(`/api/notes-app/notes/${noteId}/mail-clerk-autotag`, {});
+/** Mail Clerk agent: returns suggested labels from routing context + note body (user picks before anything is applied). */
+export async function postNoteMailClerkAutotag(noteId: string): Promise<MailClerkAutotagResponseDto> {
+  const { data } = await api.post<MailClerkAutotagResponseDto>(`/api/notes-app/notes/${noteId}/mail-clerk-autotag`, {});
   return data;
 }
 
@@ -115,26 +120,36 @@ export async function searchNotes(workspaceId: string, q: string): Promise<Atlas
   return data;
 }
 
-export async function fetchWorkspaceTags(workspaceId: string): Promise<NoteTagDto[]> {
-  const { data } = await api.get<NoteTagDto[]>("/api/notes-app/tags", {
-    params: { workspaceId },
+export async function addNoteBoardLabel(noteId: string, labelId: string): Promise<AtlasNoteDto> {
+  const { data } = await api.post<AtlasNoteDto>(`/api/notes-app/notes/${encodeURIComponent(noteId)}/labels`, {
+    labelId,
   });
   return data;
 }
 
-export async function createWorkspaceTag(body: {
-  workspaceId: string;
-  name: string;
-  color?: string;
-}): Promise<NoteTagDto> {
-  const { data } = await api.post<NoteTagDto>("/api/notes-app/tags", body);
+export async function removeNoteBoardLabel(noteId: string, labelId: string): Promise<AtlasNoteDto> {
+  const { data } = await api.delete<AtlasNoteDto>(
+    `/api/notes-app/notes/${encodeURIComponent(noteId)}/labels/${encodeURIComponent(labelId)}`,
+  );
   return data;
 }
 
-export async function deleteWorkspaceTag(workspaceId: string, tagId: string): Promise<void> {
-  await api.delete(`/api/notes-app/tags/${encodeURIComponent(tagId)}`, {
-    params: { workspaceId },
-  });
+export async function addNoteUserTicketLabel(noteId: string, userBrandTicketLabelId: string): Promise<AtlasNoteDto> {
+  const { data } = await api.post<AtlasNoteDto>(
+    `/api/notes-app/notes/${encodeURIComponent(noteId)}/my-ticket-labels`,
+    { userBrandTicketLabelId },
+  );
+  return data;
+}
+
+export async function removeNoteUserTicketLabel(
+  noteId: string,
+  userBrandTicketLabelId: string,
+): Promise<AtlasNoteDto> {
+  const { data } = await api.delete<AtlasNoteDto>(
+    `/api/notes-app/notes/${encodeURIComponent(noteId)}/my-ticket-labels/${encodeURIComponent(userBrandTicketLabelId)}`,
+  );
+  return data;
 }
 
 export async function fetchBacklinks(noteId: string): Promise<NoteLinkSummaryDto[]> {

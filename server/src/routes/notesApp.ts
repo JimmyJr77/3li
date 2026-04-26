@@ -1,6 +1,6 @@
 import { Prisma, type Note, type NoteTag, type NotesFolder } from "@prisma/client";
 import { Router, type Request, type Response } from "express";
-import { assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
+import { assertBrandAccess, assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
 import { extractFullPlainText } from "../lib/notePlainText.js";
 import {
@@ -24,6 +24,7 @@ import {
   DEFAULT_NOTE_BASE,
   nextSequencedTitle,
 } from "../lib/sequencedDefaultTitle.js";
+import type { NotebookAutotagVocabularyItem } from "../lib/notebookLabelAutotag.js";
 import { runMailClerkNotebookAutotag } from "../lib/openai/surfaceAgents.js";
 
 function normalizeRowAccentColor(raw: unknown): string | null | undefined {
@@ -95,10 +96,28 @@ async function assertFolderAccessible(req: Request, res: Response, folderId: str
 const router = Router();
 
 const noteInclude = {
-  tags: true,
+  labels: { include: { label: true } },
+  userBrandTicketLabels: { include: { userBrandTicketLabel: true } },
 } as const;
 
-type NoteWithTags = Note & { tags: NoteTag[] };
+type NoteWithRelations = Note & {
+  labels: { label: { id: string; name: string; color: string } }[];
+  userBrandTicketLabels: { userBrandTicketLabel: { id: string; name: string; color: string } }[];
+};
+
+async function resolveDefaultLabelBoardId(workspaceId: string): Promise<string | null> {
+  const ps = await prisma.projectSpace.findFirst({
+    where: { workspaceId, archivedAt: null },
+    orderBy: [{ isDefault: "desc" }, { position: "asc" }, { createdAt: "asc" }],
+  });
+  if (!ps) return null;
+  const b = await prisma.board.findFirst({
+    where: { projectSpaceId: ps.id, archivedAt: null },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  return b?.id ?? null;
+}
 
 function serializeFolder(f: NotesFolder) {
   return {
@@ -108,16 +127,38 @@ function serializeFolder(f: NotesFolder) {
   };
 }
 
-function serializeNote(n: NoteWithTags) {
+function serializeNote(n: NoteWithRelations) {
+  const labels = [
+    ...n.labels.map((row) => ({
+      label: { id: row.label.id, name: row.label.name, color: row.label.color },
+      labelScope: "board" as const,
+    })),
+    ...n.userBrandTicketLabels.map((row) => ({
+      label: {
+        id: row.userBrandTicketLabel.id,
+        name: row.userBrandTicketLabel.name,
+        color: row.userBrandTicketLabel.color,
+      },
+      labelScope: "user" as const,
+    })),
+  ];
   return {
-    ...n,
+    id: n.id,
+    workspaceId: n.workspaceId,
+    folderId: n.folderId,
+    title: n.title,
+    slug: n.slug,
+    contentJson: n.contentJson,
+    previewText: n.previewText,
+    position: n.position,
+    rowAccentColor: n.rowAccentColor,
+    isPinned: n.isPinned,
+    isPublic: n.isPublic,
+    publicSlug: n.publicSlug,
+    routingSource: n.routingSource,
     createdAt: n.createdAt.toISOString(),
     updatedAt: n.updatedAt.toISOString(),
-    tags: n.tags.map((t) => ({
-      ...t,
-      createdAt: t.createdAt.toISOString(),
-      updatedAt: t.updatedAt.toISOString(),
-    })),
+    labels,
   };
 }
 
@@ -197,6 +238,7 @@ router.get("/bootstrap", async (req, res) => {
       include: noteInclude,
       take: 200,
     });
+    const defaultLabelBoardId = await resolveDefaultLabelBoardId(workspace.id);
     res.json({
       ai: getAiPublicMetadata(),
       workspace: {
@@ -206,6 +248,7 @@ router.get("/bootstrap", async (req, res) => {
       },
       defaultFolderId: defaultFolder.id,
       quickCaptureFolderId: quickCaptureFolder.id,
+      defaultLabelBoardId,
       folders: folders.map(serializeFolder),
       notes: notes.map(serializeNote),
     });
@@ -902,7 +945,6 @@ router.patch("/notes/:noteId", async (req, res) => {
       isPinned?: boolean;
       isPublic?: boolean;
       publicSlug?: string | null;
-      tagIds?: string[];
       position?: number;
       rowAccentColor?: string | null;
     };
@@ -946,10 +988,6 @@ router.patch("/notes/:noteId", async (req, res) => {
         : {}),
     };
 
-    if (body.tagIds !== undefined) {
-      data.tags = { set: body.tagIds.map((id) => ({ id })) };
-    }
-
     const note = await prisma.note.update({
       where: { id: noteId },
       data,
@@ -965,7 +1003,7 @@ router.patch("/notes/:noteId", async (req, res) => {
   }
 });
 
-/** Mail Clerk–style autotag: merge AI-picked workspace tags onto the note (routing index + vocabulary). */
+/** Mail Clerk autotag preview: AI suggests labels; client lets the user pick before applying. */
 router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
   try {
     const openai = getOpenAIOrNull();
@@ -982,48 +1020,208 @@ router.post("/notes/:noteId/mail-clerk-autotag", async (req, res) => {
     }
     const note = await prisma.note.findUnique({
       where: { id: noteId },
-      include: { tags: true },
+      include: noteInclude,
     });
     if (!note) {
       res.status(404).json({ error: "Note not found" });
       return;
     }
 
-    const workspaceTags = await prisma.noteTag.findMany({
-      where: { workspaceId: note.workspaceId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
+    const ws = await prisma.workspace.findFirst({
+      where: { id: note.workspaceId },
+      select: { brandId: true },
     });
-    if (!workspaceTags.length) {
-      res.status(409).json({
-        error: "No workspace tags",
-        detail: "Create at least one workspace tag before using Mail Clerk autotag.",
-      });
+    if (!ws) {
+      res.status(404).json({ error: "Workspace not found" });
       return;
     }
+    const boardRows = await prisma.label.findMany({
+      where: { board: { projectSpace: { workspaceId: note.workspaceId } } },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        _count: { select: { tasks: true, notes: true } },
+      },
+      orderBy: { name: "asc" },
+    });
+    const userRows = await prisma.userBrandTicketLabel.findMany({
+      where: { userId: req.appUser!.id, brandId: ws.brandId },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        _count: { select: { taskLinks: true, noteLinks: true } },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    const vocabularyItems: NotebookAutotagVocabularyItem[] = [
+      ...boardRows.map((r) => {
+        const tc = r._count.tasks;
+        const nc = r._count.notes;
+        return {
+          kind: "board" as const,
+          id: r.id,
+          name: r.name,
+          color: r.color,
+          lineForPrompt: `- ${r.name} (board, ${tc} on tickets, ${nc} on notes)`,
+        };
+      }),
+      ...userRows.map((r) => {
+        const tc = r._count.taskLinks;
+        const nc = r._count.noteLinks;
+        return {
+          kind: "user" as const,
+          id: r.id,
+          name: r.name,
+          color: r.color,
+          lineForPrompt: `- ${r.name} (personal, ${tc} on tickets, ${nc} on notes)`,
+        };
+      }),
+    ];
 
     const plain = extractFullPlainText(note.contentJson);
-    const picked = await runMailClerkNotebookAutotag(openai, {
+    const labelsOnNoteNames = [
+      ...note.labels.map((x) => x.label.name),
+      ...note.userBrandTicketLabels.map((x) => x.userBrandTicketLabel.name),
+    ];
+    const { themes, suggestions } = await runMailClerkNotebookAutotag(openai, {
       workspaceId: note.workspaceId,
       noteTitle: note.title,
       notePlainText: plain,
-      tagsOnNoteNames: note.tags.map((t) => t.name),
-      tagVocabulary: workspaceTags.map((t) => ({ name: t.name })),
+      labelsOnNoteNames,
+      vocabularyItems,
     });
 
-    const nameToId = new Map(workspaceTags.map((t) => [t.name.toLowerCase(), t.id]));
-    const newIds = picked.map((n) => nameToId.get(n.toLowerCase())).filter((id): id is string => Boolean(id));
-    const mergedIds = [...new Set([...note.tags.map((t) => t.id), ...newIds])];
-
-    const updated = await prisma.note.update({
-      where: { id: noteId },
-      data: { tags: { set: mergedIds.map((id) => ({ id })) } },
-      include: noteInclude,
-    });
-    res.json(serializeNote(updated));
+    res.json({ themes, suggestions });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Mail Clerk autotag failed" });
+  }
+});
+
+router.post("/notes/:noteId/labels", async (req, res) => {
+  try {
+    const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
+    const body = req.body as { labelId?: string };
+    if (!body.labelId) {
+      res.status(400).json({ error: "labelId required" });
+      return;
+    }
+    const note = await prisma.note.findUnique({
+      where: { id: noteId },
+      select: { workspaceId: true },
+    });
+    if (!note) {
+      res.status(404).json({ error: "Note not found" });
+      return;
+    }
+    const labelOk = await prisma.label.findFirst({
+      where: { id: body.labelId, board: { projectSpace: { workspaceId: note.workspaceId } } },
+    });
+    if (!labelOk) {
+      res.status(400).json({ error: "Label is not available on this workspace" });
+      return;
+    }
+    await prisma.noteLabel.upsert({
+      where: { noteId_labelId: { noteId, labelId: body.labelId } },
+      create: { noteId, labelId: body.labelId },
+      update: {},
+    });
+    const updated = await prisma.note.findUnique({ where: { id: noteId }, include: noteInclude });
+    res.json(serializeNote(updated!));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to add label" });
+  }
+});
+
+router.delete("/notes/:noteId/labels/:labelId", async (req, res) => {
+  try {
+    const { noteId, labelId } = req.params;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
+    await prisma.noteLabel.deleteMany({ where: { noteId, labelId } });
+    const updated = await prisma.note.findUnique({ where: { id: noteId }, include: noteInclude });
+    res.json(serializeNote(updated!));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to remove label" });
+  }
+});
+
+router.post("/notes/:noteId/my-ticket-labels", async (req, res) => {
+  try {
+    const noteId = req.params.noteId;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
+    const body = req.body as { userBrandTicketLabelId?: string };
+    if (!body.userBrandTicketLabelId) {
+      res.status(400).json({ error: "userBrandTicketLabelId required" });
+      return;
+    }
+    const note = await prisma.note.findUnique({
+      where: { id: noteId },
+      select: { workspaceId: true },
+    });
+    if (!note) {
+      res.status(404).json({ error: "Note not found" });
+      return;
+    }
+    const ws = await prisma.workspace.findFirst({
+      where: { id: note.workspaceId },
+      select: { brandId: true },
+    });
+    if (!ws) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+    if (!(await assertBrandAccess(req.appUser!, ws.brandId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const label = await prisma.userBrandTicketLabel.findFirst({
+      where: { id: body.userBrandTicketLabelId, userId: req.appUser!.id, brandId: ws.brandId },
+    });
+    if (!label) {
+      res.status(400).json({ error: "Unknown personal label for this brand" });
+      return;
+    }
+    await prisma.noteUserBrandTicketLabel.upsert({
+      where: {
+        noteId_userBrandTicketLabelId: { noteId, userBrandTicketLabelId: label.id },
+      },
+      create: { noteId, userBrandTicketLabelId: label.id },
+      update: {},
+    });
+    const updated = await prisma.note.findUnique({ where: { id: noteId }, include: noteInclude });
+    res.json(serializeNote(updated!));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to add personal label" });
+  }
+});
+
+router.delete("/notes/:noteId/my-ticket-labels/:userBrandTicketLabelId", async (req, res) => {
+  try {
+    const { noteId, userBrandTicketLabelId } = req.params;
+    if (!(await assertNoteAccessible(req, res, noteId))) {
+      return;
+    }
+    await prisma.noteUserBrandTicketLabel.deleteMany({
+      where: { noteId, userBrandTicketLabelId },
+    });
+    const updated = await prisma.note.findUnique({ where: { id: noteId }, include: noteInclude });
+    res.json(serializeNote(updated!));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to remove personal label" });
   }
 });
 

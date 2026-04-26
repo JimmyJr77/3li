@@ -31,6 +31,7 @@ import {
 } from "@/features/rapidRouter/routedHighlightStore";
 import type { AtlasNoteDto, NotesFolderDto } from "./types";
 import { isProtectedNotebookTitle } from "./notebookConstants";
+import { NotesColumnResizeHandle } from "./NotesColumnResizeHandle";
 import { useNotesBrowseDesktop } from "./useNotesBrowseDesktop";
 
 function CollapsibleRail({
@@ -38,6 +39,9 @@ function CollapsibleRail({
   onOpenChange,
   label,
   widthClass,
+  widthPx,
+  widthMinPx = 140,
+  widthMaxPx = 520,
   headerRight,
   children,
 }: {
@@ -45,6 +49,10 @@ function CollapsibleRail({
   onOpenChange: (o: boolean) => void;
   label: string;
   widthClass: string;
+  /** When set (open rail), fixed width in px for resizable columns. */
+  widthPx?: number;
+  widthMinPx?: number;
+  widthMaxPx?: number;
   headerRight?: ReactNode;
   children: React.ReactNode;
 }) {
@@ -76,8 +84,13 @@ function CollapsibleRail({
     <div
       className={cn(
         "relative z-10 flex min-h-0 shrink-0 flex-col self-stretch border-r border-border bg-muted/30",
-        widthClass,
+        widthPx === undefined ? widthClass : "min-w-0",
       )}
+      style={
+        widthPx !== undefined
+          ? { width: widthPx, minWidth: widthMinPx, maxWidth: widthMaxPx }
+          : undefined
+      }
     >
       <div className="relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-muted/30 px-2 py-1.5">
         <span className="truncate text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
@@ -400,6 +413,9 @@ export function AtlasNotesBrowseColumns({
   onDeleteNote,
   canReorderNotes,
   routingWorkspaceId,
+  notebooksColumnWidthPx,
+  notesColumnWidthPx,
+  onResizeNotebooksVsNotes,
 }: {
   localMode: boolean;
   topFolders: NotesFolderDto[];
@@ -426,6 +442,12 @@ export function AtlasNotesBrowseColumns({
   canReorderNotes: boolean;
   /** When set, Rapid Router–routed notes show a glow until opened or edited here. */
   routingWorkspaceId?: string | null;
+  /** Desktop: resizable notebook list width (px). */
+  notebooksColumnWidthPx?: number;
+  /** Desktop: resizable notes list width (px). */
+  notesColumnWidthPx?: number;
+  /** Desktop: drag between lists — positive dx widens notebooks, narrows notes. */
+  onResizeNotebooksVsNotes?: (deltaX: number) => void;
 }) {
   const isDesktop = useNotesBrowseDesktop();
   const [foldersOpen, setFoldersOpen] = useState(isDesktop);
@@ -645,6 +667,7 @@ export function AtlasNotesBrowseColumns({
   );
 
   if (isDesktop) {
+    const showListSplitHandle = Boolean(onResizeNotebooksVsNotes && foldersOpen && notesOpen);
     return (
       <>
         <CollapsibleRail
@@ -652,12 +675,26 @@ export function AtlasNotesBrowseColumns({
           onOpenChange={setFoldersOpen}
           label="NOTEBOOKS"
           widthClass="w-52"
+          widthPx={foldersOpen ? notebooksColumnWidthPx : undefined}
+          widthMinPx={140}
+          widthMaxPx={440}
           headerRight={notebooksHeaderRight}
         >
           {notebooksInner}
         </CollapsibleRail>
 
-        <CollapsibleRail open={notesOpen} onOpenChange={setNotesOpen} label="NOTES" widthClass="w-64" headerRight={notesHeaderRight}>
+        {showListSplitHandle ? <NotesColumnResizeHandle onDelta={onResizeNotebooksVsNotes!} /> : null}
+
+        <CollapsibleRail
+          open={notesOpen}
+          onOpenChange={setNotesOpen}
+          label="NOTES"
+          widthClass="w-64"
+          widthPx={notesOpen ? notesColumnWidthPx : undefined}
+          widthMinPx={160}
+          widthMaxPx={600}
+          headerRight={notesHeaderRight}
+        >
           {notesInner}
         </CollapsibleRail>
       </>

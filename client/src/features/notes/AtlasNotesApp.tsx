@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, FileText, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
@@ -22,17 +22,27 @@ import {
 import { extractPlainTextFromDoc } from "./extractPreview";
 import { AtlasNotesBrowseColumns } from "./AtlasNotesBrowseColumns";
 import { isProtectedNotebookTitle } from "./notebookConstants";
+import {
+  clampNotesColumnWidths,
+  loadNotesColumnWidths,
+  saveNotesColumnWidths,
+  type NotesColumnWidths,
+} from "./notesColumnWidths";
+import { NotesColumnResizeHandle } from "./NotesColumnResizeHandle";
+import { useNotesBrowseDesktop } from "./useNotesBrowseDesktop";
 import { applyLocalContentPatch, LOCAL_WORKSPACE_ID, useLocalNotesStore } from "./localNotesStore";
 import { NoteEditor } from "./NoteEditor";
 import { NoteLinksPanel } from "./NoteLinksPanel";
 import { NotePublishingBar } from "./NotePublishingBar";
-import { NoteTagsRow } from "./NoteTagsRow";
+import { NoteLabelsSection } from "./NoteLabelsSection";
 import { NotesPortabilityPanel } from "./NotesPortabilityPanel";
 import type { ExportedNotePayload } from "./notesImportExport";
 import { useOptionalNotesAdvisorAgentsShell } from "./NotesAdvisorAgentsShellContext";
 import { useNotesWorkspaceShortcuts } from "./NotesWorkspaceShortcutsProvider";
 
 export function AtlasNotesApp() {
+  const browseDesktop = useNotesBrowseDesktop();
+  const [columnWidths, setColumnWidths] = useState<NotesColumnWidths>(() => loadNotesColumnWidths());
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeWorkspaceId, isLoading: workspacesLoading } = useActiveWorkspace();
@@ -46,7 +56,6 @@ export function AtlasNotesApp() {
   const localMode = !bootstrapLoading && (bootstrapError || !bootstrapData);
 
   const localFolders = useLocalNotesStore((s) => s.folders);
-  const localTags = useLocalNotesStore((s) => s.tags);
   const localDefaultFolderId = useLocalNotesStore((s) => s.defaultFolderId);
   const listNotesLocal = useLocalNotesStore((s) => s.listNotes);
   const searchNotesLocal = useLocalNotesStore((s) => s.searchNotes);
@@ -58,8 +67,6 @@ export function AtlasNotesApp() {
   const deleteFolderStore = useLocalNotesStore((s) => s.deleteFolder);
   const reorderFoldersStore = useLocalNotesStore((s) => s.reorderFolders);
   const reorderNotesInFolderStore = useLocalNotesStore((s) => s.reorderNotesInFolder);
-  const createTagLocal = useLocalNotesStore((s) => s.createTag);
-  const deleteTagLocal = useLocalNotesStore((s) => s.deleteTag);
   const getForwardLinks = useLocalNotesStore((s) => s.getForwardLinks);
   const getBacklinks = useLocalNotesStore((s) => s.getBacklinks);
 
@@ -92,6 +99,19 @@ export function AtlasNotesApp() {
   const urlNoteApplied = useRef(false);
   const { setActiveNotesFolderId } = useNotesWorkspaceShortcuts();
   const notesAdvisorSetPayload = useOptionalNotesAdvisorAgentsShell()?.setNotesAdvisorPayload;
+
+  useEffect(() => {
+    if (!browseDesktop) return;
+    saveNotesColumnWidths(columnWidths);
+  }, [browseDesktop, columnWidths]);
+
+  const onResizeNotebooksVsNotes = useCallback((dx: number) => {
+    setColumnWidths((w) => clampNotesColumnWidths({ notebooks: w.notebooks + dx, notes: w.notes - dx }));
+  }, []);
+
+  const onResizeNotesVsEditor = useCallback((dx: number) => {
+    setColumnWidths((w) => clampNotesColumnWidths({ ...w, notes: w.notes + dx }));
+  }, []);
 
   const notesQuery = useQuery({
     queryKey: ["notes-app", "notes", workspaceId, folderFilter],
@@ -400,6 +420,9 @@ export function AtlasNotesApp() {
           onNewFolder={() => newFolderMut.mutate()}
           newFolderPending={newFolderMut.isPending}
           routingWorkspaceId={localMode ? undefined : workspaceId ?? undefined}
+          notebooksColumnWidthPx={browseDesktop ? columnWidths.notebooks : undefined}
+          notesColumnWidthPx={browseDesktop ? columnWidths.notes : undefined}
+          onResizeNotebooksVsNotes={browseDesktop ? onResizeNotebooksVsNotes : undefined}
           onReorderFolders={async (ids) => {
             if (localMode) {
               reorderFoldersStore(ids);
@@ -506,6 +529,8 @@ export function AtlasNotesApp() {
         />
         </div>
 
+        {browseDesktop ? <NotesColumnResizeHandle onDelta={onResizeNotesVsEditor} /> : null}
+
         <section className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-background p-4 md:border-t-0 md:border-l">
           {selected ? (
             <>
@@ -543,18 +568,11 @@ export function AtlasNotesApp() {
               </div>
 
               <div className="mt-4 shrink-0 border-t border-border pt-4">
-                <NoteTagsRow
+                <NoteLabelsSection
                   note={selected}
-                  workspaceId={workspaceId}
-                  allTags={localMode ? localTags : undefined}
-                  patchNoteFn={localMode ? (id, body) => Promise.resolve(patchNoteLocal(id, body)) : undefined}
-                  createTagFn={
-                    localMode
-                      ? async (body) => createTagLocal(body.name, body.color)
-                      : undefined
-                  }
-                  deleteTagFn={localMode ? async (tagId) => Promise.resolve(deleteTagLocal(tagId)) : undefined}
-                  mailClerkAutotagUnavailable={localMode}
+                  brandId={localMode ? null : bootstrapData?.workspace.brandId ?? null}
+                  defaultLabelBoardId={localMode ? null : bootstrapData?.defaultLabelBoardId ?? null}
+                  offline={localMode}
                 />
               </div>
               <div className="mt-4 shrink-0 border-t border-border pt-4">

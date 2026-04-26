@@ -34,7 +34,13 @@ import { Link } from "react-router-dom";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
-import { fetchAllTasks, fetchBoard, patchTask } from "@/features/taskflow/api";
+import {
+  fetchAllTasks,
+  fetchBoard,
+  fetchWorkspaceUserPreferences,
+  patchTask,
+  patchWorkspaceUserPreferences,
+} from "@/features/taskflow/api";
 import { BoardTable } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
 import type { TaskFlowTask } from "@/features/taskflow/types";
@@ -107,16 +113,21 @@ const dropAnimation: DropAnimation = {
 function TrackerTicketCard({
   task,
   onOpen,
+  colorByBoard,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
+  colorByBoard?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
+  const accent = task.list?.board?.accentColor;
+  const useAccent = Boolean(colorByBoard && accent);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    ...(useAccent ? { borderColor: accent } : {}),
   };
 
   return (
@@ -125,6 +136,7 @@ function TrackerTicketCard({
       style={style}
       className={cn(
         "rounded-lg border bg-card px-2 py-2 text-sm shadow-sm",
+        useAccent && "border-2",
         isDragging && "z-10 opacity-50",
       )}
     >
@@ -156,11 +168,13 @@ function TrackerColumn({
   taskIds,
   taskMap,
   onOpen,
+  colorByBoard,
 }: {
   status: TrackerStatus;
   taskIds: string[];
   taskMap: Map<string, TaskFlowTask>;
   onOpen: (t: TaskFlowTask) => void;
+  colorByBoard?: boolean;
 }) {
   const laneId = ttLaneId(status);
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
@@ -181,7 +195,9 @@ function TrackerColumn({
           {taskIds.map((id) => {
             const task = taskMap.get(id);
             if (!task) return null;
-            return <TrackerTicketCard key={id} task={task} onOpen={onOpen} />;
+            return (
+              <TrackerTicketCard key={id} task={task} onOpen={onOpen} colorByBoard={colorByBoard} />
+            );
           })}
         </SortableContext>
       </div>
@@ -246,6 +262,21 @@ export function MyTasksPage() {
 
   const workspaceId = activeWorkspaceId;
   const archivedFilterActive = showArchives && archivedOnly;
+
+  const workspacePrefsQuery = useQuery({
+    queryKey: ["workspace-user-prefs", workspaceId],
+    queryFn: () => fetchWorkspaceUserPreferences(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+  const colorByBoard = workspacePrefsQuery.data?.ticketTrackerColorByBoard === true;
+
+  const workspacePrefsMutation = useMutation({
+    mutationFn: (ticketTrackerColorByBoard: boolean) =>
+      patchWorkspaceUserPreferences(workspaceId!, { ticketTrackerColorByBoard }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["workspace-user-prefs", workspaceId], data);
+    },
+  });
 
   const params = useMemo(
     () => ({
@@ -700,6 +731,7 @@ export function MyTasksPage() {
                       taskIds={items[ttLaneId(st)] ?? []}
                       taskMap={taskMap}
                       onOpen={(t) => setSelectedTaskId(t.id)}
+                      colorByBoard={colorByBoard}
                     />
                   ))}
                 </div>
@@ -724,6 +756,7 @@ export function MyTasksPage() {
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
               <BoardTable
                 tasks={tasks}
+                colorByBoard={colorByBoard}
                 onRowClick={(t) => {
                   setSelectedTaskId(t.id);
                 }}
@@ -743,10 +776,25 @@ export function MyTasksPage() {
           <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
             <SheetTitle>Ticket tracker settings</SheetTitle>
             <SheetDescription>
-              Choose which tracker status columns appear on the board. Your choices are saved in this browser.
+              Column visibility is saved in this browser. Color-by-board is saved to your account for this workspace.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-3 px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+            {workspaceId ? (
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4 rounded border"
+                  checked={colorByBoard}
+                  disabled={workspacePrefsMutation.isPending || workspacePrefsQuery.isLoading}
+                  onChange={(e) => workspacePrefsMutation.mutate(e.target.checked)}
+                />
+                <span>Color-code tickets by project board accent</span>
+              </label>
+            ) : null}
+            {workspacePrefsMutation.isError ? (
+              <p className="text-xs text-destructive">Could not save that preference. Try again.</p>
+            ) : null}
             <p className="text-xs font-medium text-muted-foreground">Task columns</p>
             <ul className="space-y-2">
               {TRACKER_STATUSES.map((st) => (

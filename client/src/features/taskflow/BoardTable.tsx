@@ -28,13 +28,17 @@ type Row = TaskFlowTask & {
 function BoardTableRow({
   row,
   onRowClick,
+  colorByBoard,
 }: {
   row: TanstackRow<Row>;
   onRowClick: (task: TaskFlowTask) => void;
+  colorByBoard?: boolean;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = row.original.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(row.original.id, taskWs);
+  const accent = row.original.list?.board?.accentColor;
+  const accentRow = Boolean(colorByBoard && accent);
   return (
     <tr
       className={cn(
@@ -43,6 +47,7 @@ function BoardTableRow({
         glow &&
           "bg-yellow-500/5 shadow-[inset_0_0_0_2px_rgba(234,179,8,0.55)] dark:bg-yellow-500/10",
       )}
+      style={accentRow ? { boxShadow: `inset 3px 0 0 0 ${accent}` } : undefined}
       onClick={() => {
         if (taskWs) clearRoutedGlow("task", row.original.id, taskWs);
         onRowClick(row.original);
@@ -60,9 +65,12 @@ function BoardTableRow({
 export function BoardTable({
   tasks,
   onRowClick,
+  colorByBoard,
 }: {
   tasks: TaskFlowTask[];
   onRowClick: (task: TaskFlowTask) => void;
+  /** When true, rows show a left accent from each ticket’s project board color. */
+  colorByBoard?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -73,7 +81,7 @@ export function BoardTable({
         listTitle: t.list?.title ?? "—",
         boardName: t.list?.board?.name ?? "—",
         trackerLabel: TRACKER_LABELS[normalizeTrackerStatus(t.trackerStatus)],
-        brandTicket: t.brandTicketNumber != null ? `#${t.brandTicketNumber}` : "—",
+        brandTicket: t.brandTicketNumber != null ? String(t.brandTicketNumber) : "—",
       })),
     [tasks],
   );
@@ -167,7 +175,7 @@ export function BoardTable({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <BoardTableRow key={row.id} row={row} onRowClick={onRowClick} />
+            <BoardTableRow key={row.id} row={row} onRowClick={onRowClick} colorByBoard={colorByBoard} />
           ))}
         </tbody>
       </table>

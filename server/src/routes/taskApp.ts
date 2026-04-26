@@ -35,6 +35,7 @@ import { defaultWorkspaceTitleFromBrandName, normalizeWorkspaceName } from "../l
 import { boardJsonForApi, taskJsonForApi } from "../lib/boardForApi.js";
 import { activityActorDto } from "../lib/activityActorLabel.js";
 import { buildRoutingIndexPayload } from "../lib/routingIndexForWorkspace.js";
+import { nextBoardAccentColorForWorkspace, sanitizeBoardAccentColor } from "../lib/boardAccentColor.js";
 
 const router = Router();
 
@@ -206,6 +207,7 @@ function taskSubBoardSelect() {
       select: {
         id: true,
         name: true,
+        accentColor: true,
         projectSpace: {
           select: {
             id: true,
@@ -478,7 +480,7 @@ router.get("/workspaces", async (req, res) => {
             boards: {
               where: { archivedAt: null },
               orderBy: { position: "asc" },
-              select: { id: true, name: true, position: true },
+              select: { id: true, name: true, position: true, accentColor: true },
             },
           },
         },
@@ -876,6 +878,61 @@ router.get("/workspaces/:workspaceId/archived-project-spaces", async (req, res) 
   }
 });
 
+router.get("/workspaces/:workspaceId/user-workspace-preferences", async (req, res) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const row = await prisma.workspaceUserPreference.findUnique({
+      where: { userId_workspaceId: { userId: req.appUser!.id, workspaceId } },
+      select: { workspaceId: true, ticketTrackerColorByBoard: true, updatedAt: true },
+    });
+    res.json(
+      row ?? {
+        workspaceId,
+        ticketTrackerColorByBoard: false,
+        updatedAt: null,
+      },
+    );
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load workspace preferences" });
+  }
+});
+
+router.patch("/workspaces/:workspaceId/user-workspace-preferences", async (req, res) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const body = req.body as { ticketTrackerColorByBoard?: boolean };
+    const patch: Prisma.WorkspaceUserPreferenceUncheckedUpdateInput = {};
+    if (Object.prototype.hasOwnProperty.call(body, "ticketTrackerColorByBoard")) {
+      if (typeof body.ticketTrackerColorByBoard !== "boolean") {
+        res.status(400).json({ error: "Invalid ticketTrackerColorByBoard" });
+        return;
+      }
+      patch.ticketTrackerColorByBoard = body.ticketTrackerColorByBoard;
+    }
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No updates" });
+      return;
+    }
+    const initial =
+      typeof body.ticketTrackerColorByBoard === "boolean" ? body.ticketTrackerColorByBoard : false;
+    const pref = await prisma.workspaceUserPreference.upsert({
+      where: { userId_workspaceId: { userId: req.appUser!.id, workspaceId } },
+      create: {
+        userId: req.appUser!.id,
+        workspaceId,
+        ticketTrackerColorByBoard: initial,
+      },
+      update: patch,
+      select: { workspaceId: true, ticketTrackerColorByBoard: true, updatedAt: true },
+    });
+    res.json(pref);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to save workspace preferences" });
+  }
+});
+
 router.get("/boards/:boardId", async (req, res) => {
   try {
     const board = await findBoardWithApiInclude(req.params.boardId, req.appUser!);
@@ -923,6 +980,7 @@ const boardUserPreferenceSelect = {
   defaultCardFaceLayout: true,
   defaultCardFaceMeta: true,
   hiddenSubBoardIds: true,
+  showBoardAccentBorder: true,
   updatedAt: true,
 } as const;
 
@@ -958,6 +1016,7 @@ router.get("/boards/:boardId/user-board-preferences", async (req, res) => {
         defaultCardFaceLayout: "standard",
         defaultCardFaceMeta: {},
         hiddenSubBoardIds: [],
+        showBoardAccentBorder: true,
         updatedAt: null,
       },
     );
@@ -977,6 +1036,7 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
       defaultCardFaceLayout?: string;
       defaultCardFaceMeta?: unknown;
       hiddenSubBoardIds?: string[];
+      showBoardAccentBorder?: boolean;
     };
 
     const patch: Prisma.BoardUserPreferenceUncheckedUpdateInput = {};
@@ -1018,6 +1078,13 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
       }
       patch.hiddenSubBoardIds = ids;
     }
+    if (Object.prototype.hasOwnProperty.call(body, "showBoardAccentBorder")) {
+      if (typeof body.showBoardAccentBorder !== "boolean") {
+        res.status(400).json({ error: "Invalid showBoardAccentBorder" });
+        return;
+      }
+      patch.showBoardAccentBorder = body.showBoardAccentBorder;
+    }
 
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "No updates" });
@@ -1048,6 +1115,9 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
           Object.prototype.hasOwnProperty.call(body, "defaultCardFaceMeta") ? body.defaultCardFaceMeta : {},
         ) as Prisma.InputJsonValue,
         hiddenSubBoardIds: createHiddenIds,
+        showBoardAccentBorder: Object.prototype.hasOwnProperty.call(body, "showBoardAccentBorder")
+          ? Boolean(body.showBoardAccentBorder)
+          : true,
       },
       update: patch,
       select: boardUserPreferenceSelect,
@@ -2804,11 +2874,13 @@ router.post("/workspaces/:workspaceId/boards/from-template", async (req, res) =>
       _max: { position: true },
     });
 
+    const accentColor = await nextBoardAccentColorForWorkspace(workspaceId);
     const board = await prisma.board.create({
       data: {
         projectSpaceId: ps.id,
         name: body.name?.trim() || resolved.templateName,
         position: (maxP._max.position ?? -1) + 1,
+        accentColor,
         lists: {
           create: resolved.lists.map((l, position) => ({
             title: l.title,
@@ -3186,8 +3258,24 @@ router.post("/boards/:boardId/positions", async (req, res) => {
 router.patch("/boards/:boardId", async (req, res) => {
   try {
     const boardId = req.params.boardId;
-    const body = req.body as { name?: string; archived?: boolean };
-    const existing = await prisma.board.findUnique({ where: { id: boardId } });
+    const okBoard = await assertBoardAccess(req.appUser!, boardId);
+    if (!okBoard) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const body = req.body as { name?: string; archived?: boolean; projectSpaceId?: string; accentColor?: string };
+    const existing = await prisma.board.findUnique({
+      where: { id: boardId },
+      select: {
+        id: true,
+        name: true,
+        position: true,
+        archivedAt: true,
+        projectSpaceId: true,
+        accentColor: true,
+        projectSpace: { select: { workspaceId: true } },
+      },
+    });
     if (!existing) {
       res.status(404).json({ error: "Board not found" });
       return;
@@ -3205,7 +3293,71 @@ router.patch("/boards/:boardId", async (req, res) => {
     } else if (body.archived === false) {
       data.archivedAt = null;
     }
+    if (body.projectSpaceId !== undefined) {
+      if (existing.archivedAt) {
+        res.status(400).json({ error: "Cannot move an archived board" });
+        return;
+      }
+      const nextPsId = String(body.projectSpaceId).trim();
+      if (!nextPsId) {
+        res.status(400).json({ error: "Invalid projectSpaceId" });
+        return;
+      }
+      if (nextPsId !== existing.projectSpaceId) {
+        const okPs = await assertProjectSpaceAccess(req.appUser!, nextPsId);
+        if (!okPs) {
+          res.status(403).json({ error: "Forbidden" });
+          return;
+        }
+        const targetSpace = await prisma.projectSpace.findFirst({
+          where: {
+            id: nextPsId,
+            workspaceId: existing.projectSpace.workspaceId,
+            archivedAt: null,
+          },
+          select: { id: true },
+        });
+        if (!targetSpace) {
+          res.status(400).json({ error: "Project space not found in this workspace" });
+          return;
+        }
+        const maxPos = await prisma.board.aggregate({
+          where: { projectSpaceId: nextPsId, archivedAt: null },
+          _max: { position: true },
+        });
+        const nextPosition = (maxPos._max.position ?? -1) + 1;
+        data.projectSpace = { connect: { id: nextPsId } };
+        data.position = nextPosition;
+      }
+    }
+    if (body.accentColor !== undefined) {
+      const c = sanitizeBoardAccentColor(body.accentColor);
+      if (!c) {
+        res.status(400).json({ error: "Invalid accentColor" });
+        return;
+      }
+      const prev = String(existing.accentColor).toLowerCase();
+      if (c !== prev) {
+        data.accentColor = c;
+      }
+    }
     if (Object.keys(data).length === 0) {
+      if (
+        body.projectSpaceId !== undefined &&
+        String(body.projectSpaceId).trim() === existing.projectSpaceId
+      ) {
+        const boardNoop = await findBoardWithApiInclude(boardId, req.appUser!);
+        res.json(boardJsonForApi(boardNoop));
+        return;
+      }
+      const noopAccent =
+        body.accentColor !== undefined &&
+        sanitizeBoardAccentColor(body.accentColor) === String(existing.accentColor).toLowerCase();
+      if (noopAccent) {
+        const boardNoop = await findBoardWithApiInclude(boardId, req.appUser!);
+        res.json(boardJsonForApi(boardNoop));
+        return;
+      }
       res.status(400).json({ error: "No updates" });
       return;
     }
@@ -3225,6 +3377,88 @@ router.patch("/boards/:boardId", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to update board" });
+  }
+});
+
+/** Copy column layout and board labels into a new board in the same project space (no tasks). */
+router.post("/boards/:boardId/duplicate", async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const ok = await assertBoardAccess(req.appUser!, boardId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const body = req.body as { name?: string } | undefined;
+    const source = await prisma.board.findUnique({
+      where: { id: boardId },
+      select: {
+        name: true,
+        archivedAt: true,
+        projectSpaceId: true,
+        projectSpace: {
+          select: {
+            archivedAt: true,
+            workspaceId: true,
+            workspace: { select: { archivedAt: true } },
+          },
+        },
+        lists: { orderBy: { position: "asc" }, select: { title: true, key: true } },
+        labels: { orderBy: { name: "asc" }, select: { name: true, color: true } },
+      },
+    });
+    if (!source) {
+      res.status(404).json({ error: "Board not found" });
+      return;
+    }
+    if (
+      source.archivedAt !== null ||
+      source.projectSpace.archivedAt !== null ||
+      source.projectSpace.workspace.archivedAt !== null
+    ) {
+      res.status(400).json({ error: "Cannot duplicate an archived board or board in an archived space" });
+      return;
+    }
+    if (source.lists.length === 0) {
+      res.status(400).json({ error: "Board has no columns to duplicate" });
+      return;
+    }
+    const nextName = body?.name?.trim() || `${source.name} (copy)`;
+    const maxP = await prisma.board.aggregate({
+      where: { projectSpaceId: source.projectSpaceId, archivedAt: null },
+      _max: { position: true },
+    });
+    const dupAccent = await nextBoardAccentColorForWorkspace(source.projectSpace.workspaceId);
+    const labelCreates =
+      source.labels.length > 0
+        ? source.labels.map((l) => ({ name: l.name, color: l.color }))
+        : DEFAULT_TEMPLATE_LABELS.map((l) => ({ name: l.name, color: l.color }));
+    const created = await prisma.board.create({
+      data: {
+        projectSpaceId: source.projectSpaceId,
+        name: nextName,
+        position: (maxP._max.position ?? -1) + 1,
+        accentColor: dupAccent,
+        lists: {
+          create: source.lists.map((l, position) => ({
+            title: l.title,
+            key: l.key,
+            position,
+          })),
+        },
+        labels: { create: labelCreates },
+      },
+      select: { id: true },
+    });
+    const duplicated = await findBoardWithApiInclude(created.id, req.appUser!);
+    if (!duplicated) {
+      res.status(500).json({ error: "Failed to load duplicated board" });
+      return;
+    }
+    res.status(201).json(boardJsonForApi(duplicated));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to duplicate board" });
   }
 });
 

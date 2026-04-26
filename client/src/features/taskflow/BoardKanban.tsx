@@ -1,11 +1,13 @@
 import {
   DndContext,
   DragOverlay,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
   PointerSensor,
   closestCorners,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -115,6 +117,42 @@ function pinnedDragId(subBoardId: string) {
   return `${PIN_PREFIX}${subBoardId}`;
 }
 
+/** Prefer pointer-rect hits for pin targets so tab→pin works above dense lane droppables (closestCorners alone often misses). */
+function boardKanbanCollisionDetection(args: Parameters<CollisionDetection>[0]): ReturnType<CollisionDetection> {
+  const activeIdStr = String(args.active.id);
+  if (activeIdStr.startsWith(SB_PREFIX)) {
+    const pointerHits = pointerWithin(args);
+    const pinHits = pointerHits.filter(
+      (c) => String(c.id) === PIN_DROP_ZONE_ID || String(c.id).startsWith(PIN_PREFIX),
+    );
+    if (pinHits.length > 0) {
+      const zoneHit = pinHits.find((c) => String(c.id) === PIN_DROP_ZONE_ID);
+      return zoneHit ? [zoneHit] : [pinHits[0]];
+    }
+    return closestCorners(args);
+  }
+  if (activeIdStr.startsWith(PIN_PREFIX)) {
+    const pinOnly = args.droppableContainers.filter((c) => String(c.id).startsWith(PIN_PREFIX));
+    if (pinOnly.length > 0) {
+      return closestCorners({ ...args, droppableContainers: pinOnly });
+    }
+    return closestCorners(args);
+  }
+  return closestCorners(args);
+}
+
+function pointerEndClient(event: DragEndEvent): { x: number; y: number } | null {
+  const ev = event.activatorEvent;
+  if (ev instanceof PointerEvent || ev instanceof MouseEvent) {
+    return { x: ev.clientX + event.delta.x, y: ev.clientY + event.delta.y };
+  }
+  return null;
+}
+
+function pointInClientRect(x: number, y: number, r: DOMRect) {
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
 function findLaneContainer(id: string, items: Record<string, string[]>): string | undefined {
   if (id in items) return id;
   for (const [cid, ids] of Object.entries(items)) {
@@ -157,11 +195,17 @@ function visibleStatusesForSubBoard(
 }
 
 function cardColorForSubBoard(
+  board: BoardDto,
   subBoardId: string,
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
   boardUserPref?: BoardUserPreferenceDto,
 ): string | undefined {
-  const c = prefBySubBoard[subBoardId]?.ticketCardColor ?? boardUserPref?.defaultTicketCardColor ?? null;
+  const sub = prefBySubBoard[subBoardId]?.ticketCardColor ?? null;
+  if (sub) return sub;
+  const showAccent = boardUserPref?.showBoardAccentBorder !== false;
+  const accent = board.accentColor;
+  if (showAccent && accent) return accent;
+  const c = boardUserPref?.defaultTicketCardColor ?? null;
   return c ?? undefined;
 }
 
@@ -259,6 +303,69 @@ function confirmDeleteSubBoard(list: BoardListDto): boolean {
   return window.confirm(`Delete the sub-board “${list.title}”?${detail}`);
 }
 
+/** Short priority label for the card face (same line as due date). */
+function formatTaskCardPriorityShort(priority: string): string | null {
+  switch (priority) {
+    case "low":
+      return "Low Pri";
+    case "medium":
+      return "Med Pri";
+    case "high":
+      return "Hi Pri";
+    default:
+      return null;
+  }
+}
+
+function sentenceCaseToken(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/** Display like "Jimmy O." (first name + last initial) from assignee label or email. */
+function formatAssigneeNameForCard(label: string): string | null {
+  const t = label.trim();
+  if (!t) return null;
+  if (t.includes("@")) {
+    const local = t.split("@")[0]?.trim().replace(/[._]+/g, " ");
+    if (!local) return null;
+    const token = local.split(/\s+/).filter(Boolean)[0] ?? local;
+    return sentenceCaseToken(token);
+  }
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return sentenceCaseToken(parts[0]!);
+  const first = sentenceCaseToken(parts[0]!);
+  const last = parts[parts.length - 1]!;
+  if (/^[A-Za-z]\.$/.test(last)) {
+    return `${first} ${last[0]!.toUpperCase()}.`;
+  }
+  if (last.length <= 2 && last.endsWith(".")) {
+    return `${first} ${last[0]!.toUpperCase()}.`;
+  }
+  return `${first} ${last.charAt(0).toUpperCase()}.`;
+}
+
+function TaskCardLeftTicketStrip({
+  show,
+  number,
+}: {
+  show: boolean;
+  number: number | null | undefined;
+}) {
+  if (!show || number == null) return null;
+  return (
+    <div
+      className="relative flex w-6 shrink-0 items-center justify-center self-stretch overflow-visible border-r border-border/60 py-1 pr-0.5"
+      aria-label={`Ticket ${number}`}
+    >
+      <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-90 select-none whitespace-nowrap font-mono text-[10px] font-medium tabular-nums leading-none text-muted-foreground">
+        {number}
+      </span>
+    </div>
+  );
+}
+
 function TaskCardFace({
   task,
   onOpen,
@@ -285,12 +392,18 @@ function TaskCardFace({
   const meta = subBoardPref.cardFaceMetaMerged;
 
   return (
-    <div className="flex min-w-0 flex-1 gap-2">
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 gap-2",
+        /* Title-only cards: center checkbox with the single title line; keep default stretch for standard (title + meta). */
+        minimal && "items-center",
+      )}
+    >
       {showDoneCheckbox ? (
         <input
           type="checkbox"
           checked={task.completed}
-          className="mt-0.5 size-4 shrink-0 rounded border"
+          className={cn("size-4 shrink-0 rounded border", !minimal && "mt-0.5")}
           aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
           onClick={(e) => e.stopPropagation()}
           onChange={() => {
@@ -330,36 +443,35 @@ function TaskCardFace({
                 ))}
               </div>
             ) : null}
-            {meta.showDueDate && task.dueDate ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Due {new Date(task.dueDate).toLocaleDateString()}
-              </p>
-            ) : null}
-            {meta.showAssignee ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {task.assignee?.label?.trim() ? (
-                  <>
-                    Assigned to{" "}
-                    <span className="font-medium text-foreground">{task.assignee.label}</span>
-                  </>
-                ) : (
-                  "Unassigned"
-                )}
-              </p>
-            ) : null}
-            {meta.showPriority ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Priority{" "}
-                <span className="font-medium text-foreground">
-                  {task.priority === "none" ? "None" : task.priority}
-                </span>
-              </p>
-            ) : null}
-            {meta.showTicketNumber && task.brandTicketNumber != null ? (
-              <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
-                #{task.brandTicketNumber}
-              </p>
-            ) : null}
+            {(() => {
+              const pri =
+                meta.showPriority && task.priority ? formatTaskCardPriorityShort(task.priority) : null;
+              const hasDue = Boolean(meta.showDueDate && task.dueDate);
+              const assigneeShort =
+                meta.showAssignee && task.assignee?.label?.trim()
+                  ? formatAssigneeNameForCard(task.assignee.label)
+                  : null;
+              if (!hasDue && !pri && !assigneeShort) return null;
+              const assigneeFull = task.assignee?.label?.trim() ?? "";
+              return (
+                <p
+                  className="mt-1 inline-flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground"
+                  {...(assigneeFull ? { title: `Assigned: ${assigneeFull}` } : {})}
+                >
+                  {hasDue ? <span>Due {new Date(task.dueDate!).toLocaleDateString()}</span> : null}
+                  {pri ? <span className="font-medium text-foreground">{pri}</span> : null}
+                  {assigneeShort ? (
+                    <>
+                      <span className="sr-only">Assigned </span>
+                      <span aria-hidden className="text-muted-foreground">
+                        {"→ "}
+                      </span>
+                      <span className="font-medium text-foreground">{assigneeShort}</span>
+                    </>
+                  ) : null}
+                </p>
+              );
+            })()}
             {task.ideaNode && (
               <p className="mt-1 text-xs text-muted-foreground">Idea: {task.ideaNode.title}</p>
             )}
@@ -428,22 +540,25 @@ function SortableTaskCard({
     transition,
     ...(cardColor ? { borderColor: cardColor } : {}),
   };
+  const meta = subBoardPref.cardFaceMetaMerged;
+  const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex gap-1 rounded-xl border bg-card px-2 py-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        "group flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-2 text-sm shadow-sm transition-shadow hover:shadow-md",
         cardColor ? "border-2" : "border",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
         isDragging && "z-10 opacity-40",
       )}
     >
+      <TaskCardLeftTicketStrip show={showTicketStrip} number={task.brandTicketNumber} />
       <button
         type="button"
-        className="mt-0.5 cursor-grab touch-none text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+        className="mt-0.5 shrink-0 cursor-grab touch-none px-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
         {...attributes}
         {...listeners}
         aria-label="Drag to reorder"
@@ -482,17 +597,20 @@ function ReadOnlyTaskCard({
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(task.id, taskWs);
+  const meta = subBoardPref.cardFaceMetaMerged;
+  const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
 
   return (
     <div
       className={cn(
-        "rounded-xl border bg-card px-2 py-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        "flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-2 text-sm shadow-sm transition-shadow hover:shadow-md",
         cardColor ? "border-2" : "border",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
       )}
       style={cardColor ? { borderColor: cardColor } : undefined}
     >
+      <TaskCardLeftTicketStrip show={showTicketStrip} number={task.brandTicketNumber} />
       <TaskCardFace
         task={task}
         onOpen={onOpen}
@@ -951,6 +1069,15 @@ function SubBoardPrefsEditor({
           </Button>
         ) : null}
       </div>
+      {brandId ? (
+        <div className="space-y-2 border-b border-border/60 pb-4">
+          <p className="text-sm font-medium">Brand ticket labels</p>
+          <p className="text-xs text-muted-foreground">
+            Shared across this brand. Full edit and delete are under Settings → Ticket labels.
+          </p>
+          <UserTicketLabelsPanel brandId={brandId} boardId={boardId} mode="quick" />
+        </div>
+      ) : null}
       <div className="space-y-2">
         <p className="text-sm font-medium">Pinned secondary view</p>
         <Button
@@ -1115,15 +1242,6 @@ function SubBoardPrefsEditor({
           })}
         </div>
       </div>
-      {brandId ? (
-        <div className="space-y-2 border-t border-border/60 pt-4">
-          <p className="text-sm font-medium">Your ticket labels (this brand)</p>
-          <p className="text-xs text-muted-foreground">
-            Reusable across all project boards in this brand. Full edit is under Settings → Ticket labels.
-          </p>
-          <UserTicketLabelsPanel brandId={brandId} boardId={boardId} mode="quick" />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1300,29 +1418,23 @@ function SubBoardCarouselStrip({
   );
 }
 
-function PinnedDropZone({
-  draggingSubBoard,
-  onDropZoneElement,
-}: {
-  draggingSubBoard: boolean;
-  onDropZoneElement?: (el: HTMLDivElement | null) => void;
-}) {
+function PinnedDropZone({ draggingSubBoard }: { draggingSubBoard: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id: PIN_DROP_ZONE_ID });
   return (
     <div className="space-y-2">
-      <div
-        ref={(el) => {
-          setNodeRef(el);
-          onDropZoneElement?.(el);
-        }}
-        className={cn(
-          "flex min-h-[56px] items-center justify-center rounded-xl border-2 border-dashed px-3 py-3 text-sm text-muted-foreground transition-colors",
-          isOver && "border-primary bg-primary/5 text-foreground",
-        )}
-      >
-        {draggingSubBoard
-          ? "Drop sub-board here to open an additional pinned view"
-          : "Drag a sub-board tab here to open an additional pinned view"}
+      {/* Outer hit target: generous padding so highlight/drop aligns with where the pointer actually is */}
+      <div ref={setNodeRef} className={cn("rounded-xl p-2 transition-colors", isOver && "bg-primary/5")}>
+        <div
+          className={cn(
+            "flex min-h-[64px] items-center justify-center rounded-lg border-2 border-dashed px-3 py-3 text-sm text-muted-foreground transition-colors",
+            isOver && "border-primary text-foreground",
+            !isOver && "border-muted-foreground/30",
+          )}
+        >
+          {draggingSubBoard
+            ? "Drop sub-board here to open an additional pinned view"
+            : "Drag a sub-board tab here to open an additional pinned view"}
+        </div>
       </div>
     </div>
   );
@@ -1580,7 +1692,7 @@ function BoardKanbanFiltered({
     ? visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref)
     : [];
   const activeCardColor = activeSub
-    ? cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref)
+    ? cardColorForSubBoard(board, activeSub.id, prefBySubBoard, boardUserPref)
     : undefined;
   const editorSubBoard = editorSubBoardId
     ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
@@ -1688,7 +1800,7 @@ function BoardKanbanFiltered({
                         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
                         sendTargets={sendTargets}
                         onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
-                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
+                        cardColor={cardColorForSubBoard(board, sb.id, prefBySubBoard, boardUserPref)}
                         prefBySubBoard={prefBySubBoard}
                         boardUserPref={boardUserPref}
                       />
@@ -1820,8 +1932,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
 
   const listOrderVisible = useMemo(() => visibleListsOrdered.map((l) => l.id), [visibleListsOrdered]);
 
-  const stripSortable = hiddenSubSet.size === 0;
-
   useEffect(() => {
     setPinnedSubBoardIds((prev) => prev.filter((id) => !hiddenSubSet.has(id)));
   }, [hiddenSubSet]);
@@ -1844,7 +1954,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
 
   const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [pinnedDropZoneEl, setPinnedDropZoneEl] = useState<HTMLDivElement | null>(null);
+  const pinnedSectionRef = useRef<HTMLElement | null>(null);
   const itemsRef = useRef(items);
   const listOrderRef = useRef(listOrder);
   itemsRef.current = items;
@@ -2109,19 +2219,22 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
       if (activeStr.startsWith(SB_PREFIX)) {
         setActiveId(null);
         const overId = over?.id != null ? String(over.id) : null;
-        const pointerInPinnedZone = (() => {
-          if (!pinnedDropZoneEl) return false;
-          const ev = event.activatorEvent;
-          if (!(ev instanceof MouseEvent)) return false;
-          const rect = pinnedDropZoneEl.getBoundingClientRect();
-          return (
-            ev.clientX >= rect.left &&
-            ev.clientX <= rect.right &&
-            ev.clientY >= rect.top &&
-            ev.clientY <= rect.bottom
-          );
+        const pinFromOver =
+          overId === PIN_DROP_ZONE_ID || (overId != null && overId.startsWith(PIN_PREFIX));
+        const pinFromCollisions = (event.collisions ?? []).some(
+          (c) => String(c.id) === PIN_DROP_ZONE_ID || String(c.id).startsWith(PIN_PREFIX),
+        );
+        const pinFromPointer = (() => {
+          const pt = pointerEndClient(event);
+          if (!pt) return false;
+          const section = pinnedSectionRef.current;
+          if (section) {
+            const r = section.getBoundingClientRect();
+            if (pointInClientRect(pt.x, pt.y, r)) return true;
+          }
+          return false;
         })();
-        if (overId === PIN_DROP_ZONE_ID || pointerInPinnedZone) {
+        if (pinFromOver || pinFromCollisions || pinFromPointer) {
           const subBoardId = activeStr.slice(SB_PREFIX.length);
           pinSubBoard(subBoardId);
           return;
@@ -2158,7 +2271,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
         return next;
       });
     },
-    [moveMutation, reorderMutation, resolveLaneTarget, pinnedDropZoneEl],
+    [moveMutation, reorderMutation, resolveLaneTarget],
   );
 
   const draggingSubBoardTab = Boolean(activeId?.startsWith(SB_PREFIX));
@@ -2182,7 +2295,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
 
   const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
-  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
+  const activeCardColor = cardColorForSubBoard(board, activeSub.id, prefBySubBoard, boardUserPref);
   const editorSubBoard = editorSubBoardId
     ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
     : null;
@@ -2201,7 +2314,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={boardKanbanCollisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
@@ -2247,7 +2360,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
           activeSubId={activeSub.id}
           onSelect={setActiveSubId}
           listOrder={listOrderVisible}
-          sortable={stripSortable}
+          sortable
           onEditSubBoard={setEditorSubBoardId}
         />
         <div className="flex w-full min-w-0 gap-2 pb-2">
@@ -2273,7 +2386,10 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
           })}
         </div>
       </section>
-      <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
+      <section
+        ref={pinnedSectionRef}
+        className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm"
+      >
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Pinned sub-board views
@@ -2282,10 +2398,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
             {pinnedSubBoardIds.length} pinned
           </span>
         </div>
-        <PinnedDropZone
-          draggingSubBoard={draggingSubBoardTab}
-          onDropZoneElement={setPinnedDropZoneEl}
-        />
+        <PinnedDropZone draggingSubBoard={draggingSubBoardTab} />
         <SortableContext items={pinnedSubBoardIds.map(pinnedDragId)} strategy={verticalListSortingStrategy}>
           <div className="space-y-3">
             {pinnedSubBoards.map((sb) => (
@@ -2306,7 +2419,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
                         sendTargets={sendTargets}
                         onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
-                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
+                        cardColor={cardColorForSubBoard(board, sb.id, prefBySubBoard, boardUserPref)}
                         subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id], boardUserPref)}
                       />
                     );

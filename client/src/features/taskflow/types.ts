@@ -56,7 +56,7 @@ export type TaskFlowTask = {
     key: string | null;
     position: number;
     boardId: string;
-    board: { id: string; name: string; workspaceId: string };
+    board: { id: string; name: string; workspaceId: string; accentColor?: string };
   };
   comments?: {
     id: string;
@@ -106,6 +106,8 @@ export type BoardUserPreferenceDto = {
   /** Default “title + meta” fields for standard cards (`{}` = all on). */
   defaultCardFaceMeta?: unknown;
   hiddenSubBoardIds: string[];
+  /** When true, ticket cards on this board use the project board accent as their colored border (when no sub-board override). */
+  showBoardAccentBorder?: boolean;
   updatedAt: string | null;
 };
 
@@ -117,6 +119,8 @@ export type BoardDto = {
   brandId?: string;
   /** Set when the board is archived (hidden from default project space lists). */
   archivedAt?: string | null;
+  /** Canonical #RRGGBB accent for this board (Ticket Tracker, borders when enabled). */
+  accentColor?: string;
   lists: BoardListDto[];
   labels: LabelDto[];
 };
@@ -129,7 +133,14 @@ export type ProjectSpaceSummaryDto = {
   isDefault?: boolean;
   /** Optional delivery-thread / PM context. */
   purpose?: string | null;
-  boards: { id: string; name: string; position: number }[];
+  boards: { id: string; name: string; position: number; accentColor?: string }[];
+};
+
+/** Per-user workspace UI prefs (`/workspaces/:id/user-workspace-preferences`). */
+export type WorkspaceUserPreferenceDto = {
+  workspaceId: string;
+  ticketTrackerColorByBoard: boolean;
+  updatedAt: string | null;
 };
 
 /** One ecosystem row per brand (notes, notebooks, …). Project spaces live in `projectSpaces`. */

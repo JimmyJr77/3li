@@ -1,6 +1,8 @@
 export type NotesWorkspaceDto = {
   id: string;
   name: string;
+  /** Brand for ticket-style labels (same as project boards in this workspace). */
+  brandId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -13,15 +15,6 @@ export type NotesFolderDto = {
   position: number;
   /** #RRGGBB or null for default row tint */
   rowAccentColor?: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type NoteTagDto = {
-  id: string;
-  workspaceId: string;
-  name: string;
-  color: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -44,7 +37,20 @@ export type AtlasNoteDto = {
   routingSource?: string | null;
   createdAt: string;
   updatedAt: string;
-  tags: NoteTagDto[];
+  /** Same shape as ticket labels: board `Label` rows + personal `UserBrandTicketLabel` rows. */
+  labels: { label: { id: string; name: string; color: string }; labelScope?: "board" | "user" }[];
+};
+
+/** Response from `POST /notes-app/notes/:id/mail-clerk-autotag` (preview only; nothing applied until user confirms). */
+export type MailClerkAutotagSuggestionDto = {
+  name: string;
+  match: { kind: "board" | "user"; id: string; color: string } | null;
+};
+
+export type MailClerkAutotagResponseDto = {
+  /** Key themes extracted from the note (for display / future UX). */
+  themes: string[];
+  suggestions: MailClerkAutotagSuggestionDto[];
 };
 
 export type NotesBootstrapDto = {
@@ -58,6 +64,8 @@ export type NotesBootstrapDto = {
   defaultFolderId: string;
   /** Notebook where Quick Capture (⌘⇧C) saves new notes (typically "Quicknotes"). */
   quickCaptureFolderId: string;
+  /** Primary project board in this workspace for board-scoped label chips (or null). */
+  defaultLabelBoardId: string | null;
   folders: NotesFolderDto[];
   notes: AtlasNoteDto[];
 };

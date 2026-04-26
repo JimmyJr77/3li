@@ -2,11 +2,12 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { PatchNoteBody } from "./api";
 import { previewFromDoc, titleMatchesWiki } from "./localWiki";
-import type { AtlasNoteDto, NoteLinkSummaryDto, NoteTagDto, NotesBootstrapDto, NotesFolderDto } from "./types";
+import type { AtlasNoteDto, NoteLinkSummaryDto, NotesBootstrapDto, NotesFolderDto } from "./types";
 import { DEFAULT_NOTEBOOK_BASE, DEFAULT_NOTE_BASE, nextSequencedTitle } from "./defaultNames";
 import { isProtectedNotebookTitle } from "./notebookConstants";
 
 export const LOCAL_WORKSPACE_ID = "local-workspace";
+export const LOCAL_BRAND_ID = "local-brand";
 
 function nowIso() {
   return new Date().toISOString();
@@ -21,7 +22,6 @@ function buildInitial(): {
   defaultFolderId: string;
   quickCaptureFolderId: string;
   notes: AtlasNoteDto[];
-  tags: NoteTagDto[];
   workspaceCreatedAt: string;
 } {
   const notebookFolderId = crypto.randomUUID();
@@ -69,12 +69,11 @@ function buildInitial(): {
         isPublic: false,
         publicSlug: null,
         routingSource: null,
-        tags: [],
+        labels: [],
         createdAt: t,
         updatedAt: t,
       },
     ],
-    tags: [],
     workspaceCreatedAt: t,
   };
 }
@@ -84,7 +83,6 @@ type LocalState = {
   defaultFolderId: string;
   quickCaptureFolderId: string;
   notes: AtlasNoteDto[];
-  tags: NoteTagDto[];
   /** Stable timestamps for workspace DTO */
   workspaceCreatedAt: string;
 };
@@ -103,8 +101,6 @@ type LocalActions = {
   reorderNotesInFolder: (folderId: string, orderedNoteIds: string[]) => void;
   getForwardLinks: (noteId: string) => NoteLinkSummaryDto[];
   getBacklinks: (noteId: string) => NoteLinkSummaryDto[];
-  createTag: (name: string, color?: string) => NoteTagDto;
-  deleteTag: (tagId: string) => void;
 };
 
 export const useLocalNotesStore = create<LocalState & LocalActions>()(
@@ -119,11 +115,13 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           workspace: {
             id: LOCAL_WORKSPACE_ID,
             name: "This browser",
+            brandId: LOCAL_BRAND_ID,
             createdAt: s.workspaceCreatedAt,
             updatedAt: t,
           },
           defaultFolderId: s.defaultFolderId,
           quickCaptureFolderId: s.quickCaptureFolderId,
+          defaultLabelBoardId: null,
           folders: s.folders,
           notes: s.notes,
         };
@@ -166,7 +164,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           isPinned: false,
           isPublic: false,
           publicSlug: null,
-          tags: [],
+          labels: [],
           createdAt: t,
           updatedAt: t,
         };
@@ -179,11 +177,6 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         const idx = s.notes.findIndex((n) => n.id === id);
         if (idx < 0) throw new Error("Note not found");
         const prev = s.notes[idx];
-        let tags = prev.tags;
-        if (body.tagIds !== undefined) {
-          const idSet = new Set(body.tagIds);
-          tags = s.tags.filter((t) => idSet.has(t.id));
-        }
         const next: AtlasNoteDto = {
           ...prev,
           title: body.title !== undefined ? body.title : prev.title,
@@ -196,7 +189,6 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
           publicSlug: body.publicSlug !== undefined ? body.publicSlug : prev.publicSlug,
           position: body.position !== undefined ? body.position : prev.position,
           rowAccentColor: body.rowAccentColor !== undefined ? body.rowAccentColor : prev.rowAccentColor,
-          tags,
           updatedAt: nowIso(),
         };
         const notes = [...s.notes];
@@ -227,7 +219,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
                   isPublic: false,
                   publicSlug: null,
                   routingSource: null,
-                  tags: [],
+                  labels: [],
                   createdAt: t,
                   updatedAt: t,
                 },
@@ -373,35 +365,6 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         return out;
       },
 
-      createTag: (name, color) => {
-        const s = get();
-        const trimmed = name.trim();
-        const existing = s.tags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
-        if (existing) return existing;
-        const t = nowIso();
-        const tag: NoteTagDto = {
-          id: crypto.randomUUID(),
-          workspaceId: LOCAL_WORKSPACE_ID,
-          name: trimmed,
-          color: color ?? "#6366f1",
-          createdAt: t,
-          updatedAt: t,
-        };
-        set((st) => ({ tags: [...st.tags, tag] }));
-        return tag;
-      },
-
-      deleteTag: (tagId) => {
-        const t = nowIso();
-        set((s) => ({
-          tags: s.tags.filter((tag) => tag.id !== tagId),
-          notes: s.notes.map((n) => ({
-            ...n,
-            tags: n.tags.filter((tag) => tag.id !== tagId),
-            updatedAt: t,
-          })),
-        }));
-      },
     }),
     {
       name: "atlas-notes-local-v1",
@@ -410,7 +373,6 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         defaultFolderId: s.defaultFolderId,
         quickCaptureFolderId: s.quickCaptureFolderId,
         notes: s.notes,
-        tags: s.tags,
         workspaceCreatedAt: s.workspaceCreatedAt,
       }),
       merge: (persisted, current) => {
@@ -495,6 +457,14 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
         }
 
         let notes = p.notes ? [...p.notes] : [];
+        notes = notes.map((raw) => {
+          const x = raw as AtlasNoteDto & { tags?: unknown };
+          const { tags: _legacyTags, ...rest } = x;
+          return {
+            ...rest,
+            labels: Array.isArray(x.labels) ? x.labels : [],
+          } as AtlasNoteDto;
+        });
         if (notes.length === 0 && notebookFolder) {
           notes.push({
             id: crypto.randomUUID(),
@@ -510,7 +480,7 @@ export const useLocalNotesStore = create<LocalState & LocalActions>()(
             isPublic: false,
             publicSlug: null,
             routingSource: null,
-            tags: [],
+            labels: [],
             createdAt: t,
             updatedAt: t,
           });

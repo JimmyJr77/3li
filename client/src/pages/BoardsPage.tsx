@@ -11,6 +11,7 @@ import {
   deleteBoardList,
   deleteBoardTemplate,
   deleteProjectSpace,
+  duplicateBoard,
   fetchArchivedBoards,
   fetchArchivedProjectSpaces,
   fetchBoard,
@@ -70,6 +71,13 @@ function parseBoardsDragPayload(raw: string): {
   } catch {
     return {};
   }
+}
+
+function projectSpaceIdContainingBoard(
+  spaces: { id: string; boards: { id: string }[] }[],
+  boardId: string,
+): string | undefined {
+  return spaces.find((s) => s.boards.some((b) => b.id === boardId))?.id;
 }
 
 function computeProjectSpaceReorder(orderedIds: string[], draggedId: string, beforeId: string): string[] {
@@ -172,6 +180,11 @@ export function BoardsPage() {
   const [templateEditId, setTemplateEditId] = useState<string | null>(null);
   const [viewTemplateId, setViewTemplateId] = useState<string | null>(null);
   const [allBoardsDefaultsOpen, setAllBoardsDefaultsOpen] = useState(false);
+  const [saveTemplateTarget, setSaveTemplateTarget] = useState<{ boardId: string; boardName: string } | null>(
+    null,
+  );
+  const [saveTemplateNameInput, setSaveTemplateNameInput] = useState("");
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
 
   const workspacesQuery = useQuery({
     queryKey: ["workspaces"],
@@ -264,6 +277,54 @@ export function BoardsPage() {
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       queryClient.invalidateQueries({ queryKey: ["archived-boards"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+  });
+
+  const moveBoardToProjectSpaceMutation = useMutation({
+    mutationFn: (args: { boardId: string; projectSpaceId: string }) =>
+      patchBoard(args.boardId, { projectSpaceId: args.projectSpaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+  });
+
+  const duplicateBoardMutation = useMutation({
+    mutationFn: (args: { boardId: string }) => duplicateBoard(args.boardId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["brands-tree"] });
+      queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+  });
+
+  const saveBoardAsTemplateMutation = useMutation({
+    mutationFn: async (args: { boardId: string; templateName: string; workspaceId: string }) => {
+      const board = await fetchBoard(args.boardId);
+      const lists = [...board.lists]
+        .sort((a, b) => a.position - b.position)
+        .map((l) => ({ title: l.title.trim(), key: l.key ?? null }));
+      if (lists.length === 0 || !lists.some((l) => l.title)) {
+        throw new Error("This board has no column titles to save as a template.");
+      }
+      return createCustomBoardTemplate({
+        workspaceId: args.workspaceId,
+        name: args.templateName.trim(),
+        description: `Saved from project board “${board.name}”.`,
+        lists,
+      });
+    },
+    onSuccess: () => {
+      setSaveTemplateTarget(null);
+      setSaveTemplateNameInput("");
+      setSaveTemplateError(null);
+      queryClient.invalidateQueries({ queryKey: ["board-templates", activeWorkspaceId] });
+    },
+    onError: (err: unknown) => {
+      setSaveTemplateError(err instanceof Error ? err.message : "Could not save template.");
     },
   });
 
@@ -496,7 +557,7 @@ export function BoardsPage() {
       e.stopPropagation();
       setSideStripActive(false);
       const raw =
-        e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain");
+        e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("application/json") || "";
       const p = parseBoardsDragPayload(raw);
       const boardIdToArchive = p.boardId ?? draggingBoardId ?? undefined;
       const projectSpaceIdToArchive = p.projectSpaceId ?? draggingProjectSpaceId ?? undefined;
@@ -1050,6 +1111,85 @@ export function BoardsPage() {
           </DialogContent>
         </Dialog>
         <Dialog
+          open={saveTemplateTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSaveTemplateTarget(null);
+              setSaveTemplateNameInput("");
+              setSaveTemplateError(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md" onPointerDown={(e) => e.stopPropagation()}>
+            <DialogTitle>Save as custom template</DialogTitle>
+            <DialogDescription>
+              {saveTemplateTarget ? (
+                <>
+                  Column layout from <span className="font-medium text-foreground">{saveTemplateTarget.boardName}</span>{" "}
+                  is saved as a reusable template. Tickets are not included.
+                </>
+              ) : null}
+            </DialogDescription>
+            <div className="space-y-3 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="save-template-name" className="text-xs text-muted-foreground">
+                  Template name
+                </Label>
+                <Input
+                  id="save-template-name"
+                  value={saveTemplateNameInput}
+                  onChange={(e) => {
+                    setSaveTemplateNameInput(e.target.value);
+                    setSaveTemplateError(null);
+                  }}
+                  placeholder="e.g. Sprint board"
+                />
+              </div>
+              {saveTemplateError ? <p className="text-sm text-destructive">{saveTemplateError}</p> : null}
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setSaveTemplateTarget(null);
+                    setSaveTemplateNameInput("");
+                    setSaveTemplateError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={
+                    saveBoardAsTemplateMutation.isPending ||
+                    !saveTemplateTarget ||
+                    !activeWorkspace ||
+                    !saveTemplateNameInput.trim()
+                  }
+                  onClick={() => {
+                    if (!saveTemplateTarget || !activeWorkspace) return;
+                    setSaveTemplateError(null);
+                    saveBoardAsTemplateMutation.mutate({
+                      boardId: saveTemplateTarget.boardId,
+                      templateName: saveTemplateNameInput,
+                      workspaceId: activeWorkspace.id,
+                    });
+                  }}
+                >
+                  {saveBoardAsTemplateMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save template"
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog
           open={projectSpaceDeleteTarget !== null}
           onOpenChange={(open) => {
             if (!open) setProjectSpaceDeleteTarget(null);
@@ -1412,12 +1552,17 @@ export function BoardsPage() {
                 draggingProjectSpaceId !== ps.id &&
                 projectSpaceReorderHoverId === ps.id,
             );
-            const isHighlighted = templateHighlighted || projectSpaceReorderHighlighted;
+            const boardMoveDropHighlighted = Boolean(
+              draggingBoardId && dropTargetProjectSpaceId === ps.id,
+            );
+            const isHighlighted =
+              templateHighlighted || projectSpaceReorderHighlighted || boardMoveDropHighlighted;
             const projectSpaceDragDisabled =
               reorderProjectSpacesMutation.isPending ||
               archiveProjectSpaceMutation.isPending ||
               archiveBoardMutation.isPending ||
-              createFromTemplateMutation.isPending;
+              createFromTemplateMutation.isPending ||
+              moveBoardToProjectSpaceMutation.isPending;
             const isProjectSpaceDragging = draggingProjectSpaceId === ps.id;
 
             return (
@@ -1448,7 +1593,19 @@ export function BoardsPage() {
                     "ring-primary shadow-lg ring-2 ring-offset-2 ring-offset-background",
                 )}
                 onDragOver={(e) => {
-                  if (draggingBoardId) return;
+                  if (draggingBoardId) {
+                    const fromPs = projectSpaceIdContainingBoard(projectSpaces, draggingBoardId);
+                    if (!fromPs || fromPs === ps.id) {
+                      setDropTargetProjectSpaceId(null);
+                      setProjectSpaceReorderHoverId(null);
+                      return;
+                    }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropTargetProjectSpaceId(ps.id);
+                    setProjectSpaceReorderHoverId(null);
+                    return;
+                  }
                   if (draggingProjectSpaceId) {
                     if (draggingProjectSpaceId === ps.id) return;
                     e.preventDefault();
@@ -1481,24 +1638,39 @@ export function BoardsPage() {
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
+                  // Read payload before clearing drag state. Prefer text/plain first: some browsers
+                  // (notably Safari) omit application/json in the drop handler even when it was set in dragstart.
+                  const raw =
+                    e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("application/json") || "";
+                  const p = parseBoardsDragPayload(raw);
+                  const droppedBoardId = p.boardId ?? draggingBoardId ?? undefined;
+                  const droppedProjectSpaceId = p.projectSpaceId ?? draggingProjectSpaceId ?? undefined;
+                  const droppedTemplateId = p.templateId ?? draggingTemplateId ?? undefined;
+
                   setDropTargetProjectSpaceId(null);
                   setProjectSpaceReorderHoverId(null);
                   setDraggingTemplateId(null);
                   setDraggingProjectSpaceId(null);
                   setDraggingBoardId(null);
                   setSideStripActive(false);
-                  const raw =
-                    e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain");
-                  const p = parseBoardsDragPayload(raw);
 
-                  if (p.boardId) return;
+                  if (droppedBoardId) {
+                    const fromPs = projectSpaceIdContainingBoard(projectSpaces, droppedBoardId);
+                    if (!fromPs || fromPs === ps.id) return;
+                    moveBoardToProjectSpaceMutation.mutate({
+                      boardId: droppedBoardId,
+                      projectSpaceId: ps.id,
+                    });
+                    return;
+                  }
 
-                  if (p.projectSpaceId) {
-                    if (p.projectSpaceId === ps.id) return;
+                  if (droppedProjectSpaceId) {
+                    if (droppedProjectSpaceId === ps.id) return;
                     const ids = projectSpaces.map((x) => x.id);
-                    if (!ids.includes(p.projectSpaceId)) return;
+                    if (!ids.includes(droppedProjectSpaceId)) return;
                     if (!activeWorkspace) return;
-                    const next = computeProjectSpaceReorder(ids, p.projectSpaceId, ps.id);
+                    const next = computeProjectSpaceReorder(ids, droppedProjectSpaceId, ps.id);
                     reorderProjectSpacesMutation.mutate({
                       workspaceId: activeWorkspace.id,
                       orderedIds: next,
@@ -1506,12 +1678,12 @@ export function BoardsPage() {
                     return;
                   }
 
-                  if (!p.templateId || !activeWorkspace) return;
-                  const dropped = templates.find((x) => x.id === p.templateId);
+                  if (!droppedTemplateId || !activeWorkspace) return;
+                  const dropped = templates.find((x) => x.id === droppedTemplateId);
                   if (!dropped) return;
                   createFromTemplateMutation.mutate({
                     workspaceId: activeWorkspace.id,
-                    templateId: p.templateId,
+                    templateId: droppedTemplateId,
                     projectSpaceId: ps.id,
                   });
                 }}
@@ -1589,7 +1761,11 @@ export function BoardsPage() {
                   <ul className="mt-3 space-y-2">
                     {ps.boards.map((b) => {
                       const boardDragDisabled =
-                        archiveBoardMutation.isPending || restoreBoardMutation.isPending;
+                        archiveBoardMutation.isPending ||
+                        restoreBoardMutation.isPending ||
+                        moveBoardToProjectSpaceMutation.isPending ||
+                        duplicateBoardMutation.isPending ||
+                        saveBoardAsTemplateMutation.isPending;
                       const isBoardDragging = draggingBoardId === b.id;
                       return (
                         <li key={b.id} className="flex min-h-9 items-stretch gap-1">
@@ -1597,7 +1773,7 @@ export function BoardsPage() {
                             role="link"
                             tabIndex={boardDragDisabled ? -1 : 0}
                             aria-label={`Open project board: ${b.name}`}
-                            title="Click to open · drag to another project space or to the archive column"
+                            title="Click to open · drag onto another project space to move it there, or to the archive column"
                             draggable={!boardDragDisabled}
                             onPointerDown={(e) => {
                               if (boardDragDisabled) return;
@@ -1616,6 +1792,7 @@ export function BoardsPage() {
                             }}
                             onDragEnd={() => {
                               setDraggingBoardId(null);
+                              setDropTargetProjectSpaceId(null);
                               setSideStripActive(false);
                             }}
                             onClick={(e) => {
@@ -1673,6 +1850,24 @@ export function BoardsPage() {
                               >
                                 Edit
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={!activeWorkspace}
+                                onSelect={() => {
+                                  setSaveTemplateError(null);
+                                  setSaveTemplateTarget({ boardId: b.id, boardName: b.name });
+                                  setSaveTemplateNameInput(`${b.name} (template)`);
+                                }}
+                              >
+                                Save as template…
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  duplicateBoardMutation.mutate({ boardId: b.id });
+                                }}
+                              >
+                                Duplicate board
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={() => {

@@ -170,3 +170,52 @@ export function routingIndexToPromptText(idx: RoutingIndexPayload): string {
   }
   return lines.join("\n").slice(0, 28_000);
 }
+
+const NOTEBOOK_AUTOTAG_COMPACT_MAX_CHARS = 5600;
+const NOTEBOOK_AUTOTAG_TICKETS_PER_LANE = 3;
+
+/**
+ * Smaller routing blurb for notebook autotag: note content should dominate the prompt;
+ * this block is only for disambiguation (boards, sample tickets, recent note titles).
+ */
+export function routingIndexToPromptTextCompactForNotebookAutotag(idx: RoutingIndexPayload): string {
+  const lines: string[] = [];
+  lines.push("## Workspace context (compact — disambiguation only; prioritize the active note above)");
+  lines.push(`Workspace: ${idx.workspaceName}`);
+  if (idx.brandDisplayName) lines.push(`Brand (display): ${idx.brandDisplayName}`);
+  lines.push("");
+  lines.push("## Notebooks (top-level folders)");
+  if (idx.notesFolders.length === 0) lines.push("(none)");
+  else idx.notesFolders.forEach((f) => lines.push(`- ${f.title}`));
+  if (idx.recentNoteTitles.length) {
+    lines.push("");
+    lines.push("## Recent note titles (sample)");
+    idx.recentNoteTitles.slice(0, 12).forEach((t) => lines.push(`- ${t}`));
+  }
+  lines.push("");
+  lines.push("## Brainstorm sessions (titles only)");
+  if (idx.brainstormSessions.length === 0) lines.push("(none)");
+  else idx.brainstormSessions.slice(0, 8).forEach((s) => lines.push(`- ${s.title}`));
+  lines.push("");
+  lines.push("## Boards and a few sample tickets per lane");
+  for (const ps of idx.projectSpaces) {
+    lines.push(`### ${ps.name}`);
+    for (const b of ps.boards) {
+      lines.push(`  Board: ${b.name}`);
+      for (const sb of b.subBoards.slice(0, 4)) {
+        const key = sb.key ? ` (${sb.key})` : "";
+        lines.push(`    ${sb.title}${key}`);
+        for (const st of TRACKER_STATUS_ORDER) {
+          const titles = sb.tasksByTracker[st] ?? [];
+          if (titles.length === 0) continue;
+          const label = TRACKER_STATUS_LABELS[st];
+          lines.push(`      ${label}:`);
+          for (const title of titles.slice(0, NOTEBOOK_AUTOTAG_TICKETS_PER_LANE)) {
+            lines.push(`        • ${title}`);
+          }
+        }
+      }
+    }
+  }
+  return lines.join("\n").slice(0, NOTEBOOK_AUTOTAG_COMPACT_MAX_CHARS);
+}

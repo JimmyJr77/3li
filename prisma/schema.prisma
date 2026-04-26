@@ -40,6 +40,7 @@ model AppUser {
   /// Reusable ticket labels (name + color) scoped by brand; shown on tasks for this user.
   userBrandTicketLabels UserBrandTicketLabel[]
   boardUserPreferences  BoardUserPreference[]
+  workspaceUserPreferences WorkspaceUserPreference[]
   /// Ticket comments authored by this login (nullable on legacy rows).
   taskCommentsAuthored  Comment[]    @relation("TaskCommentAuthor")
   createdAt    DateTime     @default(now())
@@ -205,10 +206,27 @@ model Workspace {
   brainstormProject    Project?
   routingHolds         RoutingHold[]
   agentSessions        AgentSession[]
+  userPreferences      WorkspaceUserPreference[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
   @@index([archivedAt])
+}
+
+/// Per-user UI preferences for a brand workspace (Ticket Tracker, etc.).
+model WorkspaceUserPreference {
+  id                         String    @id @default(cuid())
+  userId                     String
+  user                       AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId              String
+  workspace                  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// When true, Ticket Tracker colors each ticket’s border by its project board accent color.
+  ticketTrackerColorByBoard  Boolean   @default(false)
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
 }
 
 /// User-visible history hub for workspace AI agents (except Consultant, which uses ChatThread).
@@ -338,6 +356,10 @@ model Note {
   isPublic        Boolean        @default(false)
   publicSlug      String?        @unique
   tags            NoteTag[]
+  /// Board-scoped project labels (same `Label` rows as tickets) attached to this note.
+  labels          NoteLabel[]
+  /// Per-user brand ticket labels attached to this note.
+  userBrandTicketLabels NoteUserBrandTicketLabel[]
   linksFrom       NoteLink[]     @relation("NoteLinkFrom")
   linksTo         NoteLink[]     @relation("NoteLinkTo")
   /// Optional provenance when created from Rapid Router / Mailroom-style capture.
@@ -384,6 +406,8 @@ model Board {
   name           String
   position       Int          @default(0)
   archivedAt     DateTime?
+  /// Brand-wide accent for this project board (Ticket Tracker, card borders when enabled).
+  accentColor    String       @default("#6366f1") @db.VarChar(32)
   lists          BoardList[]
   labels         Label[]
   userPreferences BoardUserPreference[]
@@ -410,6 +434,8 @@ model BoardUserPreference {
   defaultCardFaceMeta            Json            @default("{}")
   /// Sub-board (`BoardList`) ids hidden from this user’s tab strip for this board.
   hiddenSubBoardIds              String[]
+  /// When true, this user sees the project board accent as a colored border on ticket cards on this board.
+  showBoardAccentBorder          Boolean         @default(true)
   createdAt                      DateTime        @default(now())
   updatedAt                      DateTime        @updatedAt
 
@@ -602,6 +628,7 @@ model Label {
   name    String
   color   String      @default("#6366f1")
   tasks   TaskLabel[]
+  notes   NoteLabel[]
 
   @@index([boardId])
 }
@@ -616,6 +643,7 @@ model UserBrandTicketLabel {
   name      String   @db.VarChar(128)
   color     String   @default("#6366f1") @db.VarChar(32)
   taskLinks TaskUserBrandTicketLabel[]
+  noteLinks NoteUserBrandTicketLabel[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -642,6 +670,26 @@ model TaskLabel {
   label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([taskId, labelId])
+}
+
+model NoteLabel {
+  noteId  String
+  labelId String
+  note    Note   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, labelId])
+  @@index([labelId])
+}
+
+model NoteUserBrandTicketLabel {
+  noteId                 String
+  userBrandTicketLabelId String
+  note                   Note                 @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  userBrandTicketLabel   UserBrandTicketLabel @relation(fields: [userBrandTicketLabelId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, userBrandTicketLabelId])
+  @@index([userBrandTicketLabelId])
 }
 
 model Comment {

@@ -3,7 +3,7 @@ export { NoteAIActions } from "./NoteAIActions";
 export { NoteEditor } from "./NoteEditor";
 export { NoteLinksPanel } from "./NoteLinksPanel";
 export { NotePublishingBar } from "./NotePublishingBar";
-export { NoteTagsRow } from "./NoteTagsRow";
+export { NoteLabelsSection } from "./NoteLabelsSection";
 export { QuickCaptureSheet } from "./QuickCaptureSheet";
 export * from "./api";
 export * from "./noteUtils";

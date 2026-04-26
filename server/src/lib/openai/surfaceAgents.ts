@@ -4,7 +4,16 @@ import { coerceBrandProfilePatch } from "../brandProfilePatchCoerce.js";
 import { formatBrandProfileForPrompt } from "../brandProfileFormat.js";
 import { loadBrandProfileJsonForWorkspaceId } from "../brandProfileFromWorkspace.js";
 import { formatTeamUserBlocksForPrompt, loadContextInstructionsForWorkspace } from "../contextInstructions.js";
-import { buildRoutingIndexPayload, routingIndexToPromptText } from "../routingIndexForWorkspace.js";
+import {
+  buildNotebookAutotagSuggestions,
+  parseNotebookAutotagModelJson,
+  type NotebookAutotagVocabularyItem,
+} from "../notebookLabelAutotag.js";
+import {
+  buildRoutingIndexPayload,
+  routingIndexToPromptText,
+  routingIndexToPromptTextCompactForNotebookAutotag,
+} from "../routingIndexForWorkspace.js";
 
 export type MailroomPlanChunk = {
   summary: string;
@@ -898,9 +907,16 @@ export async function runMailroomRouteSelectedItems(
   };
 }
 
+export type NotebookAutotagLlmResult = {
+  themes: string[];
+  suggestions: { name: string; match: { kind: "board" | "user"; id: string; color: string } | null }[];
+};
+
+const NOTEBOOK_BODY_PROMPT_CHARS = 24_000;
+
 /**
- * Mail Clerk–style notebook autotag: choose existing workspace tags using the routing index
- * (notebooks, boards, recent notes, etc.) plus the note body. Does not invent new tag names.
+ * Theme-first notebook autotag: model returns themes + reuseExisting (verbatim vocab) + proposeNew;
+ * server validates, reconciles near-misses to existing labels, and returns suggestion rows for the client.
  */
 export async function runMailClerkNotebookAutotag(
   openai: OpenAI,
@@ -908,31 +924,33 @@ export async function runMailClerkNotebookAutotag(
     workspaceId: string;
     noteTitle: string;
     notePlainText: string;
-    /** Current tag names on the note */
-    tagsOnNoteNames: string[];
-    /** All workspace tags (names only; order preserved) */
-    tagVocabulary: { name: string }[];
+    labelsOnNoteNames: string[];
+    vocabularyItems: NotebookAutotagVocabularyItem[];
   },
-): Promise<string[]> {
-  if (!body.tagVocabulary.length) {
-    return [];
-  }
-
+): Promise<NotebookAutotagLlmResult> {
   const idx = await buildRoutingIndexPayload(body.workspaceId);
-  const routingBlurb = idx ? routingIndexToPromptText(idx).slice(0, 14_000) : "(Workspace index unavailable.)";
+  const routingBlurb = idx
+    ? routingIndexToPromptTextCompactForNotebookAutotag(idx)
+    : "(Workspace index unavailable.)";
 
   const { team, user } = await loadContextInstructionsForWorkspace(body.workspaceId);
   const { teamBlock, userBlock } = formatTeamUserBlocksForPrompt(team, user);
 
-  const vocabLines = body.tagVocabulary.map((t) => `- ${t.name}`);
+  const vocabLines =
+    body.vocabularyItems.length > 0
+      ? body.vocabularyItems.map((t) => t.lineForPrompt)
+      : ["(none — you may still propose a few new short labels from the note only.)"];
+
   const system = [
-    `You are the Mail Clerk's notebook autotag assistant for this workspace.`,
-    `Pick tags that already exist in the workspace so this note is discoverable next to related work across notebooks, boards, and brainstorms.`,
-    `Rules:`,
-    `- Reply with JSON ONLY: {"tags":["tag-a","tag-b"]} with at most 8 entries.`,
-    `- Every string in "tags" MUST be one of the vocabulary names below (identical spelling; you may match case-insensitively but output must use the exact casing from the list).`,
-    `- Use the workspace activity index to infer cross-cutting themes (e.g. recurring project names, board areas). Do not invent tag names.`,
-    `- Prefer precision over volume: omit weak fits. Tags already on the note may appear again only if still strongly relevant.`,
+    `You are the Mail Clerk notebook label assistant. The ACTIVE NOTE is the primary source of truth.`,
+    `Your job:`,
+    `1) Read the note title and body. List 3–7 key themes as short phrases in "themes" (derive only from the note; if the body is empty, themes may only reference the title).`,
+    `2) In "reuseExisting", list up to 6 labels from the provided vocabulary lines whose EXACT printed name you are copying verbatim (same spelling and casing as the line shows). Only include a reuse when a theme clearly supports it.`,
+    `3) In "proposeNew", list up to 4 NEW label names only when a theme is important and not adequately covered by any reuse. Prefer an empty "proposeNew" when a reuse fits. New names: concise (words, Title Case, or kebab-case), no sentences.`,
+    `4) Do not duplicate the same concept in reuse and proposeNew.`,
+    `Reply with JSON ONLY in this exact shape:`,
+    `{"themes":["…"],"reuseExisting":["Exact Vocab Name"],"proposeNew":["…"]}`,
+    `Use [] for any array that has no items.`,
     teamBlock,
     userBlock,
   ]
@@ -940,51 +958,38 @@ export async function runMailClerkNotebookAutotag(
     .join("\n\n")
     .trim();
 
+  const noteBody = body.notePlainText.slice(0, NOTEBOOK_BODY_PROMPT_CHARS) || "(empty)";
+
   const userMsg = [
-    "## Workspace activity index (topics across the app — context only)",
-    routingBlurb,
-    "",
-    "## Allowed tag vocabulary (choose ONLY from these names)",
-    vocabLines.join("\n"),
-    "",
-    "## Note title",
+    "## Active note (PRIMARY — read this first)",
+    "### Title",
     body.noteTitle || "(untitled)",
     "",
-    "## Note body (plain text)",
-    body.notePlainText.slice(0, 14_000) || "(empty)",
+    "### Body (plain text)",
+    noteBody,
     "",
-    "## Tags already on this note",
-    body.tagsOnNoteNames.length ? body.tagsOnNoteNames.map((t) => `- ${t}`).join("\n") : "(none)",
+    "## Labels already on this note",
+    body.labelsOnNoteNames.length ? body.labelsOnNoteNames.map((t) => `- ${t}`).join("\n") : "(none)",
+    "",
+    "## Existing labels for this brand (reuse only when themes justify; copy names exactly as shown)",
+    vocabLines.join("\n"),
+    "",
+    "## Workspace context (secondary — for naming alignment only)",
+    routingBlurb,
   ].join("\n");
 
   const completion = await openai.chat.completions.create({
-    model: chatModel("mini"),
+    model: chatModel("primary"),
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: system },
       { role: "user", content: userMsg },
     ],
-    temperature: 0.35,
+    temperature: 0.2,
   });
 
   const raw = completion.choices[0]?.message?.content?.trim() ?? "{}";
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== "object") return [];
-  const o = parsed as Record<string, unknown>;
-  const arr = Array.isArray(o.tags) ? o.tags : [];
-  const canonByLower = new Map(body.tagVocabulary.map((t) => [t.name.toLowerCase(), t.name]));
-  const out: string[] = [];
-  for (const item of arr) {
-    if (typeof item !== "string") continue;
-    const n = item.replace(/^#/, "").trim();
-    if (!n) continue;
-    const canon = canonByLower.get(n.toLowerCase());
-    if (canon) out.push(canon);
-  }
-  return [...new Set(out)].slice(0, 8);
+  const { themes, reuseExisting, proposeNew } = parseNotebookAutotagModelJson(raw);
+  const suggestions = buildNotebookAutotagSuggestions(body.vocabularyItems, reuseExisting, proposeNew);
+  return { themes, suggestions };
 }
