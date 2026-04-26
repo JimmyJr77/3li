@@ -20,13 +20,22 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArchiveRestore, LayoutGrid, Loader2, Search } from "lucide-react";
+import {
+  Kanban,
+  LayoutGrid,
+  ListFilter,
+  Loader2,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
 import { fetchAllTasks, fetchBoard, patchTask } from "@/features/taskflow/api";
+import { BoardTable } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
 import type { TaskFlowTask } from "@/features/taskflow/types";
 import {
@@ -35,10 +44,29 @@ import {
   TRACKER_STATUSES,
   type TrackerStatus,
 } from "@/features/taskflow/trackerMeta";
+import {
+  loadColumnVisibility,
+  saveColumnVisibility,
+  type TicketTrackerColumnVisibility,
+} from "@/features/taskflow/ticketTrackerPrefs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  RightAppSheetResizeHandle,
+  rightAppSheetContentClassName,
+  useResizableRightAppSheetWidth,
+} from "@/hooks/useResizableRightAppSheetWidth";
 import { cn } from "@/lib/utils";
+
+type TicketTrackerView = "board" | "table";
 
 const TT_PREFIX = "tt-lane:";
 
@@ -138,14 +166,14 @@ function TrackerColumn({
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
   return (
-    <div className="flex w-56 shrink-0 flex-col rounded-xl border bg-muted/15 p-2">
-      <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="flex min-h-0 min-w-[10rem] flex-1 basis-0 flex-col rounded-xl border bg-muted/15 p-2">
+      <div className="mb-2 shrink-0 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {TRACKER_LABELS[status]}
       </div>
       <div
         ref={setNodeRef}
         className={cn(
-          "flex min-h-[120px] flex-col gap-2 rounded-md p-1 transition-colors",
+          "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-y-contain rounded-md p-1 transition-colors",
           isOver && "bg-primary/10 ring-2 ring-primary/25",
         )}
       >
@@ -173,6 +201,13 @@ export function MyTasksPage() {
   const [sort, setSort] = useState("dueDate:asc");
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [columnVisibility, setColumnVisibility] = useState<TicketTrackerColumnVisibility>(() =>
+    loadColumnVisibility(),
+  );
+  const [showFilters, setShowFilters] = useState(true);
+  const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
+  const [view, setView] = useState<TicketTrackerView>("board");
+  const trackerSettingsSheetSizing = useResizableRightAppSheetWidth({ open: trackerSettingsOpen });
 
   const { activeWorkspace, activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
   const { showArchives } = useArchivesVisibility();
@@ -182,6 +217,10 @@ export function MyTasksPage() {
       setArchivedOnly(false);
     }
   }, [showArchives]);
+
+  useEffect(() => {
+    saveColumnVisibility(columnVisibility);
+  }, [columnVisibility]);
 
   const defaultBoardId = activeWorkspace?.projectSpaces?.[0]?.boards?.[0]?.id ?? null;
 
@@ -237,14 +276,6 @@ export function MyTasksPage() {
     () => buildTasksContextSnapshot("Filtered tickets (Ticket Tracker)", tasks),
     [tasks],
   );
-
-  const restoreTaskMutation = useMutation({
-    mutationFn: (taskId: string) => patchTask(taskId, { archived: false }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
-      queryClient.invalidateQueries({ queryKey: ["board"] });
-    },
-  });
 
   const moveTrackerMutation = useMutation({
     mutationFn: ({ taskId, trackerStatus }: { taskId: string; trackerStatus: TrackerStatus }) =>
@@ -378,24 +409,97 @@ export function MyTasksPage() {
     }
   }, [subBoardId, subBoardOptions]);
 
+  const visibleTrackerStatuses = useMemo(
+    () => TRACKER_STATUSES.filter((st) => columnVisibility[st]),
+    [columnVisibility],
+  );
+
+  const hiddenKanbanTaskCount = useMemo(() => {
+    let n = 0;
+    for (const st of TRACKER_STATUSES) {
+      if (columnVisibility[st]) continue;
+      n += items[ttLaneId(st)]?.length ?? 0;
+    }
+    return n;
+  }, [items, columnVisibility]);
+
+  const handleRefresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    void queryClient.invalidateQueries({ queryKey: ["board"] });
+  }, [queryClient]);
+
   return (
-    <div className="flex w-full flex-col gap-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-h-[calc(100vh-6rem)] w-full min-w-0 flex-1 flex-col gap-4">
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <LayoutGrid className="size-5 text-muted-foreground" aria-hidden />
           <h1 className="text-2xl font-semibold tracking-tight">Ticket Tracker</h1>
         </div>
         {workspaceId ? (
-          <PMAgentSheet
-            workspaceId={workspaceId}
-            contextText={tasksPmContext}
-            surfaceLabel="Current filtered tickets"
-          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex rounded-lg border p-0.5">
+              <Button
+                type="button"
+                variant={view === "board" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1"
+                onClick={() => setView("board")}
+              >
+                <Kanban className="size-4" />
+                Board
+              </Button>
+              <Button
+                type="button"
+                variant={view === "table" ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1"
+                onClick={() => setView("table")}
+              >
+                <LayoutGrid className="size-4" />
+                Table
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              aria-expanded={showFilters}
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <ListFilter className="size-4" />
+              Search and Filter
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label="Refresh tickets"
+              onClick={handleRefresh}
+              disabled={tasksQuery.isFetching}
+            >
+              <RefreshCw className={cn("size-4", tasksQuery.isFetching && "animate-spin")} />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label="Tracker view settings"
+              onClick={() => setTrackerSettingsOpen(true)}
+            >
+              <SlidersHorizontal className="size-4" />
+            </Button>
+            <PMAgentSheet
+              workspaceId={workspaceId}
+              contextText={tasksPmContext}
+              surfaceLabel="Current filtered tickets"
+            />
+          </div>
         ) : null}
       </div>
-      <p className="max-w-2xl text-sm text-muted-foreground">
-        All tickets in the active brand workspace, grouped by tracker status. Drag between columns to
-        change status, or open a{" "}
+      <p className="max-w-2xl shrink-0 text-sm text-muted-foreground">
+        All tickets in the active brand workspace, grouped by tracker status. On the board, drag between columns to
+        change status, or use the table view. Open a{" "}
         <Link
           to={defaultBoardId ? `/app/boards/${defaultBoardId}` : "/app/boards"}
           className="font-medium text-primary underline-offset-4 hover:underline"
@@ -405,7 +509,8 @@ export function MyTasksPage() {
         for sub-board–scoped work.
       </p>
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-muted/15 p-4 lg:flex-row lg:flex-wrap lg:items-end">
+      {showFilters ? (
+      <div className="flex shrink-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4 lg:flex-row lg:flex-wrap lg:items-end">
         <div className="min-w-[200px] flex-1 space-y-1">
           <Label className="text-xs text-muted-foreground">Search</Label>
           <div className="relative">
@@ -547,19 +652,27 @@ export function MyTasksPage() {
           </label>
         ) : null}
       </div>
+      ) : null}
+
+      {view === "board" && hiddenKanbanTaskCount > 0 ? (
+        <p className="shrink-0 text-xs text-muted-foreground">
+          {hiddenKanbanTaskCount} ticket{hiddenKanbanTaskCount === 1 ? "" : "s"} in hidden columns. Use the
+          settings control to show those lanes on the board.
+        </p>
+      ) : null}
 
       {loading && (
-        <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Loading…
         </div>
       )}
       {tasksQuery.isError && (
-        <p className="text-sm text-destructive">Could not load tickets. Is the API running?</p>
+        <p className="shrink-0 text-sm text-destructive">Could not load tickets. Is the API running?</p>
       )}
 
       {tasks.length === 0 && !loading && (
-        <p className="rounded-lg border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+        <p className="shrink-0 rounded-lg border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
           No tickets match. Add tickets on a board or convert ideas from{" "}
           <Link to="/app/brainstorm" className="font-medium text-primary underline-offset-4 hover:underline">
             Brainstorm
@@ -568,87 +681,93 @@ export function MyTasksPage() {
         </p>
       )}
 
-      {tasks.length > 0 && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex gap-2 overflow-x-auto pb-4">
-            {TRACKER_STATUSES.map((st) => (
-              <TrackerColumn
-                key={st}
-                status={st}
-                taskIds={items[ttLaneId(st)] ?? []}
-                taskMap={taskMap}
-                onOpen={(t) => setSelectedTaskId(t.id)}
-              />
-            ))}
-          </div>
-          <DragOverlay dropAnimation={dropAnimation}>
-            {activeDragTask ? (
-              <div className="w-56 rounded-lg border bg-card px-2 py-2 text-sm shadow-lg">
-                <p className="font-medium">{activeDragTask.title}</p>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      )}
-
-      <ul className="divide-y rounded-lg border bg-card">
-        {tasks.map((task) => (
-          <li
-            key={task.id}
-            className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => setSelectedTaskId(task.id)}
-            >
-              <p className="font-medium leading-snug">{task.title}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                {task.archivedAt && (
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">
-                    Archived
-                  </span>
-                )}
-                {task.list && (
-                  <span>
-                    {task.list.board.name} · {task.list.title}
-                  </span>
-                )}
-                <span>{TRACKER_LABELS[normalizeTrackerStatus(task.trackerStatus)]}</span>
-                <span className="capitalize">Prio: {task.priority}</span>
-                {task.dueDate && (
-                  <span>Due {new Date(task.dueDate).toLocaleDateString()}</span>
-                )}
-                {task.ideaNode && <span>Idea: {task.ideaNode.title}</span>}
-              </div>
-            </button>
-            <div className="flex items-center gap-2">
-              {task.archivedAt ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1"
-                  disabled={restoreTaskMutation.isPending}
-                  onClick={() => restoreTaskMutation.mutate(task.id)}
-                >
-                  <ArchiveRestore className="size-4" />
-                  Restore
-                </Button>
-              ) : null}
-              <span className="text-xs text-muted-foreground">
-                {task.completed ? "Done" : "Open"}
-              </span>
+      {tasks.length > 0 ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+          {view === "board" && visibleTrackerStatuses.length > 0 ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCorners}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="flex min-h-0 w-full min-w-0 flex-1 items-stretch gap-2 overflow-x-auto pb-0">
+                  {visibleTrackerStatuses.map((st) => (
+                    <TrackerColumn
+                      key={st}
+                      status={st}
+                      taskIds={items[ttLaneId(st)] ?? []}
+                      taskMap={taskMap}
+                      onOpen={(t) => setSelectedTaskId(t.id)}
+                    />
+                  ))}
+                </div>
+                <DragOverlay dropAnimation={dropAnimation}>
+                  {activeDragTask ? (
+                    <div className="w-56 rounded-lg border bg-card px-2 py-2 text-sm shadow-lg">
+                      <p className="font-medium">{activeDragTask.title}</p>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
             </div>
-          </li>
-        ))}
-      </ul>
+          ) : null}
+
+          {view === "board" && visibleTrackerStatuses.length === 0 ? (
+            <p className="shrink-0 rounded-lg border bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
+              No task columns are visible. Open settings and enable at least one column to use the board.
+            </p>
+          ) : null}
+
+          {view === "table" ? (
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+              <BoardTable
+                tasks={tasks}
+                onRowClick={(t) => {
+                  setSelectedTaskId(t.id);
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Sheet open={trackerSettingsOpen} onOpenChange={setTrackerSettingsOpen}>
+        <SheetContent
+          side="right"
+          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          style={trackerSettingsSheetSizing.sheetWidthStyle}
+        >
+          <RightAppSheetResizeHandle onMouseDown={trackerSettingsSheetSizing.startResize} />
+          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+            <SheetTitle>Ticket tracker settings</SheetTitle>
+            <SheetDescription>
+              Choose which tracker status columns appear on the board. Your choices are saved in this browser.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-3 px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+            <p className="text-xs font-medium text-muted-foreground">Task columns</p>
+            <ul className="space-y-2">
+              {TRACKER_STATUSES.map((st) => (
+                <li key={st}>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border"
+                      checked={columnVisibility[st]}
+                      onChange={(e) =>
+                        setColumnVisibility((prev) => ({ ...prev, [st]: e.target.checked }))
+                      }
+                    />
+                    <span>{TRACKER_LABELS[st]}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <TaskDetailSheet
         task={selectedTask}
