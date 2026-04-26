@@ -24,8 +24,12 @@ export type TaskListParams = {
   createdByUserId?: string;
   dueBefore?: string;
   dueAfter?: string;
+  /** Comma-separated label ids (board or user ticket labels); ticket matches if it has any of them. */
+  labelIds?: string;
   q?: string;
   labelId?: string;
+  /** When true, only tasks with a due date set. */
+  hasDueDate?: "true";
   priority?: string;
   completed?: "true" | "false";
   sort?: string;
@@ -88,7 +92,7 @@ export async function fetchWorkspaceUserPreferences(
 
 export async function patchWorkspaceUserPreferences(
   workspaceId: string,
-  body: Partial<{ ticketTrackerColorByBoard: boolean }>,
+  body: Partial<{ ticketTrackerColorByBoard: boolean; ticketTrackerSubBoardStrip: boolean }>,
 ): Promise<WorkspaceUserPreferenceDto> {
   const { data } = await api.patch<WorkspaceUserPreferenceDto>(
     `/api/task-app/workspaces/${workspaceId}/user-workspace-preferences`,
@@ -130,6 +134,7 @@ export async function patchSubBoardPreference(
     cardFaceLayout: string;
     cardFaceMeta: unknown | null;
     completeCheckboxVisibleByDefault: boolean;
+    showSubBoardAccentStrip: boolean;
   }>,
 ): Promise<SubBoardPreferenceDto> {
   const { data } = await api.patch<SubBoardPreferenceDto>(
@@ -555,7 +560,7 @@ export async function postBoardLabel(
 export async function patchBoardList(
   boardId: string,
   listId: string,
-  body: { title: string },
+  body: { title?: string; accentColor?: string },
 ): Promise<BoardDto> {
   const { data } = await api.patch<BoardDto>(
     `/api/task-app/boards/${boardId}/lists/${listId}`,

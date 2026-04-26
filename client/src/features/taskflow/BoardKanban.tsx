@@ -29,7 +29,6 @@ import {
   ChevronRight,
   EllipsisVertical,
   GripVertical,
-  MoreHorizontal,
   Pin,
   PinOff,
   Plus,
@@ -52,8 +51,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -245,6 +242,7 @@ function normalizedSubBoardPref(
     cardFaceMeta: row?.cardFaceMeta ?? null,
     completeCheckboxVisibleByDefault: checkboxMerged,
     hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
+    showSubBoardAccentStrip: row?.showSubBoardAccentStrip !== false,
     updatedAt: row?.updatedAt ?? null,
     cardFaceMetaMerged: mergedMeta,
   };
@@ -267,6 +265,7 @@ type SubBoardPrefSavePayload = {
   /** Omit to leave unchanged; `null` clears overrides (inherit board defaults). */
   cardFaceMeta?: CardFaceMeta | null;
   completeCheckboxVisibleByDefault: boolean;
+  showSubBoardAccentStrip: boolean;
 };
 
 function upsertPrefRows(
@@ -366,27 +365,42 @@ function TaskCardLeftTicketStrip({
   );
 }
 
+/** Fixed-width right rail: optional colored strip (inset from card border via parent `pr-*`). Send-to lives in the ticket sheet → Settings. */
+function TaskCardRightRail({
+  accentColor,
+  showStrip,
+}: {
+  accentColor?: string | null;
+  showStrip: boolean;
+}) {
+  const colored = Boolean(showStrip && accentColor);
+  if (!colored) return null;
+
+  return (
+    <div className="flex w-7 shrink-0 self-stretch" aria-hidden>
+      <div
+        className="flex w-full flex-1 items-center justify-center rounded-sm"
+        style={{ backgroundColor: accentColor! }}
+      />
+    </div>
+  );
+}
+
 function TaskCardFace({
   task,
   onOpen,
   onToggleComplete,
-  sendTargets,
-  onSendTo,
   subBoardPref,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  sendTargets?: { id: string; title: string }[];
-  onSendTo?: (taskId: string, subBoardId: string) => void;
   subBoardPref: EffectiveSubBoardPreference;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const doneCount = task.checklist?.filter((c) => c.completed).length ?? 0;
   const checkTotal = task.checklist?.length ?? 0;
-  const sbId = task.subBoardId ?? task.listId ?? task.list?.id;
-  const others = sendTargets?.filter((s) => s.id !== sbId) ?? [];
   const minimal = subBoardPref.cardFaceLayout === "minimal";
   const showDoneCheckbox = effectiveCompleteCheckboxOnCard(task, subBoardPref);
   const meta = subBoardPref.cardFaceMetaMerged;
@@ -483,31 +497,6 @@ function TaskCardFace({
           </>
         ) : null}
       </button>
-      {others.length > 0 && onSendTo ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-muted-foreground"
-              aria-label="Ticket actions"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Send to…</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {others.map((s) => (
-              <DropdownMenuItem key={s.id} onSelect={() => onSendTo(task.id, s.id)}>
-                {s.title}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
     </div>
   );
 }
@@ -516,18 +505,17 @@ function SortableTaskCard({
   task,
   onOpen,
   onToggleComplete,
-  sendTargets,
-  onSendTo,
   cardColor,
   subBoardPref,
+  listAccentColor,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  sendTargets?: { id: string; title: string }[];
-  onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
   subBoardPref: EffectiveSubBoardPreference;
+  /** Canonical sub-board accent for the right strip (from `BoardList`). */
+  listAccentColor?: string | null;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -542,13 +530,14 @@ function SortableTaskCard({
   };
   const meta = subBoardPref.cardFaceMetaMerged;
   const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
+  const showSubStrip = subBoardPref.showSubBoardAccentStrip !== false;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        "group flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-1.5 text-sm shadow-sm transition-shadow hover:shadow-md",
         cardColor ? "border-2" : "border",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
@@ -569,10 +558,9 @@ function SortableTaskCard({
         task={task}
         onOpen={onOpen}
         onToggleComplete={onToggleComplete}
-        sendTargets={sendTargets}
-        onSendTo={onSendTo}
         subBoardPref={subBoardPref}
       />
+      <TaskCardRightRail accentColor={listAccentColor} showStrip={showSubStrip} />
     </div>
   );
 }
@@ -581,29 +569,28 @@ function ReadOnlyTaskCard({
   task,
   onOpen,
   onToggleComplete,
-  sendTargets,
-  onSendTo,
   cardColor,
   subBoardPref,
+  listAccentColor,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  sendTargets?: { id: string; title: string }[];
-  onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
   subBoardPref: EffectiveSubBoardPreference;
+  listAccentColor?: string | null;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(task.id, taskWs);
   const meta = subBoardPref.cardFaceMetaMerged;
   const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
+  const showSubStrip = subBoardPref.showSubBoardAccentStrip !== false;
 
   return (
     <div
       className={cn(
-        "flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-2 text-sm shadow-sm transition-shadow hover:shadow-md",
+        "flex gap-0 rounded-xl border bg-card py-2 pl-0 pr-1.5 text-sm shadow-sm transition-shadow hover:shadow-md",
         cardColor ? "border-2" : "border",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
@@ -615,10 +602,9 @@ function ReadOnlyTaskCard({
         task={task}
         onOpen={onOpen}
         onToggleComplete={onToggleComplete}
-        sendTargets={sendTargets}
-        onSendTo={onSendTo}
         subBoardPref={subBoardPref}
       />
+      <TaskCardRightRail accentColor={listAccentColor} showStrip={showSubStrip} />
     </div>
   );
 }
@@ -800,10 +786,9 @@ function TrackerLane({
   onToggleComplete,
   quickAddPlaceholder,
   onQuickAdd,
-  sendTargets,
-  onSendTo,
   cardColor,
   subBoardPref,
+  listAccentColor,
 }: {
   laneId: string;
   label: string;
@@ -813,10 +798,9 @@ function TrackerLane({
   onToggleComplete: (t: TaskFlowTask) => void;
   quickAddPlaceholder: string;
   onQuickAdd: (laneId: string, title: string) => void;
-  sendTargets?: { id: string; title: string }[];
-  onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
   subBoardPref: EffectiveSubBoardPreference;
+  listAccentColor?: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
@@ -845,10 +829,9 @@ function TrackerLane({
                 task={task}
                 onOpen={onOpen}
                 onToggleComplete={onToggleComplete}
-                sendTargets={sendTargets}
-                onSendTo={onSendTo}
                 cardColor={cardColor}
                 subBoardPref={subBoardPref}
+                listAccentColor={listAccentColor}
               />
             );
           })}
@@ -875,7 +858,6 @@ function ReadOnlyTrackerGrid({
   onOpenTask,
   onQuickAdd,
   onToggleComplete,
-  sendMutation,
   visibleStatuses,
   cardColor,
   prefBySubBoard,
@@ -886,13 +868,11 @@ function ReadOnlyTrackerGrid({
   onOpenTask: (t: TaskFlowTask) => void;
   onQuickAdd: (laneId: string, title: string) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
-  sendMutation: { isPending: boolean; mutate: (p: { taskId: string; subBoardId: string }) => void };
   visibleStatuses: TrackerStatus[];
   cardColor?: string;
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
   boardUserPref?: BoardUserPreferenceDto;
 }) {
-  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const byLane = buildLaneItems(activeSub);
 
   return (
@@ -908,11 +888,10 @@ function ReadOnlyTrackerGrid({
             onOpen={onOpenTask}
             onToggleComplete={onToggleComplete}
             onQuickAdd={onQuickAdd}
-            sendTargets={sendTargets}
-            onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
             cardColor={cardColor}
             prefBySubBoard={prefBySubBoard}
             boardUserPref={boardUserPref}
+            listAccentColor={activeSub.accentColor}
           />
         ))}
       </div>
@@ -928,11 +907,10 @@ function ReadOnlyLaneInner({
   onOpen,
   onToggleComplete,
   onQuickAdd,
-  sendTargets,
-  onSendTo,
   cardColor,
   prefBySubBoard,
   boardUserPref,
+  listAccentColor,
 }: {
   laneId: string;
   label: string;
@@ -941,11 +919,10 @@ function ReadOnlyLaneInner({
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
   onQuickAdd: (laneId: string, title: string) => void;
-  sendTargets: { id: string; title: string }[];
-  onSendTo: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
   boardUserPref?: BoardUserPreferenceDto;
+  listAccentColor?: string | null;
 }) {
   const laneSubBoardId = parseLaneKey(laneId)?.subBoardId ?? "";
   const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId], boardUserPref);
@@ -967,10 +944,9 @@ function ReadOnlyLaneInner({
               task={task}
               onOpen={onOpen}
               onToggleComplete={onToggleComplete}
-              sendTargets={sendTargets}
-              onSendTo={onSendTo}
               cardColor={cardColor}
               subBoardPref={subBoardPref}
+              listAccentColor={listAccentColor}
             />
           );
         })}
@@ -994,6 +970,8 @@ function SubBoardPrefsEditor({
   setEditorCardFaceMetaDraft,
   editorCheckboxDefaultDraft,
   setEditorCheckboxDefaultDraft,
+  editorShowStripDraft,
+  setEditorShowStripDraft,
   boardUserPref,
   rawSubBoardCardFaceMeta,
   savePref,
@@ -1003,6 +981,8 @@ function SubBoardPrefsEditor({
   deleteBusy,
   onRequestDelete,
   onTitleCommit,
+  onPickListAccent,
+  listAccentBusy,
 }: {
   editorSubBoard: BoardListDto;
   pinnedSubBoardIds: string[];
@@ -1018,6 +998,8 @@ function SubBoardPrefsEditor({
   setEditorCardFaceMetaDraft: Dispatch<SetStateAction<CardFaceMeta>>;
   editorCheckboxDefaultDraft: boolean;
   setEditorCheckboxDefaultDraft: (b: boolean) => void;
+  editorShowStripDraft: boolean;
+  setEditorShowStripDraft: (b: boolean) => void;
   boardUserPref?: BoardUserPreferenceDto | null;
   rawSubBoardCardFaceMeta?: unknown | null;
   savePref: (payload: SubBoardPrefSavePayload) => void;
@@ -1027,6 +1009,8 @@ function SubBoardPrefsEditor({
   deleteBusy: boolean;
   onRequestDelete: (list: BoardListDto) => void;
   onTitleCommit: (subBoardId: string, title: string) => void;
+  onPickListAccent: (hex: string) => void;
+  listAccentBusy: boolean;
 }) {
   const flush = (overrides?: Partial<SubBoardPrefSavePayload>) => {
     const layout = overrides?.cardFaceLayout ?? editorCardFaceDraft;
@@ -1037,6 +1021,7 @@ function SubBoardPrefsEditor({
       cardFaceLayout: layout,
       completeCheckboxVisibleByDefault:
         overrides?.completeCheckboxVisibleByDefault ?? editorCheckboxDefaultDraft,
+      showSubBoardAccentStrip: overrides?.showSubBoardAccentStrip ?? editorShowStripDraft,
     };
     if (overrides?.cardFaceMeta !== undefined) {
       payload.cardFaceMeta = overrides.cardFaceMeta;
@@ -1135,6 +1120,43 @@ function SubBoardPrefsEditor({
             />
           ))}
         </div>
+      </div>
+      <div className="space-y-2 border-b border-border/60 pb-4">
+        <p className="text-sm font-medium">Sub-board accent strip</p>
+        <p className="text-xs text-muted-foreground">
+          Shared color for this sub-board (right edge of ticket cards). Ticket Tracker can show the same strip when
+          enabled there.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SUB_BOARD_COLOR_OPTIONS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={cn(
+                "size-7 rounded-md border-2",
+                String(editorSubBoard.accentColor ?? "").toLowerCase() === color.toLowerCase()
+                  ? "border-primary ring-2 ring-primary/30"
+                  : "border-border",
+              )}
+              style={{ backgroundColor: color }}
+              aria-label={`Sub-board accent ${color}`}
+              disabled={listAccentBusy}
+              onClick={() => onPickListAccent(color)}
+            />
+          ))}
+        </div>
+        <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={editorShowStripDraft}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setEditorShowStripDraft(next);
+              flush({ showSubBoardAccentStrip: next });
+            }}
+          />
+          <span>Show colored strip on ticket cards (right edge)</span>
+        </label>
       </div>
       <div className="space-y-2">
         <p className="text-sm font-medium">Card face</p>
@@ -1556,6 +1578,7 @@ function BoardKanbanFiltered({
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+  const [editorShowStripDraft, setEditorShowStripDraft] = useState(true);
 
   const subBoardSheetSizing = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
   const boardSettingsSheetSizing = useResizableRightAppSheetWidth({ open: boardSettingsOpen });
@@ -1605,6 +1628,15 @@ function BoardKanbanFiltered({
     },
   });
 
+  const listAccentMutation = useMutation({
+    mutationFn: ({ subBoardId, accentColor }: { subBoardId: string; accentColor: string }) =>
+      patchBoardList(board.id, subBoardId, { accentColor }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["board", board.id], next);
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: (task: TaskFlowTask) => patchTask(task.id, { completed: !task.completed }),
     onSuccess: () => {
@@ -1622,14 +1654,6 @@ function BoardKanbanFiltered({
     },
   });
 
-  const sendMutation = useMutation({
-    mutationFn: ({ taskId, subBoardId }: { taskId: string; subBoardId: string }) =>
-      patchTask(taskId, { subBoardId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
-      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
-    },
-  });
   const prefMutation = useMutation({
     mutationFn: (payload: SubBoardPrefSavePayload) => {
       const body: Parameters<typeof patchSubBoardPreference>[1] = {
@@ -1637,6 +1661,7 @@ function BoardKanbanFiltered({
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
       };
       if (payload.cardFaceMeta !== undefined) {
         body.cardFaceMeta = payload.cardFaceMeta;
@@ -1653,6 +1678,7 @@ function BoardKanbanFiltered({
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
         ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
         updatedAt: new Date().toISOString(),
       };
@@ -1678,6 +1704,7 @@ function BoardKanbanFiltered({
     setEditorCardFaceDraft(norm.cardFaceLayout);
     setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
     setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
+    setEditorShowStripDraft(norm.showSubBoardAccentStrip !== false);
   }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   if (!board.lists.length) {
@@ -1687,7 +1714,6 @@ function BoardKanbanFiltered({
   const pinnedSubBoards = pinnedSubBoardIds
     .map((id) => board.lists.find((l) => l.id === id))
     .filter((s): s is BoardListDto => Boolean(s));
-  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const activeVisibleStatuses = activeSub
     ? visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref)
     : [];
@@ -1762,7 +1788,6 @@ function BoardKanbanFiltered({
             onOpenTask={onOpenTask}
             onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
             onToggleComplete={(t) => toggleMutation.mutate(t)}
-            sendMutation={sendMutation}
             visibleStatuses={activeVisibleStatuses}
             cardColor={activeCardColor}
             prefBySubBoard={prefBySubBoard}
@@ -1798,11 +1823,10 @@ function BoardKanbanFiltered({
                         onOpen={onOpenTask}
                         onToggleComplete={(t) => toggleMutation.mutate(t)}
                         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-                        sendTargets={sendTargets}
-                        onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
                         cardColor={cardColorForSubBoard(board, sb.id, prefBySubBoard, boardUserPref)}
                         prefBySubBoard={prefBySubBoard}
                         boardUserPref={boardUserPref}
+                        listAccentColor={sb.accentColor}
                       />
                     ))}
                   </div>
@@ -1841,6 +1865,8 @@ function BoardKanbanFiltered({
               setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
               editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
               setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              editorShowStripDraft={editorShowStripDraft}
+              setEditorShowStripDraft={setEditorShowStripDraft}
               boardUserPref={boardUserPref}
               rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
               savePref={(p) => prefMutation.mutate(p)}
@@ -1850,6 +1876,10 @@ function BoardKanbanFiltered({
               deleteBusy={deleteListMutation.isPending}
               onRequestDelete={requestDeleteSubBoard}
               onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+              onPickListAccent={(hex) =>
+                listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
+              }
+              listAccentBusy={listAccentMutation.isPending}
             />
           ) : null}
         </SheetContent>
@@ -1899,6 +1929,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
+  const [editorShowStripDraft, setEditorShowStripDraft] = useState(true);
 
   const subBoardSheetSizingDnd = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
   const boardSettingsSheetSizingDnd = useResizableRightAppSheetWidth({ open: boardSettingsOpen });
@@ -1983,6 +2014,18 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     for (const row of prefQuery.data ?? []) map[row.subBoardId] = row;
     return map;
   }, [prefQuery.data]);
+
+  useEffect(() => {
+    if (!editorSubBoardId) return;
+    const pref = prefBySubBoard[editorSubBoardId];
+    const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
+    setEditorColorDraft(pref?.ticketCardColor ?? "");
+    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
+    setEditorCardFaceDraft(norm.cardFaceLayout);
+    setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
+    setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
+    setEditorShowStripDraft(norm.showSubBoardAccentStrip !== false);
+  }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   useEffect(() => {
     const nextOrder = board.lists.map((l) => l.id);
@@ -2072,6 +2115,15 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     },
   });
 
+  const listAccentMutation = useMutation({
+    mutationFn: ({ subBoardId, accentColor }: { subBoardId: string; accentColor: string }) =>
+      patchBoardList(board.id, subBoardId, { accentColor }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["board", board.id], next);
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: (task: TaskFlowTask) => patchTask(task.id, { completed: !task.completed }),
     onSuccess: () => {
@@ -2089,14 +2141,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     },
   });
 
-  const sendMutation = useMutation({
-    mutationFn: ({ taskId, subBoardId }: { taskId: string; subBoardId: string }) =>
-      patchTask(taskId, { subBoardId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
-      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
-    },
-  });
   const prefMutation = useMutation({
     mutationFn: (payload: SubBoardPrefSavePayload) => {
       const body: Parameters<typeof patchSubBoardPreference>[1] = {
@@ -2104,6 +2148,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
       };
       if (payload.cardFaceMeta !== undefined) {
         body.cardFaceMeta = payload.cardFaceMeta;
@@ -2120,6 +2165,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
         ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
         updatedAt: new Date().toISOString(),
       };
@@ -2293,23 +2339,11 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     );
   }
 
-  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
   const activeCardColor = cardColorForSubBoard(board, activeSub.id, prefBySubBoard, boardUserPref);
   const editorSubBoard = editorSubBoardId
     ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
     : null;
-
-  useEffect(() => {
-    if (!editorSubBoardId) return;
-    const pref = prefBySubBoard[editorSubBoardId];
-    const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
-    setEditorColorDraft(pref?.ticketCardColor ?? "");
-    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
-    setEditorCardFaceDraft(norm.cardFaceLayout);
-    setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
-    setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
-  }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   return (
     <DndContext
@@ -2377,10 +2411,9 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                 onToggleComplete={(t) => toggleMutation.mutate(t)}
                 quickAddPlaceholder="Add a ticket…"
                 onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-                sendTargets={sendTargets}
-                onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
                 cardColor={activeCardColor}
                 subBoardPref={normalizedSubBoardPref(activeSub.id, prefBySubBoard[activeSub.id], boardUserPref)}
+                listAccentColor={activeSub.accentColor}
               />
             );
           })}
@@ -2417,10 +2450,9 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                         onToggleComplete={(t) => toggleMutation.mutate(t)}
                         quickAddPlaceholder="Add a ticket…"
                         onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-                        sendTargets={sendTargets}
-                        onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
                         cardColor={cardColorForSubBoard(board, sb.id, prefBySubBoard, boardUserPref)}
                         subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id], boardUserPref)}
+                        listAccentColor={sb.accentColor}
                       />
                     );
                   })}
@@ -2459,6 +2491,8 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
               setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
               editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
               setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              editorShowStripDraft={editorShowStripDraft}
+              setEditorShowStripDraft={setEditorShowStripDraft}
               boardUserPref={boardUserPref}
               rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
               savePref={(p) => prefMutation.mutate(p)}
@@ -2468,6 +2502,10 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
               deleteBusy={deleteListMutation.isPending}
               onRequestDelete={requestDeleteSubBoard}
               onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+              onPickListAccent={(hex) =>
+                listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
+              }
+              listAccentBusy={listAccentMutation.isPending}
             />
           ) : null}
         </SheetContent>

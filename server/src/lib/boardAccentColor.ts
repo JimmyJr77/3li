@@ -28,3 +28,9 @@ export async function nextBoardAccentColorForWorkspace(workspaceId: string): Pro
   });
   return BOARD_ACCENT_PALETTE[n % BOARD_ACCENT_PALETTE.length]!;
 }
+
+/** Next color for a new sub-board (`BoardList`) on this board (count-based rotation). */
+export async function nextSubBoardAccentColorForBoard(boardId: string): Promise<string> {
+  const n = await prisma.boardList.count({ where: { boardId } });
+  return BOARD_ACCENT_PALETTE[n % BOARD_ACCENT_PALETTE.length]!;
+}

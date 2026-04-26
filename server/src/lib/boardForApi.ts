@@ -74,6 +74,7 @@ type SubBoardWithBoard = {
   key: string | null;
   position: number;
   boardId: string;
+  accentColor?: string;
   board: BoardWithWorkspaceRef & Record<string, unknown>;
 };
 
@@ -114,6 +115,7 @@ export function taskJsonForApi<
       key: sub.key,
       position: sub.position,
       boardId: sub.boardId,
+      accentColor: sub.accentColor,
       board: {
         ...boardRest,
         workspaceId: projectSpace.workspaceId,

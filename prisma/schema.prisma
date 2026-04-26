@@ -222,6 +222,8 @@ model WorkspaceUserPreference {
   workspace                  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// When true, Ticket Tracker colors each ticket’s border by its project board accent color.
   ticketTrackerColorByBoard  Boolean   @default(false)
+  /// When true, Ticket Tracker shows each ticket’s sub-board accent as a right-edge strip.
+  ticketTrackerSubBoardStrip Boolean   @default(false)
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -452,6 +454,8 @@ model BoardList {
   /// Legacy template key (backlog / in_progress / done) — optional; tracker status is on each ticket.
   key       String?
   position  Int      @default(0)
+  /// Canonical accent for this sub-board (right-edge strip on cards when enabled).
+  accentColor String   @default("#6366f1") @db.VarChar(32)
   tasks     Task[]
   preferences SubBoardPreference[]
   createdAt DateTime @default(now())
@@ -476,6 +480,8 @@ model SubBoardPreference {
   /// When true, the done checkbox is shown on kanban cards unless a ticket overrides.
   completeCheckboxVisibleByDefault Boolean  @default(true)
   hiddenTrackerStatuses            TrackerStatus[]
+  /// When true, this user sees the sub-board accent as a right-edge strip on cards on this sub-board.
+  showSubBoardAccentStrip          Boolean  @default(true)
   createdAt                        DateTime @default(now())
   updatedAt             DateTime        @updatedAt
 

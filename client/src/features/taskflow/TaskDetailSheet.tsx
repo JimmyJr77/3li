@@ -257,6 +257,11 @@ export function TaskDetailSheet({
     onSuccess: invalidate,
   });
 
+  const moveSubBoardMutation = useMutation({
+    mutationFn: (subBoardId: string) => patchTask(task!.id, { subBoardId }),
+    onSuccess: invalidate,
+  });
+
   const dirty = useMemo(() => {
     if (!task || boardArchived) return false;
     const taskDue = task.dueDate ? task.dueDate.slice(0, 16) : "";
@@ -701,6 +706,40 @@ export function TaskDetailSheet({
                     (gear on the sub-board tab).
                   </p>
                 </div>
+              ) : null}
+
+              {board && board.lists.length > 1 && !sheetLocked ? (
+                (() => {
+                  const curSub = task.subBoardId ?? task.list?.id;
+                  if (!curSub) return null;
+                  return (
+                    <div className="space-y-2">
+                      <FieldLabel>Send to sub-board</FieldLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Move this ticket to another sub-board on the same project board.
+                      </p>
+                      <select
+                        className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
+                        aria-label="Sub-board for this ticket"
+                        value={curSub}
+                        disabled={moveSubBoardMutation.isPending}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next && next !== curSub) moveSubBoardMutation.mutate(next);
+                        }}
+                      >
+                        {board.lists.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.title}
+                          </option>
+                        ))}
+                      </select>
+                      {moveSubBoardMutation.isError ? (
+                        <p className="text-xs text-destructive">Could not move ticket. Try again.</p>
+                      ) : null}
+                    </div>
+                  );
+                })()
               ) : null}
 
               {!sheetLocked ? (

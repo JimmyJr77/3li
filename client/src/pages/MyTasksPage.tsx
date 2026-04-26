@@ -28,6 +28,7 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -37,6 +38,8 @@ import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
 import {
   fetchAllTasks,
   fetchBoard,
+  fetchBrandTeam,
+  fetchMyTicketLabels,
   fetchWorkspaceUserPreferences,
   patchTask,
   patchWorkspaceUserPreferences,
@@ -50,6 +53,7 @@ import {
   TRACKER_STATUSES,
   type TrackerStatus,
 } from "@/features/taskflow/trackerMeta";
+import type { UserTicketLabelDto } from "@/features/taskflow/types";
 import {
   loadColumnVisibility,
   saveColumnVisibility,
@@ -114,20 +118,24 @@ function TrackerTicketCard({
   task,
   onOpen,
   colorByBoard,
+  subBoardStrip,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   colorByBoard?: boolean;
+  subBoardStrip?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
-  const accent = task.list?.board?.accentColor;
-  const useAccent = Boolean(colorByBoard && accent);
+  const boardAccent = task.list?.board?.accentColor;
+  const useBoardBorder = Boolean(colorByBoard && boardAccent);
+  const listAccent = task.list?.accentColor;
+  const showListStrip = Boolean(subBoardStrip && listAccent);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    ...(useAccent ? { borderColor: accent } : {}),
+    ...(useBoardBorder ? { borderColor: boardAccent } : {}),
   };
 
   return (
@@ -135,15 +143,16 @@ function TrackerTicketCard({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "rounded-lg border bg-card px-2 py-2 text-sm shadow-sm",
-        useAccent && "border-2",
+        "flex gap-0 rounded-lg border bg-card py-2 pl-2 text-sm shadow-sm",
+        showListStrip && "pr-1.5",
+        useBoardBorder && "border-2",
         isDragging && "z-10 opacity-50",
       )}
     >
-      <div className="flex gap-1">
+      <div className="flex min-w-0 flex-1 gap-1">
         <button
           type="button"
-          className="mt-0.5 cursor-grab touch-none text-muted-foreground"
+          className="mt-0.5 shrink-0 cursor-grab touch-none text-muted-foreground"
           {...attributes}
           {...listeners}
           aria-label="Drag ticket"
@@ -159,6 +168,15 @@ function TrackerTicketCard({
           ) : null}
         </button>
       </div>
+      {showListStrip ? (
+        <div className="flex w-7 shrink-0 self-stretch">
+          <div
+            className="flex w-full flex-1 items-center justify-center rounded-sm"
+            style={{ backgroundColor: listAccent! }}
+            aria-hidden
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -169,12 +187,14 @@ function TrackerColumn({
   taskMap,
   onOpen,
   colorByBoard,
+  subBoardStrip,
 }: {
   status: TrackerStatus;
   taskIds: string[];
   taskMap: Map<string, TaskFlowTask>;
   onOpen: (t: TaskFlowTask) => void;
   colorByBoard?: boolean;
+  subBoardStrip?: boolean;
 }) {
   const laneId = ttLaneId(status);
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
@@ -196,7 +216,13 @@ function TrackerColumn({
             const task = taskMap.get(id);
             if (!task) return null;
             return (
-              <TrackerTicketCard key={id} task={task} onOpen={onOpen} colorByBoard={colorByBoard} />
+              <TrackerTicketCard
+                key={id}
+                task={task}
+                onOpen={onOpen}
+                colorByBoard={colorByBoard}
+                subBoardStrip={subBoardStrip}
+              />
             );
           })}
         </SortableContext>
@@ -205,16 +231,21 @@ function TrackerColumn({
   );
 }
 
+const filterFieldClass = "border-input bg-background h-9 w-full rounded-md border px-2 text-sm";
+
 export function MyTasksPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
-  const [labelId, setLabelId] = useState("");
+  const [projectSpaceId, setProjectSpaceId] = useState("");
   const [boardId, setBoardId] = useState("");
   const [subBoardId, setSubBoardId] = useState("");
   const [assigneeUserId, setAssigneeUserId] = useState("");
-  const [completed, setCompleted] = useState<"all" | "true" | "false">("all");
+  const [trackerStatusFilter, setTrackerStatusFilter] = useState<"" | TrackerStatus>("");
   const [priority, setPriority] = useState("all");
   const [sort, setSort] = useState("dueDate:asc");
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+  const [labelSearch, setLabelSearch] = useState("");
+  const [dueDatesOnly, setDueDatesOnly] = useState(false);
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [columnVisibility, setColumnVisibility] = useState<TicketTrackerColumnVisibility>(() =>
@@ -255,6 +286,58 @@ export function MyTasksPage() {
   });
   const boardLabels = labelsBoardQuery.data?.labels ?? filterBoardLabels;
 
+  const brandId = activeWorkspace?.brandId ?? null;
+  const brandTeamQuery = useQuery({
+    queryKey: ["brand-team", brandId],
+    queryFn: () => fetchBrandTeam(brandId!),
+    enabled: Boolean(brandId),
+  });
+  const myTicketLabelsQuery = useQuery({
+    queryKey: ["my-ticket-labels", brandId],
+    queryFn: () => fetchMyTicketLabels(brandId!),
+    enabled: Boolean(brandId),
+  });
+
+  const assigneeOptions = useMemo(() => {
+    const d = brandTeamQuery.data;
+    if (!d) return [];
+    const rows: { id: string; label: string }[] = [
+      { id: d.owner.id, label: d.owner.label || d.owner.username || d.owner.email || "Owner" },
+    ];
+    for (const m of d.members) {
+      rows.push({ id: m.userId, label: m.label || m.username || m.email });
+    }
+    return rows.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [brandTeamQuery.data]);
+
+  type LabelRow = { id: string; name: string; scope: "board" | "user" };
+  const labelRows = useMemo((): LabelRow[] => {
+    const board: LabelRow[] = boardLabels.map((lb) => ({ id: lb.id, name: lb.name, scope: "board" }));
+    const user: LabelRow[] = (myTicketLabelsQuery.data ?? []).map((lb: UserTicketLabelDto) => ({
+      id: lb.id,
+      name: lb.name,
+      scope: "user",
+    }));
+    return [...board, ...user];
+  }, [boardLabels, myTicketLabelsQuery.data]);
+
+  const labelSearchHits = useMemo(() => {
+    const needle = labelSearch.trim().toLowerCase();
+    if (!needle) return [];
+    const sel = new Set(selectedLabelIds);
+    return labelRows
+      .filter((r) => !sel.has(r.id))
+      .map((r) => {
+        const n = r.name.toLowerCase();
+        const rank = n.startsWith(needle) ? 0 : n.includes(needle) ? 1 : 2;
+        return { r, rank };
+      })
+      .filter((x) => x.rank < 2)
+      .sort((a, b) => a.rank - b.rank || a.r.name.localeCompare(b.r.name, undefined, { sensitivity: "base" }))
+      .slice(0, 24)
+      .map((x) => x.r);
+  }, [labelRows, labelSearch, selectedLabelIds]);
+
   const subBoardOptions = useMemo(() => {
     if (!labelsBoardQuery.data) return [];
     return labelsBoardQuery.data.lists.map((l) => ({ id: l.id, title: l.title }));
@@ -269,10 +352,11 @@ export function MyTasksPage() {
     enabled: Boolean(workspaceId),
   });
   const colorByBoard = workspacePrefsQuery.data?.ticketTrackerColorByBoard === true;
+  const subBoardStrip = workspacePrefsQuery.data?.ticketTrackerSubBoardStrip === true;
 
   const workspacePrefsMutation = useMutation({
-    mutationFn: (ticketTrackerColorByBoard: boolean) =>
-      patchWorkspaceUserPreferences(workspaceId!, { ticketTrackerColorByBoard }),
+    mutationFn: (body: Partial<{ ticketTrackerColorByBoard: boolean; ticketTrackerSubBoardStrip: boolean }>) =>
+      patchWorkspaceUserPreferences(workspaceId!, body),
     onSuccess: (data) => {
       queryClient.setQueryData(["workspace-user-prefs", workspaceId], data);
     },
@@ -282,16 +366,31 @@ export function MyTasksPage() {
     () => ({
       workspaceId: workspaceId!,
       q: q.trim() || undefined,
-      labelId: labelId || undefined,
+      labelIds: selectedLabelIds.length ? selectedLabelIds.join(",") : undefined,
       boardId: boardId || undefined,
+      projectSpaceId: projectSpaceId || undefined,
       subBoardId: subBoardId || undefined,
       assigneeUserId: assigneeUserId.trim() || undefined,
-      completed: completed === "all" ? undefined : completed,
+      trackerStatus: trackerStatusFilter || undefined,
       priority: priority === "all" ? undefined : priority,
       sort,
+      ...(dueDatesOnly ? { hasDueDate: "true" as const } : {}),
       ...(archivedFilterActive ? { archived: "true" as const } : {}),
     }),
-    [workspaceId, q, labelId, boardId, subBoardId, assigneeUserId, completed, priority, sort, archivedFilterActive],
+    [
+      workspaceId,
+      q,
+      selectedLabelIds,
+      boardId,
+      projectSpaceId,
+      subBoardId,
+      assigneeUserId,
+      trackerStatusFilter,
+      priority,
+      sort,
+      dueDatesOnly,
+      archivedFilterActive,
+    ],
   );
 
   const tasksQuery = useQuery({
@@ -424,13 +523,19 @@ export function MyTasksPage() {
   const activeDragTask = activeId ? taskMap.get(activeId) : undefined;
 
   const boardOptions = useMemo(() => {
-    const ps = activeWorkspace?.projectSpaces ?? [];
-    return ps.flatMap((p) => p.boards.map((b) => ({ id: b.id, name: `${p.name} · ${b.name}` })));
-  }, [activeWorkspace?.projectSpaces]);
+    const psList = activeWorkspace?.projectSpaces ?? [];
+    if (projectSpaceId) {
+      const ps = psList.find((p) => p.id === projectSpaceId);
+      if (!ps) return [];
+      return ps.boards.map((b) => ({ id: b.id, name: `${ps.name} · ${b.name}` }));
+    }
+    return psList.flatMap((p) => p.boards.map((b) => ({ id: b.id, name: `${p.name} · ${b.name}` })));
+  }, [activeWorkspace?.projectSpaces, projectSpaceId]);
 
   useEffect(() => {
     if (boardId && !boardOptions.some((b) => b.id === boardId)) {
       setBoardId("");
+      setSubBoardId("");
     }
   }, [boardId, boardOptions]);
 
@@ -439,6 +544,13 @@ export function MyTasksPage() {
       setSubBoardId("");
     }
   }, [subBoardId, subBoardOptions]);
+
+  useEffect(() => {
+    if (!assigneeUserId) return;
+    if (!assigneeOptions.some((o) => o.id === assigneeUserId)) {
+      setAssigneeUserId("");
+    }
+  }, [assigneeUserId, assigneeOptions]);
 
   const visibleTrackerStatuses = useMemo(
     () => TRACKER_STATUSES.filter((st) => columnVisibility[st]),
@@ -545,9 +657,9 @@ export function MyTasksPage() {
         <div className="min-w-[200px] flex-1 space-y-1">
           <Label className="text-xs text-muted-foreground">Search</Label>
           <div className="relative">
-            <Search className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-8"
+              className={cn("pl-8", filterFieldClass)}
               placeholder="Title or description…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -555,9 +667,28 @@ export function MyTasksPage() {
           </div>
         </div>
         <div className="w-full space-y-1 lg:min-w-[200px] lg:max-w-xs">
-          <Label className="text-xs text-muted-foreground">Board</Label>
+          <Label className="text-xs text-muted-foreground">Project Area</Label>
           <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            className={filterFieldClass}
+            value={projectSpaceId}
+            onChange={(e) => {
+              setProjectSpaceId(e.target.value);
+              setBoardId("");
+              setSubBoardId("");
+            }}
+          >
+            <option value="">Any area</option>
+            {(activeWorkspace?.projectSpaces ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="w-full space-y-1 lg:min-w-[200px] lg:max-w-xs">
+          <Label className="text-xs text-muted-foreground">Project Board</Label>
+          <select
+            className={filterFieldClass}
             value={boardId}
             onChange={(e) => {
               setBoardId(e.target.value);
@@ -575,7 +706,7 @@ export function MyTasksPage() {
         <div className="w-full space-y-1 lg:w-48">
           <Label className="text-xs text-muted-foreground">Sub-board</Label>
           <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            className={filterFieldClass}
             value={subBoardId}
             onChange={(e) => setSubBoardId(e.target.value)}
             disabled={!boardId}
@@ -588,46 +719,44 @@ export function MyTasksPage() {
             ))}
           </select>
         </div>
-        <div className="w-full space-y-1 lg:w-44">
-          <Label className="text-xs text-muted-foreground">Assignee user id</Label>
-          <Input
-            placeholder="Exact user id…"
+        <div className="w-full space-y-1 lg:w-56">
+          <Label className="text-xs text-muted-foreground">Assignee</Label>
+          <select
+            className={filterFieldClass}
             value={assigneeUserId}
             onChange={(e) => setAssigneeUserId(e.target.value)}
-            className="h-9"
-          />
+            disabled={!brandId || brandTeamQuery.isLoading}
+          >
+            <option value="">Anyone</option>
+            {assigneeOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {brandTeamQuery.isError ? (
+            <p className="text-xs text-destructive">Could not load teammates.</p>
+          ) : null}
         </div>
-        <div className="w-full space-y-1 lg:w-44">
-          <Label className="text-xs text-muted-foreground">Label</Label>
+        <div className="w-full space-y-1 lg:w-52">
+          <Label className="text-xs text-muted-foreground">Status</Label>
           <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-            value={labelId}
-            onChange={(e) => setLabelId(e.target.value)}
+            className={filterFieldClass}
+            value={trackerStatusFilter}
+            onChange={(e) => setTrackerStatusFilter((e.target.value || "") as "" | TrackerStatus)}
           >
             <option value="">Any</option>
-            {boardLabels.map((lb) => (
-              <option key={lb.id} value={lb.id}>
-                {lb.name}
+            {TRACKER_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {TRACKER_LABELS[st]}
               </option>
             ))}
           </select>
         </div>
         <div className="w-full space-y-1 lg:w-36">
-          <Label className="text-xs text-muted-foreground">Done flag</Label>
-          <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-            value={completed}
-            onChange={(e) => setCompleted(e.target.value as typeof completed)}
-          >
-            <option value="all">All</option>
-            <option value="false">Open</option>
-            <option value="true">Done</option>
-          </select>
-        </div>
-        <div className="w-full space-y-1 lg:w-36">
           <Label className="text-xs text-muted-foreground">Priority</Label>
           <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            className={filterFieldClass}
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
           >
@@ -642,7 +771,7 @@ export function MyTasksPage() {
         <div className="w-full space-y-1 lg:w-44">
           <Label className="text-xs text-muted-foreground">Sort</Label>
           <select
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            className={filterFieldClass}
             value={sort}
             onChange={(e) => setSort(e.target.value)}
           >
@@ -653,19 +782,99 @@ export function MyTasksPage() {
             <option value="priority:desc">Priority</option>
           </select>
         </div>
+        <div className="w-full min-w-0 space-y-1 lg:min-w-[220px] lg:max-w-md">
+          <Label className="text-xs text-muted-foreground">Labels</Label>
+          {selectedLabelIds.length > 0 ? (
+            <div className="mb-1 flex flex-wrap gap-1">
+              {selectedLabelIds.map((id) => {
+                const row = labelRows.find((r) => r.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs text-foreground"
+                  >
+                    <span className="truncate">{row?.name ?? id}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {row?.scope === "user" ? "Yours" : "Board"}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label={`Remove ${row?.name ?? "label"}`}
+                      onClick={() => setSelectedLabelIds((prev) => prev.filter((x) => x !== id))}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
+          <Input
+            className={filterFieldClass}
+            placeholder="Search labels to add…"
+            value={labelSearch}
+            onChange={(e) => setLabelSearch(e.target.value)}
+          />
+          {labelSearch.trim() && labelSearchHits.length > 0 ? (
+            <ul className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-background text-sm shadow-sm">
+              {labelSearchHits.map((r) => (
+                <li key={`${r.scope}-${r.id}`} className="border-b border-border/60 last:border-0">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-muted"
+                    onClick={() => {
+                      setSelectedLabelIds((prev) => (prev.includes(r.id) ? prev : [...prev, r.id]));
+                      setLabelSearch("");
+                    }}
+                  >
+                    <span className="font-medium">{r.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {r.scope === "user" ? "Yours" : "Board"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : labelSearch.trim() ? (
+            <p className="mt-1 text-xs text-muted-foreground">No matching labels.</p>
+          ) : null}
+        </div>
+        <details className="w-full space-y-1 lg:w-52 [&_summary]:list-none [&_summary::-webkit-details-marker]:hidden">
+          <summary className={cn(filterFieldClass, "flex cursor-pointer items-center justify-between")}>
+            <span className="text-sm">More filters</span>
+            <span className="text-muted-foreground" aria-hidden>
+              ▾
+            </span>
+          </summary>
+          <div className="rounded-md border border-border bg-background p-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 rounded border"
+                checked={dueDatesOnly}
+                onChange={(e) => setDueDatesOnly(e.target.checked)}
+              />
+              <span>Due dates only</span>
+            </label>
+          </div>
+        </details>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={() => {
             setQ("");
-            setLabelId("");
+            setProjectSpaceId("");
             setBoardId("");
             setSubBoardId("");
             setAssigneeUserId("");
-            setCompleted("all");
+            setTrackerStatusFilter("");
             setPriority("all");
             setSort("dueDate:asc");
+            setSelectedLabelIds([]);
+            setLabelSearch("");
+            setDueDatesOnly(false);
             setArchivedOnly(false);
           }}
         >
@@ -732,6 +941,7 @@ export function MyTasksPage() {
                       taskMap={taskMap}
                       onOpen={(t) => setSelectedTaskId(t.id)}
                       colorByBoard={colorByBoard}
+                      subBoardStrip={subBoardStrip}
                     />
                   ))}
                 </div>
@@ -757,6 +967,7 @@ export function MyTasksPage() {
               <BoardTable
                 tasks={tasks}
                 colorByBoard={colorByBoard}
+                subBoardStrip={subBoardStrip}
                 onRowClick={(t) => {
                   setSelectedTaskId(t.id);
                 }}
@@ -776,21 +987,36 @@ export function MyTasksPage() {
           <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
             <SheetTitle>Ticket tracker settings</SheetTitle>
             <SheetDescription>
-              Column visibility is saved in this browser. Color-by-board is saved to your account for this workspace.
+              Column visibility is saved in this browser. Board and sub-board coloring options are saved to your
+              account for this workspace.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-3 px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
             {workspaceId ? (
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="size-4 rounded border"
-                  checked={colorByBoard}
-                  disabled={workspacePrefsMutation.isPending || workspacePrefsQuery.isLoading}
-                  onChange={(e) => workspacePrefsMutation.mutate(e.target.checked)}
-                />
-                <span>Color-code tickets by project board accent</span>
-              </label>
+              <>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border"
+                    checked={colorByBoard}
+                    disabled={workspacePrefsMutation.isPending || workspacePrefsQuery.isLoading}
+                    onChange={(e) => workspacePrefsMutation.mutate({ ticketTrackerColorByBoard: e.target.checked })}
+                  />
+                  <span>Color-code tickets by project board accent</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border"
+                    checked={subBoardStrip}
+                    disabled={workspacePrefsMutation.isPending || workspacePrefsQuery.isLoading}
+                    onChange={(e) =>
+                      workspacePrefsMutation.mutate({ ticketTrackerSubBoardStrip: e.target.checked })
+                    }
+                  />
+                  <span>Show sub-board accent strip on ticket cards</span>
+                </label>
+              </>
             ) : null}
             {workspacePrefsMutation.isError ? (
               <p className="text-xs text-destructive">Could not save that preference. Try again.</p>

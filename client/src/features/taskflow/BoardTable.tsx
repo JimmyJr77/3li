@@ -29,25 +29,36 @@ function BoardTableRow({
   row,
   onRowClick,
   colorByBoard,
+  subBoardStrip,
 }: {
   row: TanstackRow<Row>;
   onRowClick: (task: TaskFlowTask) => void;
   colorByBoard?: boolean;
+  /** Right-edge inset bar from each ticket’s sub-board accent (Ticket Tracker). */
+  subBoardStrip?: boolean;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = row.original.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(row.original.id, taskWs);
-  const accent = row.original.list?.board?.accentColor;
-  const accentRow = Boolean(colorByBoard && accent);
+  const boardAccent = row.original.list?.board?.accentColor;
+  const listAccent = row.original.list?.accentColor;
+  const accentRow = Boolean(colorByBoard && boardAccent);
+  const subBoardStripRow = Boolean(subBoardStrip && listAccent);
+
+  const shadows: string[] = [];
+  if (glow) shadows.push("inset 0 0 0 2px rgba(234, 179, 8, 0.55)");
+  if (accentRow && boardAccent) shadows.push(`inset 3px 0 0 0 ${boardAccent}`);
+  if (subBoardStripRow && listAccent) shadows.push(`inset -3px 0 0 0 ${listAccent}`);
+  const boxShadow = shadows.length > 0 ? shadows.join(", ") : undefined;
+
   return (
     <tr
       className={cn(
         "cursor-pointer border-t transition-colors hover:bg-muted/30",
         row.original.completed && "opacity-70",
-        glow &&
-          "bg-yellow-500/5 shadow-[inset_0_0_0_2px_rgba(234,179,8,0.55)] dark:bg-yellow-500/10",
+        glow && "bg-yellow-500/5 dark:bg-yellow-500/10",
       )}
-      style={accentRow ? { boxShadow: `inset 3px 0 0 0 ${accent}` } : undefined}
+      style={boxShadow ? { boxShadow } : undefined}
       onClick={() => {
         if (taskWs) clearRoutedGlow("task", row.original.id, taskWs);
         onRowClick(row.original);
@@ -66,11 +77,14 @@ export function BoardTable({
   tasks,
   onRowClick,
   colorByBoard,
+  subBoardStrip,
 }: {
   tasks: TaskFlowTask[];
   onRowClick: (task: TaskFlowTask) => void;
   /** When true, rows show a left accent from each ticket’s project board color. */
   colorByBoard?: boolean;
+  /** When true, rows show a right inset bar from each ticket’s sub-board accent color. */
+  subBoardStrip?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -175,7 +189,13 @@ export function BoardTable({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <BoardTableRow key={row.id} row={row} onRowClick={onRowClick} colorByBoard={colorByBoard} />
+            <BoardTableRow
+              key={row.id}
+              row={row}
+              onRowClick={onRowClick}
+              colorByBoard={colorByBoard}
+              subBoardStrip={subBoardStrip}
+            />
           ))}
         </tbody>
       </table>

@@ -35,7 +35,12 @@ import { defaultWorkspaceTitleFromBrandName, normalizeWorkspaceName } from "../l
 import { boardJsonForApi, taskJsonForApi } from "../lib/boardForApi.js";
 import { activityActorDto } from "../lib/activityActorLabel.js";
 import { buildRoutingIndexPayload } from "../lib/routingIndexForWorkspace.js";
-import { nextBoardAccentColorForWorkspace, sanitizeBoardAccentColor } from "../lib/boardAccentColor.js";
+import {
+  BOARD_ACCENT_PALETTE,
+  nextBoardAccentColorForWorkspace,
+  nextSubBoardAccentColorForBoard,
+  sanitizeBoardAccentColor,
+} from "../lib/boardAccentColor.js";
 
 const router = Router();
 
@@ -203,6 +208,7 @@ function taskSubBoardSelect() {
     key: true,
     position: true,
     boardId: true,
+    accentColor: true,
     board: {
       select: {
         id: true,
@@ -883,12 +889,18 @@ router.get("/workspaces/:workspaceId/user-workspace-preferences", async (req, re
     const workspaceId = req.params.workspaceId;
     const row = await prisma.workspaceUserPreference.findUnique({
       where: { userId_workspaceId: { userId: req.appUser!.id, workspaceId } },
-      select: { workspaceId: true, ticketTrackerColorByBoard: true, updatedAt: true },
+      select: {
+        workspaceId: true,
+        ticketTrackerColorByBoard: true,
+        ticketTrackerSubBoardStrip: true,
+        updatedAt: true,
+      },
     });
     res.json(
       row ?? {
         workspaceId,
         ticketTrackerColorByBoard: false,
+        ticketTrackerSubBoardStrip: false,
         updatedAt: null,
       },
     );
@@ -901,7 +913,7 @@ router.get("/workspaces/:workspaceId/user-workspace-preferences", async (req, re
 router.patch("/workspaces/:workspaceId/user-workspace-preferences", async (req, res) => {
   try {
     const workspaceId = req.params.workspaceId;
-    const body = req.body as { ticketTrackerColorByBoard?: boolean };
+    const body = req.body as { ticketTrackerColorByBoard?: boolean; ticketTrackerSubBoardStrip?: boolean };
     const patch: Prisma.WorkspaceUserPreferenceUncheckedUpdateInput = {};
     if (Object.prototype.hasOwnProperty.call(body, "ticketTrackerColorByBoard")) {
       if (typeof body.ticketTrackerColorByBoard !== "boolean") {
@@ -910,21 +922,34 @@ router.patch("/workspaces/:workspaceId/user-workspace-preferences", async (req, 
       }
       patch.ticketTrackerColorByBoard = body.ticketTrackerColorByBoard;
     }
+    if (Object.prototype.hasOwnProperty.call(body, "ticketTrackerSubBoardStrip")) {
+      if (typeof body.ticketTrackerSubBoardStrip !== "boolean") {
+        res.status(400).json({ error: "Invalid ticketTrackerSubBoardStrip" });
+        return;
+      }
+      patch.ticketTrackerSubBoardStrip = body.ticketTrackerSubBoardStrip;
+    }
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "No updates" });
       return;
     }
-    const initial =
-      typeof body.ticketTrackerColorByBoard === "boolean" ? body.ticketTrackerColorByBoard : false;
     const pref = await prisma.workspaceUserPreference.upsert({
       where: { userId_workspaceId: { userId: req.appUser!.id, workspaceId } },
       create: {
         userId: req.appUser!.id,
         workspaceId,
-        ticketTrackerColorByBoard: initial,
+        ticketTrackerColorByBoard:
+          typeof body.ticketTrackerColorByBoard === "boolean" ? body.ticketTrackerColorByBoard : false,
+        ticketTrackerSubBoardStrip:
+          typeof body.ticketTrackerSubBoardStrip === "boolean" ? body.ticketTrackerSubBoardStrip : false,
       },
       update: patch,
-      select: { workspaceId: true, ticketTrackerColorByBoard: true, updatedAt: true },
+      select: {
+        workspaceId: true,
+        ticketTrackerColorByBoard: true,
+        ticketTrackerSubBoardStrip: true,
+        updatedAt: true,
+      },
     });
     res.json(pref);
   } catch (e) {
@@ -962,6 +987,7 @@ router.get("/boards/:boardId/sub-board-preferences", async (req, res) => {
         cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
+        showSubBoardAccentStrip: true,
         updatedAt: true,
       },
     });
@@ -1272,6 +1298,7 @@ router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
         cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
+        showSubBoardAccentStrip: true,
         updatedAt: true,
       },
     });
@@ -1283,6 +1310,7 @@ router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
         cardFaceMeta: null,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: [],
+        showSubBoardAccentStrip: true,
         updatedAt: null,
       },
     );
@@ -1315,6 +1343,7 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
       cardFaceLayout?: string;
       cardFaceMeta?: unknown | null;
       completeCheckboxVisibleByDefault?: boolean;
+      showSubBoardAccentStrip?: boolean;
     };
 
     const patch: Prisma.SubBoardPreferenceUncheckedUpdateInput = {};
@@ -1352,6 +1381,18 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
       }
       patch.completeCheckboxVisibleByDefault = vis;
     }
+    if (Object.prototype.hasOwnProperty.call(body, "showSubBoardAccentStrip")) {
+      if (typeof body.showSubBoardAccentStrip !== "boolean") {
+        res.status(400).json({ error: "Invalid showSubBoardAccentStrip" });
+        return;
+      }
+      patch.showSubBoardAccentStrip = body.showSubBoardAccentStrip;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No updates" });
+      return;
+    }
 
     const createHidden = parseHiddenTrackerStatuses(body.hiddenTrackerStatuses) ?? [];
     const createLayout = sanitizeCardFaceLayout(body.cardFaceLayout) ?? "standard";
@@ -1374,6 +1415,9 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
         hiddenTrackerStatuses: createHidden,
         cardFaceLayout: createLayout,
         completeCheckboxVisibleByDefault: createCheckboxVis,
+        showSubBoardAccentStrip: Object.prototype.hasOwnProperty.call(body, "showSubBoardAccentStrip")
+          ? Boolean(body.showSubBoardAccentStrip)
+          : true,
         ...createMetaPatch,
       },
       update: patch,
@@ -1384,6 +1428,7 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
         cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
+        showSubBoardAccentStrip: true,
         updatedAt: true,
       },
     });
@@ -1428,9 +1473,18 @@ router.get("/tasks", async (req, res) => {
     const dueAfter = typeof req.query.dueAfter === "string" ? req.query.dueAfter : undefined;
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const labelId = typeof req.query.labelId === "string" ? req.query.labelId : undefined;
+    const labelIdsRaw = typeof req.query.labelIds === "string" ? req.query.labelIds : undefined;
+    const labelIds = labelIdsRaw
+      ? labelIdsRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
     const priority = typeof req.query.priority === "string" ? req.query.priority : undefined;
     const completedRaw = typeof req.query.completed === "string" ? req.query.completed : undefined;
     const sortRaw = typeof req.query.sort === "string" ? req.query.sort : undefined;
+    const hasDueDate =
+      typeof req.query.hasDueDate === "string" && req.query.hasDueDate.trim().toLowerCase() === "true";
     const trackerStatuses = parseTrackerStatusParam(
       typeof req.query.trackerStatus === "string" ? req.query.trackerStatus : undefined,
     );
@@ -1517,8 +1571,17 @@ router.get("/tasks", async (req, res) => {
       const d = new Date(dueAfter);
       if (!Number.isNaN(d.getTime())) andFilters.push({ dueDate: { gte: d } });
     }
+    if (hasDueDate) {
+      andFilters.push({ dueDate: { not: null } });
+    }
     if (trackerStatuses?.length) {
-      andFilters.push({ trackerStatus: { in: trackerStatuses } });
+      if (trackerStatuses.length === 1 && trackerStatuses[0] === "DONE") {
+        andFilters.push({
+          OR: [{ trackerStatus: "DONE" }, { completed: true }],
+        });
+      } else {
+        andFilters.push({ trackerStatus: { in: trackerStatuses } });
+      }
     }
     if (q) {
       andFilters.push({
@@ -1528,7 +1591,14 @@ router.get("/tasks", async (req, res) => {
         ],
       });
     }
-    if (labelId) {
+    if (labelIds.length) {
+      andFilters.push({
+        OR: labelIds.flatMap((lid) => [
+          { labels: { some: { labelId: lid } } },
+          { userBrandTicketLabels: { some: { userBrandTicketLabelId: lid } } },
+        ]),
+      });
+    } else if (labelId) {
       andFilters.push({
         OR: [
           { labels: { some: { labelId } } },
@@ -2886,6 +2956,7 @@ router.post("/workspaces/:workspaceId/boards/from-template", async (req, res) =>
             title: l.title,
             key: l.key,
             position,
+            accentColor: BOARD_ACCENT_PALETTE[position % BOARD_ACCENT_PALETTE.length]!,
           })),
         },
         labels: {
@@ -3444,6 +3515,7 @@ router.post("/boards/:boardId/duplicate", async (req, res) => {
             title: l.title,
             key: l.key,
             position,
+            accentColor: BOARD_ACCENT_PALETTE[position % BOARD_ACCENT_PALETTE.length]!,
           })),
         },
         labels: { create: labelCreates },
@@ -3495,7 +3567,7 @@ router.post("/boards/:boardId/labels", async (req, res) => {
 router.patch("/boards/:boardId/lists/:listId", async (req, res) => {
   try {
     const { boardId, listId } = req.params;
-    const body = req.body as { title?: string };
+    const body = req.body as { title?: string; accentColor?: string };
     const boardCheck = await prisma.board.findUnique({ where: { id: boardId } });
     if (!boardCheck || boardCheck.archivedAt) {
       res.status(400).json({ error: "Board not found or archived" });
@@ -3503,6 +3575,7 @@ router.patch("/boards/:boardId/lists/:listId", async (req, res) => {
     }
     const list = await prisma.boardList.findFirst({
       where: { id: listId, boardId },
+      select: { id: true, title: true, accentColor: true },
     });
     if (!list) {
       res.status(404).json({ error: "List not found" });
@@ -3512,9 +3585,31 @@ router.patch("/boards/:boardId/lists/:listId", async (req, res) => {
       res.status(400).json({ error: "title cannot be empty" });
       return;
     }
+    const data: Prisma.BoardListUpdateInput = {};
+    if (body.title !== undefined) {
+      const t = String(body.title).trim();
+      if (t !== list.title) {
+        data.title = t;
+      }
+    }
+    if (body.accentColor !== undefined) {
+      const c = sanitizeBoardAccentColor(body.accentColor);
+      if (!c) {
+        res.status(400).json({ error: "Invalid accentColor" });
+        return;
+      }
+      if (c !== String(list.accentColor).toLowerCase()) {
+        data.accentColor = c;
+      }
+    }
+    if (Object.keys(data).length === 0) {
+      const board = await findBoardWithApiInclude(boardId, req.appUser!);
+      res.json(boardJsonForApi(board));
+      return;
+    }
     await prisma.boardList.update({
       where: { id: listId },
-      data: body.title !== undefined ? { title: String(body.title).trim() } : {},
+      data,
     });
     const board = await findBoardWithApiInclude(boardId, req.appUser!);
     res.json(boardJsonForApi(board));
@@ -3649,11 +3744,13 @@ router.post("/boards/:boardId/lists", async (req, res) => {
       where: { boardId },
       _max: { position: true },
     });
+    const accentColor = await nextSubBoardAccentColorForBoard(boardId);
     const list = await prisma.boardList.create({
       data: {
         boardId,
         title: body.title.trim(),
         position: (maxP._max.position ?? -1) + 1,
+        accentColor,
       },
     });
     res.status(201).json(list);

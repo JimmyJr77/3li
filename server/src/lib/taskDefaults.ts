@@ -3,7 +3,7 @@ import { prisma } from "./db.js";
 import type { AppUserPrincipal } from "./auth/workspaceScope.js";
 import { workspaceWhereForAppUser } from "./auth/workspaceScope.js";
 import { defaultWorkspaceTitleFromBrandName } from "./workspaceLimits.js";
-import { nextBoardAccentColorForWorkspace } from "./boardAccentColor.js";
+import { nextBoardAccentColorForWorkspace, nextSubBoardAccentColorForBoard } from "./boardAccentColor.js";
 
 const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
   { title: "Backlog", key: "backlog", position: 0 },
@@ -14,6 +14,7 @@ const DEFAULT_LISTS: { title: string; key: string; position: number }[] = [
 /** Ensures the three default columns exist (handles boards created before lists existed). */
 export async function ensureBoardLists(boardId: string) {
   for (const l of DEFAULT_LISTS) {
+    const accentColor = await nextSubBoardAccentColorForBoard(boardId);
     await prisma.boardList.upsert({
       where: {
         boardId_key: { boardId, key: l.key },
@@ -23,6 +24,7 @@ export async function ensureBoardLists(boardId: string) {
         title: l.title,
         key: l.key,
         position: l.position,
+        accentColor,
       },
       update: {},
     });
@@ -73,14 +75,18 @@ export async function ensureDefaultBoardForWorkspace(workspaceId: string) {
         accentColor,
       },
     });
-    await prisma.boardList.createMany({
-      data: DEFAULT_LISTS.map((l) => ({
-        boardId: board.id,
-        title: l.title,
-        key: l.key,
-        position: l.position,
-      })),
-    });
+    for (const l of DEFAULT_LISTS) {
+      const accentColor = await nextSubBoardAccentColorForBoard(board.id);
+      await prisma.boardList.create({
+        data: {
+          boardId: board.id,
+          title: l.title,
+          key: l.key,
+          position: l.position,
+          accentColor,
+        },
+      });
+    }
     await prisma.label.createMany({
       data: [
         { boardId: board.id, name: "Bug", color: "#ef4444" },

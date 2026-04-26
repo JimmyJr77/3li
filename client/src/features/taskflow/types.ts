@@ -57,6 +57,8 @@ export type TaskFlowTask = {
     position: number;
     boardId: string;
     board: { id: string; name: string; workspaceId: string; accentColor?: string };
+    /** Sub-board (`BoardList`) accent for right-edge strip. */
+    accentColor?: string;
   };
   comments?: {
     id: string;
@@ -79,6 +81,8 @@ export type BoardListDto = {
   title: string;
   key: string | null;
   position: number;
+  /** Canonical #RRGGBB accent for this sub-board (right-edge strip when enabled). */
+  accentColor?: string;
   tasks: TaskFlowTask[];
 };
 
@@ -92,6 +96,8 @@ export type SubBoardPreferenceDto = {
   /** When true, kanban cards show the done checkbox unless a ticket overrides. */
   completeCheckboxVisibleByDefault: boolean;
   hiddenTrackerStatuses: TrackerStatus[];
+  /** When false, this user hides the sub-board accent strip on cards for this sub-board. */
+  showSubBoardAccentStrip?: boolean;
   updatedAt: string | null;
 };
 
@@ -140,6 +146,7 @@ export type ProjectSpaceSummaryDto = {
 export type WorkspaceUserPreferenceDto = {
   workspaceId: string;
   ticketTrackerColorByBoard: boolean;
+  ticketTrackerSubBoardStrip: boolean;
   updatedAt: string | null;
 };
 
