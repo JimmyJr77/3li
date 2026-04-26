@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Kanban, LayoutGrid, Loader2, MoreVertical, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +26,7 @@ import {
 } from "@/features/taskflow/api";
 import { brandMentionLabel } from "@/components/layout/WorkspaceBrandSwitcher";
 import { PMAgentSheet } from "@/features/agents/PMAgentSheet";
+import { WorkspaceAllBoardsDefaultsSheet } from "@/features/taskflow/WorkspaceAllBoardsDefaultsSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,7 @@ export function BoardsPage() {
   const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "edit">("create");
   const [templateEditId, setTemplateEditId] = useState<string | null>(null);
   const [viewTemplateId, setViewTemplateId] = useState<string | null>(null);
+  const [allBoardsDefaultsOpen, setAllBoardsDefaultsOpen] = useState(false);
 
   const workspacesQuery = useQuery({
     queryKey: ["workspaces"],
@@ -471,6 +473,10 @@ export function BoardsPage() {
 
   const templates = templatesQuery.data ?? [];
   const projectSpaces = activeWorkspace?.projectSpaces ?? [];
+  const workspaceBoardCount = useMemo(
+    () => projectSpaces.reduce((n, ps) => n + (ps.boards?.length ?? 0), 0),
+    [projectSpaces],
+  );
 
   useEffect(() => {
     if (!projectSpaceEditId) return;
@@ -1293,7 +1299,29 @@ export function BoardsPage() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold">Project spaces</h2>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-lg font-semibold">Project spaces</h2>
+            {activeWorkspaceId && activeWorkspace ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 text-muted-foreground hover:text-foreground -mt-0.5"
+                    aria-label="Project spaces options"
+                  >
+                    <SlidersHorizontal className="size-4" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-56">
+                  <DropdownMenuItem onSelect={() => setAllBoardsDefaultsOpen(true)}>
+                    Set defaults for all boards
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Each brand has one workspace; the cards below are <span className="font-medium text-foreground">project spaces</span>{" "}
             inside that workspace. Click a project board row to open it, or drag it to another project space or to the
@@ -1307,6 +1335,14 @@ export function BoardsPage() {
             </p>
           ) : null}
         </div>
+        {activeWorkspaceId && activeWorkspace ? (
+          <WorkspaceAllBoardsDefaultsSheet
+            open={allBoardsDefaultsOpen}
+            onOpenChange={setAllBoardsDefaultsOpen}
+            workspaceId={activeWorkspaceId}
+            boardCount={workspaceBoardCount}
+          />
+        ) : null}
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           <Input
             placeholder="e.g. Client A"

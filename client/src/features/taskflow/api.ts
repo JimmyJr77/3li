@@ -1,4 +1,5 @@
 import { api } from "@/lib/api/client";
+import type { TrackerStatus } from "./trackerMeta";
 import type {
   BoardDto,
   BoardUserPreferenceDto,
@@ -67,6 +68,22 @@ export async function patchBoardUserPreferences(
 ): Promise<BoardUserPreferenceDto> {
   const { data } = await api.patch<BoardUserPreferenceDto>(
     `/api/task-app/boards/${boardId}/user-board-preferences`,
+    body,
+  );
+  return data;
+}
+
+/** Apply the same per-user board defaults to every project board in the workspace. */
+export async function applyUserBoardDefaultsForWorkspace(
+  workspaceId: string,
+  body: {
+    defaultCompleteCheckboxVisible: boolean;
+    defaultHiddenTrackerStatuses: TrackerStatus[];
+    subBoardTabVisibility?: "show_all";
+  },
+): Promise<{ ok: boolean; boardCount: number }> {
+  const { data } = await api.post<{ ok: boolean; boardCount: number }>(
+    `/api/task-app/workspaces/${workspaceId}/apply-user-board-defaults`,
     body,
   );
   return data;

@@ -1035,6 +1035,101 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
   }
 });
 
+/**
+ * Apply the same per-user `BoardUserPreference` values to every non-archived project board
+ * in this workspace (checkbox default, default tracker visibility, and/or clear hidden sub-board tabs).
+ */
+router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, res) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const user = req.appUser!;
+    const ok = await assertWorkspaceAccess(user, workspaceId);
+    if (!ok) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+
+    const body = req.body as {
+      defaultCompleteCheckboxVisible?: boolean;
+      defaultHiddenTrackerStatuses?: unknown;
+      subBoardTabVisibility?: "show_all";
+    };
+
+    const hasSubAll = body.subBoardTabVisibility === "show_all";
+    const hasCheckbox = Object.prototype.hasOwnProperty.call(body, "defaultCompleteCheckboxVisible");
+    const hasTrackers = Object.prototype.hasOwnProperty.call(body, "defaultHiddenTrackerStatuses");
+    if (!hasSubAll && !hasCheckbox && !hasTrackers) {
+      res.status(400).json({ error: "No updates" });
+      return;
+    }
+    if (body.subBoardTabVisibility !== undefined && body.subBoardTabVisibility !== "show_all") {
+      res.status(400).json({ error: "subBoardTabVisibility must be 'show_all' or omitted" });
+      return;
+    }
+
+    let hiddenTrackers: TrackerStatus[] | undefined;
+    if (hasTrackers) {
+      const parsed = parseHiddenTrackerStatuses(body.defaultHiddenTrackerStatuses);
+      if (parsed == null) {
+        res.status(400).json({ error: "Invalid defaultHiddenTrackerStatuses" });
+        return;
+      }
+      hiddenTrackers = parsed;
+    }
+
+    const checkboxValue = hasCheckbox
+      ? parseCompleteCheckboxVisibleByDefault(body.defaultCompleteCheckboxVisible)
+      : undefined;
+    if (hasCheckbox && checkboxValue === undefined) {
+      res.status(400).json({ error: "Invalid defaultCompleteCheckboxVisible" });
+      return;
+    }
+
+    const boardRows = await prisma.board.findMany({
+      where: {
+        archivedAt: null,
+        projectSpace: { workspaceId, archivedAt: null },
+      },
+      select: { id: true },
+    });
+
+    if (boardRows.length === 0) {
+      res.json({ ok: true, boardCount: 0 });
+      return;
+    }
+
+    const userId = user.id;
+    const updatePatch: Prisma.BoardUserPreferenceUncheckedUpdateInput = {};
+    if (hasCheckbox) updatePatch.defaultCompleteCheckboxVisible = checkboxValue!;
+    if (hiddenTrackers !== undefined) updatePatch.defaultHiddenTrackerStatuses = hiddenTrackers;
+    if (hasSubAll) updatePatch.hiddenSubBoardIds = [];
+
+    const createData = (boardId: string): Prisma.BoardUserPreferenceUncheckedCreateInput => ({
+      userId,
+      boardId,
+      defaultTicketCardColor: null,
+      defaultHiddenTrackerStatuses: hiddenTrackers ?? [],
+      defaultCompleteCheckboxVisible: hasCheckbox ? checkboxValue! : true,
+      hiddenSubBoardIds: [],
+    });
+
+    await prisma.$transaction(
+      boardRows.map((b) =>
+        prisma.boardUserPreference.upsert({
+          where: { userId_boardId: { userId, boardId: b.id } },
+          create: createData(b.id),
+          update: updatePatch,
+        }),
+      ),
+    );
+
+    res.json({ ok: true, boardCount: boardRows.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to apply board defaults" });
+  }
+});
+
 router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
   try {
     const subBoardId = req.params.subBoardId;
