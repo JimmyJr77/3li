@@ -16,6 +16,8 @@ export type UserTicketLabelDto = {
 
 export type TaskFlowTask = {
   id: string;
+  /** Per-brand human ticket # (1, 2, 3, …) when the API has assigned it. */
+  brandTicketNumber?: number | null;
   title: string;
   description: string;
   completed: boolean;
@@ -85,6 +87,8 @@ export type SubBoardPreferenceDto = {
   ticketCardColor: string | null;
   /** standard | minimal — ticket cards on this sub-board for this user. */
   cardFaceLayout: string;
+  /** Optional JSON overrides for “title + meta” on standard cards; merged with board defaults. */
+  cardFaceMeta?: unknown | null;
   /** When true, kanban cards show the done checkbox unless a ticket overrides. */
   completeCheckboxVisibleByDefault: boolean;
   hiddenTrackerStatuses: TrackerStatus[];
@@ -97,6 +101,10 @@ export type BoardUserPreferenceDto = {
   defaultTicketCardColor: string | null;
   defaultHiddenTrackerStatuses: TrackerStatus[];
   defaultCompleteCheckboxVisible: boolean;
+  /** standard | minimal — default for sub-boards with no saved layout preference row. */
+  defaultCardFaceLayout?: string;
+  /** Default “title + meta” fields for standard cards (`{}` = all on). */
+  defaultCardFaceMeta?: unknown;
   hiddenSubBoardIds: string[];
   updatedAt: string | null;
 };

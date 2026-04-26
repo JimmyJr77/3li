@@ -21,26 +21,23 @@ import {
   fetchBoard,
   fetchBoardSubBoardPreferences,
   fetchBrandTeam,
+  fetchLabelSuggestions,
   fetchMyTicketLabels,
-  patchChecklistItem,
   patchTask,
-  postChecklistItem,
   postComment,
   postMyTicketLabel,
+  postBoardLabel,
   removeTaskLabel,
   removeUserTicketLabelFromTask,
 } from "./api";
 import { NewTicketLabelForm } from "./NewTicketLabelForm";
+import { TicketDescriptionEditor } from "./TicketDescriptionEditor";
+import { taskDescriptionStringToHTML, taskDescriptionsEqual } from "./taskDescriptionHtml";
 import type { BoardDto, TaskFlowTask } from "./types";
-import { TRACKER_LABELS, normalizeTrackerStatus } from "./trackerMeta";
+import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus, normalizeTrackerStatus } from "./trackerMeta";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <Label className="text-xs font-medium text-muted-foreground">{children}</Label>;
-}
-
-/** Stable, human-oriented ticket number derived from the task id (no extra DB field). */
-function ticketNumberFromId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10).toUpperCase();
 }
 
 type TicketDetailTab = "main" | "comments" | "settings";
@@ -117,6 +114,11 @@ export function TaskDetailSheet({
     queryFn: () => fetchMyTicketLabels(brandIdForMyLabels!),
     enabled: Boolean(open && task && brandIdForMyLabels),
   });
+  const labelSuggestQuery = useQuery({
+    queryKey: ["label-suggestions", brandIdForMyLabels],
+    queryFn: () => fetchLabelSuggestions(brandIdForMyLabels!),
+    enabled: Boolean(open && task && brandIdForMyLabels),
+  });
   const brandTeamQuery = useQuery({
     queryKey: ["brand-team", brandIdForMyLabels],
     queryFn: () => fetchBrandTeam(brandIdForMyLabels!),
@@ -147,15 +149,17 @@ export function TaskDetailSheet({
   const [priority, setPriority] = useState("none");
   const [dueDate, setDueDate] = useState("");
   const [comment, setComment] = useState("");
-  const [checkItem, setCheckItem] = useState("");
   const [newCustomLabelName, setNewCustomLabelName] = useState("");
   const [newCustomLabelColor, setNewCustomLabelColor] = useState("#6366f1");
+  const [labelSearch, setLabelSearch] = useState("");
+  const [showCreateLabelForm, setShowCreateLabelForm] = useState(false);
+  const [createLabelScope, setCreateLabelScope] = useState<"user" | "board">("user");
   const [detailTab, setDetailTab] = useState<TicketDetailTab>("main");
 
   useEffect(() => {
     if (!task) return;
     setTitle(task.title);
-    setDescription(task.description);
+    setDescription(taskDescriptionStringToHTML(task.description ?? "") || "");
     setPriority(task.priority);
     setDueDate(task.dueDate ? task.dueDate.slice(0, 16) : "");
   }, [task]);
@@ -190,18 +194,20 @@ export function TaskDetailSheet({
     },
   });
 
-  const checklistMutation = useMutation({
-    mutationFn: () => postChecklistItem(task!.id, checkItem),
-    onSuccess: () => {
-      setCheckItem("");
-      invalidate();
-    },
+  const trackerStatusMutation = useMutation({
+    mutationFn: (next: TrackerStatus) => patchTask(task!.id, { trackerStatus: next }),
+    onSuccess: invalidate,
   });
 
   const toggleBoardLabel = (labelId: string, has: boolean) => {
     if (!task) return;
     const p = has ? removeTaskLabel(task.id, labelId) : addTaskLabel(task.id, labelId);
-    p.then(invalidate);
+    p.then(() => {
+      invalidate();
+      if (brandIdForMyLabels) {
+        void queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
+      }
+    });
   };
 
   const toggleUserLabel = (labelId: string, has: boolean) => {
@@ -209,7 +215,12 @@ export function TaskDetailSheet({
     const p = has
       ? removeUserTicketLabelFromTask(task.id, labelId)
       : addUserTicketLabelToTask(task.id, labelId);
-    p.then(invalidate);
+    p.then(() => {
+      invalidate();
+      if (brandIdForMyLabels) {
+        void queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
+      }
+    });
   };
 
   const createMyLabelMutation = useMutation({
@@ -217,9 +228,30 @@ export function TaskDetailSheet({
     onSuccess: async (row) => {
       if (!task || !brandIdForMyLabels) return;
       await queryClient.invalidateQueries({ queryKey: ["my-ticket-labels", brandIdForMyLabels] });
+      await queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
       await addUserTicketLabelToTask(task.id, row.id);
       setNewCustomLabelName("");
       setNewCustomLabelColor("#6366f1");
+      setLabelSearch("");
+      setShowCreateLabelForm(false);
+      invalidate();
+    },
+  });
+
+  const createBoardLabelMutation = useMutation({
+    mutationFn: async (p: { name: string; color: string }) => {
+      if (!task || !board) throw new Error("missing context");
+      const b = await postBoardLabel(board.id, { name: p.name, color: p.color });
+      const nameLower = p.name.trim().toLowerCase();
+      const created = b.labels.find((l) => l.name.toLowerCase() === nameLower) ?? null;
+      if (created) await addTaskLabel(task.id, created.id);
+    },
+    onSuccess: () => {
+      if (brandIdForMyLabels) {
+        void queryClient.invalidateQueries({ queryKey: ["label-suggestions", brandIdForMyLabels] });
+      }
+      setLabelSearch("");
+      setShowCreateLabelForm(false);
       invalidate();
     },
   });
@@ -242,7 +274,7 @@ export function TaskDetailSheet({
     const taskDue = task.dueDate ? task.dueDate.slice(0, 16) : "";
     return (
       title !== task.title ||
-      description !== (task.description ?? "") ||
+      !taskDescriptionsEqual(description, task.description) ||
       priority !== task.priority ||
       dueDate !== taskDue
     );
@@ -259,6 +291,27 @@ export function TaskDetailSheet({
   useEffect(() => {
     if (dirty) saveMutation.reset();
   }, [dirty, saveMutation]);
+
+  const labelSearchMatches = useMemo(() => {
+    if (!task || !board) return [];
+    const q = labelSearch.trim().toLowerCase();
+    if (!q) return [];
+    const fromBoard = board.labels
+      .filter((l) => l.name.toLowerCase().includes(q))
+      .map((l) => ({ scope: "board" as const, id: l.id, name: l.name, color: l.color, boardId: board.id }));
+    const fromUser = (myTicketLabelsQuery.data ?? [])
+      .filter((l) => l.name.toLowerCase().includes(q))
+      .map((l) => ({ scope: "user" as const, id: l.id, name: l.name, color: l.color }));
+    const seen = new Set<string>();
+    const res: ((typeof fromBoard)[number] | (typeof fromUser)[number])[] = [];
+    for (const x of [...fromBoard, ...fromUser]) {
+      const k = `${x.scope}:${x.id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      res.push(x);
+    }
+    return res;
+  }, [task, board, labelSearch, myTicketLabelsQuery.data]);
 
   if (!task) return null;
 
@@ -302,6 +355,15 @@ export function TaskDetailSheet({
     task.createdAt && !Number.isNaN(new Date(task.createdAt).getTime())
       ? new Date(task.createdAt).toLocaleString()
       : "—";
+
+  const hasLabelOnTask = (scope: "board" | "user", labelId: string) =>
+    task.labels.some(
+      (x) =>
+        x.label.id === labelId &&
+        (scope === "user" ? x.labelScope === "user" : x.labelScope !== "user"),
+    );
+
+  const currentTracker = normalizeTrackerStatus(task.trackerStatus);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -350,18 +412,6 @@ export function TaskDetailSheet({
 
           {detailTab === "main" ? (
           <div className="space-y-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={task.completed}
-                disabled={sheetLocked}
-                className="size-4 rounded border"
-                onChange={(e) =>
-                  patchTask(task.id, { completed: e.target.checked }).then(invalidate)
-                }
-              />
-              <span>Mark complete</span>
-            </label>
             {task.routingSource ? (
               <div className="flex flex-wrap items-center gap-2">
                 <RoutingSourceBadge source={task.routingSource} />
@@ -373,6 +423,13 @@ export function TaskDetailSheet({
               </p>
             ) : null}
 
+            <p className="text-xs font-medium text-muted-foreground">
+              Ticket number:{" "}
+              <span className="text-foreground">
+                {task.brandTicketNumber != null ? String(task.brandTicketNumber) : "—"}
+              </span>
+            </p>
+
             <div className="space-y-2">
               <FieldLabel>Title</FieldLabel>
               <Input
@@ -381,66 +438,12 @@ export function TaskDetailSheet({
                 onChange={(e) => setTitle(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <FieldLabel>Ticket number</FieldLabel>
-              <p className="font-mono text-sm font-medium tracking-wide text-foreground">
-                {ticketNumberFromId(task.id)}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <FieldLabel>Description</FieldLabel>
-              <textarea
-                className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[100px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60"
-                value={description}
-                disabled={sheetLocked}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
 
-            <div className="space-y-2">
-              <FieldLabel>Checklist</FieldLabel>
-              <ul className="space-y-2">
-                {(task.checklist ?? []).map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4 rounded border"
-                      checked={item.completed}
-                      disabled={sheetLocked}
-                      onChange={(e) =>
-                        patchChecklistItem(item.id, { completed: e.target.checked }).then(invalidate)
-                      }
-                    />
-                    <span className={item.completed ? "text-muted-foreground line-through" : ""}>
-                      {item.title}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Add checklist item"
-                  value={checkItem}
-                  disabled={sheetLocked}
-                  onChange={(e) => setCheckItem(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && checkItem.trim() && checklistMutation.mutate()}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => checkItem.trim() && checklistMutation.mutate()}
-                  disabled={sheetLocked || checklistMutation.isPending}
-                >
-                  Add
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <FieldLabel>Created by</FieldLabel>
-              <p className="text-sm text-foreground">{task.createdBy?.label?.trim() || "Unknown"}</p>
-            </div>
+            <TicketDescriptionEditor
+              value={description}
+              onChange={setDescription}
+              disabled={sheetLocked}
+            />
 
             <div className="space-y-1">
               <FieldLabel>Assigned to</FieldLabel>
@@ -487,6 +490,40 @@ export function TaskDetailSheet({
             </div>
 
             <div className="space-y-2">
+              <FieldLabel>Due date</FieldLabel>
+              <Input
+                type="datetime-local"
+                value={dueDate}
+                disabled={sheetLocked}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Status (tracker)</FieldLabel>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
+                value={currentTracker}
+                disabled={sheetLocked || trackerStatusMutation.isPending}
+                onChange={(e) => {
+                  const next = e.target.value as TrackerStatus;
+                  if (TRACKER_STATUSES.includes(next)) trackerStatusMutation.mutate(next);
+                }}
+              >
+                {TRACKER_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {TRACKER_LABELS[st]}
+                  </option>
+                ))}
+              </select>
+              {task.completed && currentTracker !== "DONE" ? (
+                <p className="text-xs text-muted-foreground">
+                  Marked complete on the board; still counts as done while in this status column.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
               <FieldLabel>Priority</FieldLabel>
               <select
                 className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
@@ -502,98 +539,202 @@ export function TaskDetailSheet({
               </select>
             </div>
 
-            <div className="space-y-1">
-              <FieldLabel>Creation date</FieldLabel>
-              <p className="text-sm text-foreground">{creationDateDisplay}</p>
-            </div>
-
-            <div className="space-y-2">
-              <FieldLabel>Due date</FieldLabel>
-              <Input
-                type="datetime-local"
-                value={dueDate}
-                disabled={sheetLocked}
-                onChange={(e) => setDueDate(e.target.value)}
-              />
-            </div>
-
             <div className="space-y-3">
               <div className="space-y-2">
                 <FieldLabel>Labels</FieldLabel>
-                <p className="text-xs text-muted-foreground">Board labels and your labels for this brand.</p>
-                <div className="flex flex-wrap gap-2">
-                  {board.labels.map((lb) => {
-                    const has = task.labels.some((x) => x.label.id === lb.id && x.labelScope !== "user");
-                    return (
-                      <Button
-                        key={lb.id}
-                        type="button"
-                        size="sm"
-                        variant={has ? "default" : "outline"}
-                        className="h-8 rounded-md"
-                        style={has ? { backgroundColor: lb.color, borderColor: lb.color } : undefined}
-                        disabled={sheetLocked}
-                        onClick={() => toggleBoardLabel(lb.id, has)}
-                      >
-                        {lb.name}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-              {brandIdForMyLabels ? (
-                <>
+                {labelSuggestQuery.isLoading ? (
+                  <p className="text-xs text-muted-foreground">Loading label suggestions…</p>
+                ) : (
                   <div className="space-y-2">
-                    <FieldLabel>Your labels (this brand)</FieldLabel>
-                    <p className="text-xs text-muted-foreground">
-                      Shared across all project boards in this brand. Manage in Settings → Ticket labels.
-                    </p>
-                    {myTicketLabelsQuery.isLoading ? (
-                      <p className="text-xs text-muted-foreground">Loading your labels…</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {(myTicketLabelsQuery.data ?? []).map((lb) => {
-                          const has = task.labels.some((x) => x.label.id === lb.id && x.labelScope === "user");
+                    {(labelSuggestQuery.data?.frequent.length ?? 0) > 0 ? (
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">Often used on this brand</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(labelSuggestQuery.data?.frequent ?? []).map((r) => {
+                            const has = hasLabelOnTask(r.scope, r.id);
+                            return (
+                              <Button
+                                key={`f-${r.scope}-${r.id}`}
+                                type="button"
+                                size="sm"
+                                variant={has ? "default" : "outline"}
+                                className="h-8 max-w-full rounded-md"
+                                style={has ? { backgroundColor: r.color, borderColor: r.color } : undefined}
+                                disabled={sheetLocked}
+                                onClick={() =>
+                                  r.scope === "user"
+                                    ? toggleUserLabel(r.id, has)
+                                    : toggleBoardLabel(r.id, has)
+                                }
+                              >
+                                {r.name}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    {(labelSuggestQuery.data?.recent.length ?? 0) > 0 ? (
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">Recently used (not in top)</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(labelSuggestQuery.data?.recent ?? []).map((r) => {
+                            const has = hasLabelOnTask(r.scope, r.id);
+                            return (
+                              <Button
+                                key={`r-${r.scope}-${r.id}`}
+                                type="button"
+                                size="sm"
+                                variant={has ? "default" : "outline"}
+                                className="h-8 max-w-full rounded-md"
+                                style={has ? { backgroundColor: r.color, borderColor: r.color } : undefined}
+                                disabled={sheetLocked}
+                                onClick={() =>
+                                  r.scope === "user"
+                                    ? toggleUserLabel(r.id, has)
+                                    : toggleBoardLabel(r.id, has)
+                                }
+                              >
+                                {r.name}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <FieldLabel>Search or add a label</FieldLabel>
+                  <Input
+                    value={labelSearch}
+                    onChange={(e) => {
+                      setLabelSearch(e.target.value);
+                      if (!showCreateLabelForm) setNewCustomLabelName(e.target.value);
+                    }}
+                    disabled={sheetLocked}
+                    placeholder="Type to filter or create…"
+                    className="h-9"
+                  />
+                </div>
+
+                {labelSearch.trim() ? (
+                  <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+                    {labelSearchMatches.length > 0 ? (
+                      <ul className="space-y-0.5 text-sm">
+                        {labelSearchMatches.map((m) => {
+                          const onTask = hasLabelOnTask(m.scope, m.id);
                           return (
-                            <Button
-                              key={lb.id}
-                              type="button"
-                              size="sm"
-                              variant={has ? "default" : "outline"}
-                              className="h-8 rounded-md"
-                              style={has ? { backgroundColor: lb.color, borderColor: lb.color } : undefined}
-                              disabled={sheetLocked}
-                              onClick={() => toggleUserLabel(lb.id, has)}
-                            >
-                              {lb.name}
-                            </Button>
+                            <li key={`${m.scope}-${m.id}`}>
+                              <button
+                                type="button"
+                                className="w-full rounded px-2 py-1.5 text-left hover:bg-muted"
+                                disabled={sheetLocked}
+                                onClick={() => {
+                                  if (onTask) {
+                                    m.scope === "user"
+                                      ? toggleUserLabel(m.id, true)
+                                      : toggleBoardLabel(m.id, true);
+                                  } else {
+                                    const p =
+                                      m.scope === "user"
+                                        ? addUserTicketLabelToTask(task.id, m.id)
+                                        : addTaskLabel(task.id, m.id);
+                                    void p.then(() => {
+                                      invalidate();
+                                      if (brandIdForMyLabels) {
+                                        void queryClient.invalidateQueries({
+                                          queryKey: ["label-suggestions", brandIdForMyLabels],
+                                        });
+                                      }
+                                    });
+                                  }
+                                }}
+                              >
+                                <span className="font-medium">{m.name}</span>{" "}
+                                <span className="text-xs text-muted-foreground">
+                                  ({m.scope === "user" ? "Yours" : "Board"})
+                                </span>
+                              </button>
+                            </li>
                           );
                         })}
+                      </ul>
+                    ) : !sheetLocked && brandIdForMyLabels ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">No matching label.</p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setShowCreateLabelForm(true);
+                            setNewCustomLabelName(labelSearch.trim());
+                          }}
+                        >
+                          Create label…
+                        </Button>
+                        {showCreateLabelForm ? (
+                          <div className="space-y-2 pt-1">
+                            <div className="flex flex-wrap gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={createLabelScope === "user" ? "default" : "outline"}
+                                onClick={() => setCreateLabelScope("user")}
+                              >
+                                My label (this brand)
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={createLabelScope === "board" ? "default" : "outline"}
+                                onClick={() => setCreateLabelScope("board")}
+                              >
+                                This board
+                              </Button>
+                            </div>
+                            <NewTicketLabelForm
+                              title={createLabelScope === "user" ? "New personal label" : "New board label"}
+                              hint="Pick a name and color, then create."
+                              name={newCustomLabelName}
+                              onNameChange={setNewCustomLabelName}
+                              color={newCustomLabelColor}
+                              onColorChange={setNewCustomLabelColor}
+                              disabled={
+                                sheetLocked ||
+                                createMyLabelMutation.isPending ||
+                                createBoardLabelMutation.isPending
+                              }
+                              pending={
+                                createLabelScope === "user"
+                                  ? createMyLabelMutation.isPending
+                                  : createBoardLabelMutation.isPending
+                              }
+                              onSubmit={() => {
+                                const n = newCustomLabelName.trim();
+                                if (!n) return;
+                                if (createLabelScope === "user") {
+                                  createMyLabelMutation.mutate({ name: n, color: newCustomLabelColor });
+                                } else {
+                                  createBoardLabelMutation.mutate({ name: n, color: newCustomLabelColor });
+                                }
+                              }}
+                              submitLabel="Create and attach"
+                              errorMessage={
+                                createMyLabelMutation.isError || createBoardLabelMutation.isError
+                                  ? "Could not create (duplicate or server error?)."
+                                  : null
+                              }
+                            />
+                          </div>
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
                   </div>
-                  <NewTicketLabelForm
-                    title="New custom label"
-                    hint="Creates the label for this brand and attaches it to this ticket."
-                    name={newCustomLabelName}
-                    onNameChange={setNewCustomLabelName}
-                    color={newCustomLabelColor}
-                    onColorChange={setNewCustomLabelColor}
-                    disabled={sheetLocked || createMyLabelMutation.isPending}
-                    pending={createMyLabelMutation.isPending}
-                    onSubmit={() =>
-                      createMyLabelMutation.mutate({
-                        name: newCustomLabelName.trim(),
-                        color: newCustomLabelColor,
-                      })
-                    }
-                    submitLabel="Create & attach"
-                    errorMessage={
-                      createMyLabelMutation.isError ? "Could not create (duplicate name?)." : null
-                    }
-                  />
-                </>
-              ) : null}
+                ) : null}
+              </div>
             </div>
 
             {!sheetLocked ? (
@@ -654,6 +795,14 @@ export function TaskDetailSheet({
 
           {detailTab === "settings" ? (
             <div className="space-y-4">
+              <div className="space-y-1">
+                <FieldLabel>Created by</FieldLabel>
+                <p className="text-sm text-foreground">{task.createdBy?.label?.trim() || "Unknown"}</p>
+              </div>
+              <div className="space-y-1">
+                <FieldLabel>Creation date</FieldLabel>
+                <p className="text-sm text-foreground">{creationDateDisplay}</p>
+              </div>
               {boardIdForPrefs ? (
                 <div className="space-y-2">
                   <FieldLabel>Complete checkbox on board card</FieldLabel>

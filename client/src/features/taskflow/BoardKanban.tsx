@@ -67,6 +67,14 @@ import {
 } from "./api";
 import { ProjectBoardSettingsPanel } from "./ProjectBoardSettingsPanel";
 import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
+import {
+  CARD_FACE_META_KEYS,
+  CARD_FACE_META_LABELS,
+  DEFAULT_CARD_FACE_META,
+  normalizeCardFaceMetaInput,
+  resolveCardFaceMeta,
+  type CardFaceMeta,
+} from "./cardFaceMeta";
 import type { BoardDto, BoardListDto, BoardUserPreferenceDto, SubBoardPreferenceDto, TaskFlowTask } from "./types";
 import {
   laneKey,
@@ -157,24 +165,44 @@ function cardColorForSubBoard(
   return c ?? undefined;
 }
 
+/** Effective prefs for cards (merges board-level defaults with per-sub-board row). */
+type EffectiveSubBoardPreference = SubBoardPreferenceDto & {
+  cardFaceMetaMerged: CardFaceMeta;
+};
+
 /** Fills defaults when the user has no saved row yet for this sub-board. */
 function normalizedSubBoardPref(
   subBoardId: string,
   row?: SubBoardPreferenceDto,
   boardUserPref?: BoardUserPreferenceDto,
-): SubBoardPreferenceDto {
+): EffectiveSubBoardPreference {
   const checkboxFromRow = row?.completeCheckboxVisibleByDefault;
   const checkboxMerged =
     checkboxFromRow !== undefined
       ? checkboxFromRow !== false
       : boardUserPref?.defaultCompleteCheckboxVisible !== false;
+
+  const rawLayout = row?.cardFaceLayout;
+  const resolvedLayout =
+    rawLayout === "minimal"
+      ? "minimal"
+      : rawLayout === "standard"
+        ? "standard"
+        : boardUserPref?.defaultCardFaceLayout === "minimal"
+          ? "minimal"
+          : "standard";
+
+  const mergedMeta = resolveCardFaceMeta(boardUserPref?.defaultCardFaceMeta, row?.cardFaceMeta);
+
   return {
     subBoardId,
     ticketCardColor: row?.ticketCardColor ?? null,
-    cardFaceLayout: row?.cardFaceLayout === "minimal" ? "minimal" : "standard",
+    cardFaceLayout: resolvedLayout,
+    cardFaceMeta: row?.cardFaceMeta ?? null,
     completeCheckboxVisibleByDefault: checkboxMerged,
     hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
     updatedAt: row?.updatedAt ?? null,
+    cardFaceMetaMerged: mergedMeta,
   };
 }
 
@@ -192,6 +220,8 @@ type SubBoardPrefSavePayload = {
   ticketCardColor: string | null;
   hiddenTrackerStatuses: TrackerStatus[];
   cardFaceLayout: string;
+  /** Omit to leave unchanged; `null` clears overrides (inherit board defaults). */
+  cardFaceMeta?: CardFaceMeta | null;
   completeCheckboxVisibleByDefault: boolean;
 };
 
@@ -242,7 +272,7 @@ function TaskCardFace({
   onToggleComplete: (t: TaskFlowTask) => void;
   sendTargets?: { id: string; title: string }[];
   onSendTo?: (taskId: string, subBoardId: string) => void;
-  subBoardPref: SubBoardPreferenceDto;
+  subBoardPref: EffectiveSubBoardPreference;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -252,6 +282,7 @@ function TaskCardFace({
   const others = sendTargets?.filter((s) => s.id !== sbId) ?? [];
   const minimal = subBoardPref.cardFaceLayout === "minimal";
   const showDoneCheckbox = effectiveCompleteCheckboxOnCard(task, subBoardPref);
+  const meta = subBoardPref.cardFaceMetaMerged;
 
   return (
     <div className="flex min-w-0 flex-1 gap-2">
@@ -286,28 +317,55 @@ function TaskCardFace({
         </p>
         {!minimal ? (
           <>
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              {task.labels.map(({ label }) => (
-                <span
-                  key={label.id}
-                  className="rounded px-2 py-0.5 text-[10px] font-medium leading-none text-white"
-                  style={{ backgroundColor: label.color }}
-                >
-                  {label.name}
+            {meta.showLabels && task.labels.length > 0 ? (
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {task.labels.map(({ label }) => (
+                  <span
+                    key={label.id}
+                    className="rounded px-2 py-0.5 text-[10px] font-medium leading-none text-white"
+                    style={{ backgroundColor: label.color }}
+                  >
+                    {label.name}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {meta.showDueDate && task.dueDate ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Due {new Date(task.dueDate).toLocaleDateString()}
+              </p>
+            ) : null}
+            {meta.showAssignee ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {task.assignee?.label?.trim() ? (
+                  <>
+                    Assigned to{" "}
+                    <span className="font-medium text-foreground">{task.assignee.label}</span>
+                  </>
+                ) : (
+                  "Unassigned"
+                )}
+              </p>
+            ) : null}
+            {meta.showPriority ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Priority{" "}
+                <span className="font-medium text-foreground">
+                  {task.priority === "none" ? "None" : task.priority}
                 </span>
-              ))}
-            </div>
+              </p>
+            ) : null}
+            {meta.showTicketNumber && task.brandTicketNumber != null ? (
+              <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                #{task.brandTicketNumber}
+              </p>
+            ) : null}
             {task.ideaNode && (
               <p className="mt-1 text-xs text-muted-foreground">Idea: {task.ideaNode.title}</p>
             )}
             {checkTotal > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Checklist {doneCount}/{checkTotal}
-              </p>
-            )}
-            {task.dueDate && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Due {new Date(task.dueDate).toLocaleDateString()}
               </p>
             )}
           </>
@@ -357,7 +415,7 @@ function SortableTaskCard({
   sendTargets?: { id: string; title: string }[];
   onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
-  subBoardPref: SubBoardPreferenceDto;
+  subBoardPref: EffectiveSubBoardPreference;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -419,7 +477,7 @@ function ReadOnlyTaskCard({
   sendTargets?: { id: string; title: string }[];
   onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
-  subBoardPref: SubBoardPreferenceDto;
+  subBoardPref: EffectiveSubBoardPreference;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -640,7 +698,7 @@ function TrackerLane({
   sendTargets?: { id: string; title: string }[];
   onSendTo?: (taskId: string, subBoardId: string) => void;
   cardColor?: string;
-  subBoardPref: SubBoardPreferenceDto;
+  subBoardPref: EffectiveSubBoardPreference;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
@@ -814,8 +872,12 @@ function SubBoardPrefsEditor({
   setEditorHiddenDraft,
   editorCardFaceDraft,
   setEditorCardFaceDraft,
+  editorCardFaceMetaDraft,
+  setEditorCardFaceMetaDraft,
   editorCheckboxDefaultDraft,
   setEditorCheckboxDefaultDraft,
+  boardUserPref,
+  rawSubBoardCardFaceMeta,
   savePref,
   brandId,
   boardId,
@@ -834,8 +896,12 @@ function SubBoardPrefsEditor({
   setEditorHiddenDraft: Dispatch<SetStateAction<TrackerStatus[]>>;
   editorCardFaceDraft: string;
   setEditorCardFaceDraft: (s: string) => void;
+  editorCardFaceMetaDraft: CardFaceMeta;
+  setEditorCardFaceMetaDraft: Dispatch<SetStateAction<CardFaceMeta>>;
   editorCheckboxDefaultDraft: boolean;
   setEditorCheckboxDefaultDraft: (b: boolean) => void;
+  boardUserPref?: BoardUserPreferenceDto | null;
+  rawSubBoardCardFaceMeta?: unknown | null;
   savePref: (payload: SubBoardPrefSavePayload) => void;
   brandId?: string | null;
   boardId?: string;
@@ -845,14 +911,21 @@ function SubBoardPrefsEditor({
   onTitleCommit: (subBoardId: string, title: string) => void;
 }) {
   const flush = (overrides?: Partial<SubBoardPrefSavePayload>) => {
-    savePref({
+    const layout = overrides?.cardFaceLayout ?? editorCardFaceDraft;
+    const payload: SubBoardPrefSavePayload = {
       subBoardId: editorSubBoard.id,
       ticketCardColor: overrides?.ticketCardColor ?? (editorColorDraft.trim() || null),
       hiddenTrackerStatuses: overrides?.hiddenTrackerStatuses ?? editorHiddenDraft,
-      cardFaceLayout: overrides?.cardFaceLayout ?? editorCardFaceDraft,
+      cardFaceLayout: layout,
       completeCheckboxVisibleByDefault:
         overrides?.completeCheckboxVisibleByDefault ?? editorCheckboxDefaultDraft,
-    });
+    };
+    if (overrides?.cardFaceMeta !== undefined) {
+      payload.cardFaceMeta = overrides.cardFaceMeta;
+    } else if (layout === "standard") {
+      payload.cardFaceMeta = normalizeCardFaceMetaInput(editorCardFaceMetaDraft);
+    }
+    savePref(payload);
   };
 
   return (
@@ -954,6 +1027,45 @@ function SubBoardPrefsEditor({
           Applies to every ticket on this sub-board on the board for you.
         </p>
       </div>
+      {editorCardFaceDraft === "standard" ? (
+        <div className="space-y-2 border-t border-border/60 pt-3">
+          <p className="text-sm font-medium">Title + meta on cards</p>
+          <p className="text-xs text-muted-foreground">
+            Choose which lines appear under the title. Project board defaults apply unless you override here.
+          </p>
+          <div className="space-y-2">
+            {CARD_FACE_META_KEYS.map((key) => (
+              <label key={key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editorCardFaceMetaDraft[key]}
+                  onChange={(e) => {
+                    const next = { ...editorCardFaceMetaDraft, [key]: e.target.checked };
+                    setEditorCardFaceMetaDraft(next);
+                    flush({ cardFaceMeta: normalizeCardFaceMetaInput(next) });
+                  }}
+                />
+                {CARD_FACE_META_LABELS[key]}
+              </label>
+            ))}
+          </div>
+          {boardUserPref && rawSubBoardCardFaceMeta != null ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => {
+                const next = resolveCardFaceMeta(boardUserPref.defaultCardFaceMeta, null);
+                setEditorCardFaceMetaDraft(next);
+                flush({ cardFaceMeta: null });
+              }}
+            >
+              Use project board meta defaults
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="space-y-2">
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <input
@@ -1317,30 +1429,20 @@ function BoardKanbanFiltered({
     }
   }, [activeSubId, hiddenSubSet, visibleListsOrdered]);
 
-  const activeSub =
-    board.lists.find((l) => l.id === activeSubId && !hiddenSubSet.has(l.id)) ??
-    visibleListsOrdered[0] ??
-    board.lists[0] ??
-    null;
+  const activeSub = useMemo(
+    () =>
+      board.lists.find((l) => l.id === activeSubId && !hiddenSubSet.has(l.id)) ??
+      visibleListsOrdered[0] ??
+      board.lists[0] ??
+      null,
+    [board.lists, activeSubId, hiddenSubSet, visibleListsOrdered],
+  );
 
-  if (!board.lists.length) {
-    return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
-  }
-  if (!activeSub || !visibleListsOrdered.length) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No sub-boards are visible. Open project board settings (sliders icon) and enable at least one.
-      </p>
-    );
-  }
-  const pinnedSubBoards = pinnedSubBoardIds
-    .map((id) => board.lists.find((l) => l.id === id))
-    .filter((s): s is BoardListDto => Boolean(s));
-  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
   const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
   const [editorColorDraft, setEditorColorDraft] = useState("");
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
+  const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
 
   const subBoardSheetSizing = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
@@ -1366,7 +1468,14 @@ function BoardKanbanFiltered({
   const createMutation = useMutation({
     mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
       const parsed = parseLaneKey(laneId);
-      const subBoardId = parsed?.subBoardId ?? activeSub.id;
+      const fallbackSub =
+        board.lists.find((l) => l.id === activeSubId && !hiddenSubSet.has(l.id)) ??
+        visibleListsOrdered[0] ??
+        board.lists[0];
+      const subBoardId = parsed?.subBoardId ?? fallbackSub?.id;
+      if (!subBoardId) {
+        return Promise.reject(new Error("No sub-board to add to"));
+      }
       const trackerStatus = parsed?.status ?? "BACKLOG";
       return createBoardTask(board.id, { title, subBoardId, trackerStatus });
     },
@@ -1410,13 +1519,18 @@ function BoardKanbanFiltered({
     },
   });
   const prefMutation = useMutation({
-    mutationFn: (payload: SubBoardPrefSavePayload) =>
-      patchSubBoardPreference(payload.subBoardId, {
+    mutationFn: (payload: SubBoardPrefSavePayload) => {
+      const body: Parameters<typeof patchSubBoardPreference>[1] = {
         ticketCardColor: payload.ticketCardColor,
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-      }),
+      };
+      if (payload.cardFaceMeta !== undefined) {
+        body.cardFaceMeta = payload.cardFaceMeta;
+      }
+      return patchSubBoardPreference(payload.subBoardId, body);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
     },
@@ -1427,6 +1541,7 @@ function BoardKanbanFiltered({
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
         updatedAt: new Date().toISOString(),
       };
       queryClient.setQueryData<SubBoardPreferenceDto[]>(
@@ -1442,20 +1557,34 @@ function BoardKanbanFiltered({
     deleteListMutation.mutate(list.id);
   };
 
-  const activeVisibleStatuses = visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
-  const activeCardColor = cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref);
-  const editorSubBoard = editorSubBoardId
-    ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
-    : null;
-
   useEffect(() => {
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
+    const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
     setEditorColorDraft(pref?.ticketCardColor ?? "");
     setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
-    setEditorCardFaceDraft(pref?.cardFaceLayout === "minimal" ? "minimal" : "standard");
-    setEditorCheckboxDefaultDraft(pref?.completeCheckboxVisibleByDefault !== false);
-  }, [editorSubBoardId, prefBySubBoard]);
+    setEditorCardFaceDraft(norm.cardFaceLayout);
+    setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
+    setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
+  }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
+
+  if (!board.lists.length) {
+    return <p className="text-sm text-muted-foreground">This board has no sub-boards yet.</p>;
+  }
+
+  const pinnedSubBoards = pinnedSubBoardIds
+    .map((id) => board.lists.find((l) => l.id === id))
+    .filter((s): s is BoardListDto => Boolean(s));
+  const sendTargets = board.lists.map((l) => ({ id: l.id, title: l.title }));
+  const activeVisibleStatuses = activeSub
+    ? visibleStatusesForSubBoard(activeSub.id, prefBySubBoard, boardUserPref)
+    : [];
+  const activeCardColor = activeSub
+    ? cardColorForSubBoard(activeSub.id, prefBySubBoard, boardUserPref)
+    : undefined;
+  const editorSubBoard = editorSubBoardId
+    ? board.lists.find((l) => l.id === editorSubBoardId) ?? null
+    : null;
 
   return (
     <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
@@ -1501,68 +1630,76 @@ function BoardKanbanFiltered({
       <p className="text-xs text-muted-foreground">
         Filters are on — drag-and-drop is paused. Clear filters to move tickets.
       </p>
-      <SubBoardCarouselStrip
-        orderedLists={visibleListsOrdered}
-        activeSubId={activeSub.id}
-        onSelect={setActiveSubId}
-        listOrder={listOrderVisible}
-        sortable={false}
-        onEditSubBoard={setEditorSubBoardId}
-      />
-      <ReadOnlyTrackerGrid
-        board={board}
-        activeSub={activeSub}
-        onOpenTask={onOpenTask}
-        onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-        onToggleComplete={(t) => toggleMutation.mutate(t)}
-        sendMutation={sendMutation}
-        visibleStatuses={activeVisibleStatuses}
-        cardColor={activeCardColor}
-        prefBySubBoard={prefBySubBoard}
-        boardUserPref={boardUserPref}
-      />
-      <div className="space-y-3">
-        <PinnedDropZone draggingSubBoard={false} />
-        {pinnedSubBoards.map((sb) => {
-          const byLane = buildLaneItems(sb);
-          return (
-            <section key={sb.id} className="w-full min-w-0 space-y-2 rounded-xl border bg-background/70 p-3">
-              <div className="flex items-center justify-between">
-                <p className="min-w-0 truncate text-sm font-semibold">{sb.title}</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="text-muted-foreground"
-                  onClick={() => unpinSubBoard(sb.id)}
-                >
-                  <PinOff className="mr-1 size-3.5" />
-                  Unpin
-                </Button>
-              </div>
-              <div className="flex w-full min-w-0 gap-2 pb-1">
-                {visibleStatusesForSubBoard(sb.id, prefBySubBoard, boardUserPref).map((st) => (
-                  <ReadOnlyLaneInner
-                    key={`${sb.id}-${st}`}
-                    laneId={laneKey(sb.id, st)}
-                    label={TRACKER_LABELS[st]}
-                    taskIds={byLane[laneKey(sb.id, st)] ?? []}
-                    taskMap={buildTaskMap(board)}
-                    onOpen={onOpenTask}
-                    onToggleComplete={(t) => toggleMutation.mutate(t)}
-                    onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
-                    sendTargets={sendTargets}
-                    onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
-                    cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
-                    prefBySubBoard={prefBySubBoard}
-                    boardUserPref={boardUserPref}
-                  />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+      {!activeSub || !visibleListsOrdered.length ? (
+        <p className="text-sm text-muted-foreground">
+          No sub-boards are visible. Open project board settings (sliders icon) and enable at least one.
+        </p>
+      ) : (
+        <>
+          <SubBoardCarouselStrip
+            orderedLists={visibleListsOrdered}
+            activeSubId={activeSub.id}
+            onSelect={setActiveSubId}
+            listOrder={listOrderVisible}
+            sortable={false}
+            onEditSubBoard={setEditorSubBoardId}
+          />
+          <ReadOnlyTrackerGrid
+            board={board}
+            activeSub={activeSub}
+            onOpenTask={onOpenTask}
+            onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+            onToggleComplete={(t) => toggleMutation.mutate(t)}
+            sendMutation={sendMutation}
+            visibleStatuses={activeVisibleStatuses}
+            cardColor={activeCardColor}
+            prefBySubBoard={prefBySubBoard}
+            boardUserPref={boardUserPref}
+          />
+          <div className="space-y-3">
+            <PinnedDropZone draggingSubBoard={false} />
+            {pinnedSubBoards.map((sb) => {
+              const byLane = buildLaneItems(sb);
+              return (
+                <section key={sb.id} className="w-full min-w-0 space-y-2 rounded-xl border bg-background/70 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="min-w-0 truncate text-sm font-semibold">{sb.title}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground"
+                      onClick={() => unpinSubBoard(sb.id)}
+                    >
+                      <PinOff className="mr-1 size-3.5" />
+                      Unpin
+                    </Button>
+                  </div>
+                  <div className="flex w-full min-w-0 gap-2 pb-1">
+                    {visibleStatusesForSubBoard(sb.id, prefBySubBoard, boardUserPref).map((st) => (
+                      <ReadOnlyLaneInner
+                        key={`${sb.id}-${st}`}
+                        laneId={laneKey(sb.id, st)}
+                        label={TRACKER_LABELS[st]}
+                        taskIds={byLane[laneKey(sb.id, st)] ?? []}
+                        taskMap={buildTaskMap(board)}
+                        onOpen={onOpenTask}
+                        onToggleComplete={(t) => toggleMutation.mutate(t)}
+                        onQuickAdd={(laneId, title) => createMutation.mutate({ laneId, title })}
+                        sendTargets={sendTargets}
+                        onSendTo={(taskId, subBoardId) => sendMutation.mutate({ taskId, subBoardId })}
+                        cardColor={cardColorForSubBoard(sb.id, prefBySubBoard, boardUserPref)}
+                        prefBySubBoard={prefBySubBoard}
+                        boardUserPref={boardUserPref}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </>
+      )}
       <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
         <SheetContent
           side="right"
@@ -1588,8 +1725,12 @@ function BoardKanbanFiltered({
               setEditorHiddenDraft={setEditorHiddenDraft}
               editorCardFaceDraft={editorCardFaceDraft}
               setEditorCardFaceDraft={setEditorCardFaceDraft}
+              editorCardFaceMetaDraft={editorCardFaceMetaDraft}
+              setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
               editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
               setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              boardUserPref={boardUserPref}
+              rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
               savePref={(p) => prefMutation.mutate(p)}
               brandId={board.brandId}
               boardId={board.id}
@@ -1614,7 +1755,12 @@ function BoardKanbanFiltered({
               Defaults for every sub-board on this board. Sub-board options can still override.
             </SheetDescription>
           </SheetHeader>
-          {boardPrefsQuery.data ? (
+          {boardPrefsQuery.isError ? (
+            <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
+              Could not load board preferences. If you recently updated the app, run database migrations
+              (`npx prisma migrate deploy`) and reload.
+            </p>
+          ) : boardPrefsQuery.data ? (
             <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
           ) : (
             <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
@@ -1639,6 +1785,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   const [editorColorDraft, setEditorColorDraft] = useState("");
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
+  const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
   const [editorCheckboxDefaultDraft, setEditorCheckboxDefaultDraft] = useState(true);
 
   const subBoardSheetSizingDnd = useResizableRightAppSheetWidth({ open: Boolean(editorSubBoardId) });
@@ -1841,13 +1988,18 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     },
   });
   const prefMutation = useMutation({
-    mutationFn: (payload: SubBoardPrefSavePayload) =>
-      patchSubBoardPreference(payload.subBoardId, {
+    mutationFn: (payload: SubBoardPrefSavePayload) => {
+      const body: Parameters<typeof patchSubBoardPreference>[1] = {
         ticketCardColor: payload.ticketCardColor,
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-      }),
+      };
+      if (payload.cardFaceMeta !== undefined) {
+        body.cardFaceMeta = payload.cardFaceMeta;
+      }
+      return patchSubBoardPreference(payload.subBoardId, body);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
     },
@@ -1858,6 +2010,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+        ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
         updatedAt: new Date().toISOString(),
       };
       queryClient.setQueryData<SubBoardPreferenceDto[]>(
@@ -2037,11 +2190,13 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   useEffect(() => {
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
+    const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
     setEditorColorDraft(pref?.ticketCardColor ?? "");
     setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
-    setEditorCardFaceDraft(pref?.cardFaceLayout === "minimal" ? "minimal" : "standard");
-    setEditorCheckboxDefaultDraft(pref?.completeCheckboxVisibleByDefault !== false);
-  }, [editorSubBoardId, prefBySubBoard]);
+    setEditorCardFaceDraft(norm.cardFaceLayout);
+    setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
+    setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
+  }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   return (
     <DndContext
@@ -2187,8 +2342,12 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
               setEditorHiddenDraft={setEditorHiddenDraft}
               editorCardFaceDraft={editorCardFaceDraft}
               setEditorCardFaceDraft={setEditorCardFaceDraft}
+              editorCardFaceMetaDraft={editorCardFaceMetaDraft}
+              setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
               editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
               setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+              boardUserPref={boardUserPref}
+              rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
               savePref={(p) => prefMutation.mutate(p)}
               brandId={board.brandId}
               boardId={board.id}
@@ -2213,7 +2372,12 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
               Defaults for every sub-board on this board. Sub-board options can still override.
             </SheetDescription>
           </SheetHeader>
-          {boardPrefsQuery.data ? (
+          {boardPrefsQuery.isError ? (
+            <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
+              Could not load board preferences. If you recently updated the app, run database migrations
+              (`npx prisma migrate deploy`) and reload.
+            </p>
+          ) : boardPrefsQuery.data ? (
             <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
           ) : (
             <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">

@@ -41,6 +41,17 @@ function addOriginVariants(raw: string, out: Set<string>): void {
   }
 }
 
+/** In development, allow any http localhost / 127.0.0.1 origin (Vite may use 5174+ if 5173 is taken). */
+function isDevLocalHttpLoopbackOrigin(origin: string): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  try {
+    const u = new URL(origin);
+    return u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1");
+  } catch {
+    return false;
+  }
+}
+
 function parseAllowedOrigins(): string[] {
   const out = new Set<string>(["http://localhost:5173", "http://127.0.0.1:5173"]);
   for (const s of process.env.CLIENT_ORIGIN?.split(",").map((x) => x.trim()).filter(Boolean) ?? []) {
@@ -68,6 +79,10 @@ app.use(
         return;
       }
       if (allowedOrigins.includes(origin)) {
+        cb(null, true);
+        return;
+      }
+      if (isDevLocalHttpLoopbackOrigin(origin)) {
         cb(null, true);
         return;
       }

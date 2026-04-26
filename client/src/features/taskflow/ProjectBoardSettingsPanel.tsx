@@ -7,6 +7,11 @@ import type { BoardDto, BoardUserPreferenceDto } from "./types";
 import { NewTicketLabelForm } from "./NewTicketLabelForm";
 import { patchBoard, patchBoardUserPreferences, postBoardLabel } from "./api";
 import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
+import {
+  CARD_FACE_META_KEYS,
+  CARD_FACE_META_LABELS,
+  normalizeCardFaceMetaInput,
+} from "./cardFaceMeta";
 import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus } from "./trackerMeta";
 
 const DEFAULT_CARD_COLORS = [
@@ -191,6 +196,45 @@ export function ProjectBoardSettingsPanel({
             />
           ))}
         </div>
+      </div>
+
+      <div className="space-y-2 border-b border-border/60 pb-6">
+        <p className="text-sm font-medium">Default ticket card face</p>
+        <p className="text-xs text-muted-foreground">
+          Sub-boards you have not opened in options inherit this. Sub-board options can override layout and meta.
+        </p>
+        <select
+          className="border-input bg-background h-9 max-w-md rounded-md border px-2 text-sm"
+          value={preference.defaultCardFaceLayout === "minimal" ? "minimal" : "standard"}
+          onChange={(e) =>
+            flush({ defaultCardFaceLayout: e.target.value === "minimal" ? "minimal" : "standard" })
+          }
+        >
+          <option value="standard">Standard (title + meta)</option>
+          <option value="minimal">Title only</option>
+        </select>
+        {(preference.defaultCardFaceLayout ?? "standard") !== "minimal" ? (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Include on standard cards</p>
+            {CARD_FACE_META_KEYS.map((key) => {
+              const meta = normalizeCardFaceMetaInput(preference.defaultCardFaceMeta);
+              return (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={meta[key]}
+                    onChange={(e) =>
+                      flush({
+                        defaultCardFaceMeta: { ...meta, [key]: e.target.checked },
+                      })
+                    }
+                  />
+                  {CARD_FACE_META_LABELS[key]}
+                </label>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-2">

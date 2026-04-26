@@ -63,6 +63,8 @@ export async function patchBoardUserPreferences(
     defaultTicketCardColor: string | null;
     defaultHiddenTrackerStatuses: string[];
     defaultCompleteCheckboxVisible: boolean;
+    defaultCardFaceLayout: string;
+    defaultCardFaceMeta: unknown;
     hiddenSubBoardIds: string[];
   }>,
 ): Promise<BoardUserPreferenceDto> {
@@ -80,6 +82,8 @@ export async function applyUserBoardDefaultsForWorkspace(
     defaultCompleteCheckboxVisible: boolean;
     defaultHiddenTrackerStatuses: TrackerStatus[];
     subBoardTabVisibility?: "show_all";
+    defaultCardFaceLayout?: string;
+    defaultCardFaceMeta?: unknown;
   },
 ): Promise<{ ok: boolean; boardCount: number }> {
   const { data } = await api.post<{ ok: boolean; boardCount: number }>(
@@ -102,6 +106,7 @@ export async function patchSubBoardPreference(
     ticketCardColor: string | null;
     hiddenTrackerStatuses: string[];
     cardFaceLayout: string;
+    cardFaceMeta: unknown | null;
     completeCheckboxVisibleByDefault: boolean;
   }>,
 ): Promise<SubBoardPreferenceDto> {
@@ -603,6 +608,24 @@ export async function addTaskLabel(taskId: string, labelId: string): Promise<Tas
 
 export async function removeTaskLabel(taskId: string, labelId: string): Promise<TaskFlowTask> {
   const { data } = await api.delete<TaskFlowTask>(`/api/task-app/tasks/${taskId}/labels/${labelId}`);
+  return data;
+}
+
+export type LabelSuggestion = {
+  scope: "board" | "user";
+  id: string;
+  name: string;
+  color: string;
+  boardId?: string;
+};
+
+export async function fetchLabelSuggestions(brandId: string): Promise<{
+  frequent: LabelSuggestion[];
+  recent: LabelSuggestion[];
+}> {
+  const { data } = await api.get<{ frequent: LabelSuggestion[]; recent: LabelSuggestion[] }>(
+    `/api/task-app/brands/${brandId}/label-suggestions`,
+  );
   return data;
 }
 

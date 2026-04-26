@@ -141,6 +141,8 @@ model Brand {
   members      BrandMember[]
   invites      BrandInvite[]
   userBrandTicketLabels UserBrandTicketLabel[]
+  /// Next sequential ticket number to assign for this brand (see `Task.brandTicketNumber`).
+  nextTicketNumber   Int         @default(1)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -402,6 +404,10 @@ model BoardUserPreference {
   defaultTicketCardColor         String?         @db.VarChar(32)
   defaultHiddenTrackerStatuses   TrackerStatus[]
   defaultCompleteCheckboxVisible Boolean         @default(true)
+  /// standard | minimal — default for sub-boards until you open sub-board options (per-user).
+  defaultCardFaceLayout          String          @default("standard") @db.VarChar(64)
+  /// Per-user default “title + meta” fields on standard cards (`{}` = all on; see app `CARD_FACE_META_KEYS`).
+  defaultCardFaceMeta            Json            @default("{}")
   /// Sub-board (`BoardList`) ids hidden from this user’s tab strip for this board.
   hiddenSubBoardIds              String[]
   createdAt                      DateTime        @default(now())
@@ -439,6 +445,8 @@ model SubBoardPreference {
   ticketCardColor                    String?  @db.VarChar(32)
   /// standard | minimal — applies to all ticket cards on this sub-board for this user.
   cardFaceLayout                   String   @default("standard") @db.VarChar(64)
+  /// Optional overrides for “title + meta” on standard cards; merged with board defaults.
+  cardFaceMeta                     Json?
   /// When true, the done checkbox is shown on kanban cards unless a ticket overrides.
   completeCheckboxVisibleByDefault Boolean  @default(true)
   hiddenTrackerStatuses            TrackerStatus[]
@@ -483,6 +491,8 @@ model Task {
   createdBy       AppUser? @relation("TaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   assigneeUserId  String?
   assignee        AppUser? @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  /// Sequential per brand (1, 2, 3, …) for display; assigned at task creation.
+  brandTicketNumber Int?
   lastAssignedAt  DateTime?
   /// @deprecated Per-sub-board `SubBoardPreference.cardFaceLayout` replaces this.
   cardFaceLayout  String    @default("standard")

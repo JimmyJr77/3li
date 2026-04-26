@@ -348,6 +348,10 @@ html.rainbow-explosion [data-slot="card"]:nth-child(16n + 16 of [data-slot="card
   min-height: min(50vh, 480px);
 }
 
+.ticket-description-editor.notebooks-editor .ProseMirror {
+  min-height: 104px;
+}
+
 /*
  * Task lists (TipTap): TipTap’s node view does not always keep `data-type` on the <li>,
  * so we key off `ul[data-type="taskList"]` / `.atlas-note-task-list` and direct `> li` children.

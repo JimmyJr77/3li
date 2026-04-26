@@ -11,6 +11,7 @@ import {
 } from "../lib/brainstormCanvasMapper.js";
 import { ensureBrainstormProjectForWorkspace } from "../lib/brainstormProject.js";
 import { assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
+import { allocateBrandTicketNumbers } from "../lib/brandTicketNumbers.js";
 import { ensureDefaultBoardForWorkspace, ensurePersonalWorkspaceBoard, getBacklogListId } from "../lib/taskDefaults.js";
 import { aiServiceUnavailableDetail, isAiBackendConfigured } from "../lib/openai/client.js";
 import { CONVERT_PLAN_SYSTEM } from "../lib/openai/brainstormPrompts.js";
@@ -477,18 +478,24 @@ async function handleConvertPlan(req: Request, res: Response, sessionId: string)
     const { board } = await ensureDefaultBoardForWorkspace(wsId);
     const backlogListId = await getBacklogListId(board.id);
 
+    const workspace = await prisma.workspace.findUnique({ where: { id: wsId }, select: { brandId: true } });
+    const brandId = workspace?.brandId;
+    const ticketNums = brandId ? await allocateBrandTicketNumbers(brandId, tasks.length) : [];
+
     const created = await prisma.$transaction(
-      tasks.map((title, order) =>
-        prisma.task.create({
+      tasks.map((title, order) => {
+        const n = ticketNums[order];
+        return prisma.task.create({
           data: {
             title,
             subBoardId: backlogListId,
             trackerStatus: "BACKLOG",
             order,
             ideaNodeId: idea.id,
+            ...(n !== undefined ? { brandTicketNumber: n } : {}),
           },
-        }),
-      ),
+        });
+      }),
     );
 
     const mapped = created.map((t) => ({

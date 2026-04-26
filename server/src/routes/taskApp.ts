@@ -26,6 +26,8 @@ import { EMAIL_RE, normalizeEmail } from "../lib/auth/identifiers.js";
 import { prisma } from "../lib/db.js";
 import { ensurePersonalWorkspaceBoard, getDefaultSubBoardIdForBoard } from "../lib/taskDefaults.js";
 import { parseLaneKey, TRACKER_STATUS_ORDER } from "../lib/trackerStatus.js";
+import { allocateBrandTicketNumbers } from "../lib/brandTicketNumbers.js";
+import { normalizeCardFaceMetaInput } from "../lib/cardFaceMeta.js";
 import { formatBrandProfileForPrompt } from "../lib/brandProfileFormat.js";
 import { parseBrandProfileForSave } from "../lib/brandProfileSchema.js";
 import { brandDisplayNameFromProfileJson } from "../lib/brandDisplayName.js";
@@ -900,6 +902,7 @@ router.get("/boards/:boardId/sub-board-preferences", async (req, res) => {
         subBoardId: true,
         ticketCardColor: true,
         cardFaceLayout: true,
+        cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
         updatedAt: true,
@@ -917,6 +920,8 @@ const boardUserPreferenceSelect = {
   defaultTicketCardColor: true,
   defaultHiddenTrackerStatuses: true,
   defaultCompleteCheckboxVisible: true,
+  defaultCardFaceLayout: true,
+  defaultCardFaceMeta: true,
   hiddenSubBoardIds: true,
   updatedAt: true,
 } as const;
@@ -950,6 +955,8 @@ router.get("/boards/:boardId/user-board-preferences", async (req, res) => {
         defaultTicketCardColor: null,
         defaultHiddenTrackerStatuses: [],
         defaultCompleteCheckboxVisible: true,
+        defaultCardFaceLayout: "standard",
+        defaultCardFaceMeta: {},
         hiddenSubBoardIds: [],
         updatedAt: null,
       },
@@ -967,6 +974,8 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
       defaultTicketCardColor?: string | null;
       defaultHiddenTrackerStatuses?: string[];
       defaultCompleteCheckboxVisible?: boolean;
+      defaultCardFaceLayout?: string;
+      defaultCardFaceMeta?: unknown;
       hiddenSubBoardIds?: string[];
     };
 
@@ -989,6 +998,17 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
         return;
       }
       patch.defaultCompleteCheckboxVisible = vis;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "defaultCardFaceLayout")) {
+      const layout = sanitizeCardFaceLayout(body.defaultCardFaceLayout);
+      if (layout === undefined) {
+        res.status(400).json({ error: "Invalid defaultCardFaceLayout" });
+        return;
+      }
+      patch.defaultCardFaceLayout = layout;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "defaultCardFaceMeta")) {
+      patch.defaultCardFaceMeta = normalizeCardFaceMetaInput(body.defaultCardFaceMeta) as Prisma.InputJsonValue;
     }
     if (Object.prototype.hasOwnProperty.call(body, "hiddenSubBoardIds")) {
       const ids = await filterHiddenSubBoardIdsForBoard(boardId, body.hiddenSubBoardIds);
@@ -1023,6 +1043,10 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
           parseHiddenTrackerStatuses(body.defaultHiddenTrackerStatuses) ?? [],
         defaultCompleteCheckboxVisible:
           parseCompleteCheckboxVisibleByDefault(body.defaultCompleteCheckboxVisible) ?? true,
+        defaultCardFaceLayout: sanitizeCardFaceLayout(body.defaultCardFaceLayout) ?? "standard",
+        defaultCardFaceMeta: normalizeCardFaceMetaInput(
+          Object.prototype.hasOwnProperty.call(body, "defaultCardFaceMeta") ? body.defaultCardFaceMeta : {},
+        ) as Prisma.InputJsonValue,
         hiddenSubBoardIds: createHiddenIds,
       },
       update: patch,
@@ -1037,7 +1061,7 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
 
 /**
  * Apply the same per-user `BoardUserPreference` values to every non-archived project board
- * in this workspace (checkbox default, default tracker visibility, and/or clear hidden sub-board tabs).
+ * in this workspace (checkbox default, default tracker visibility, card face defaults, and/or clear hidden sub-board tabs).
  */
 router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, res) => {
   try {
@@ -1053,12 +1077,16 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
       defaultCompleteCheckboxVisible?: boolean;
       defaultHiddenTrackerStatuses?: unknown;
       subBoardTabVisibility?: "show_all";
+      defaultCardFaceLayout?: unknown;
+      defaultCardFaceMeta?: unknown;
     };
 
     const hasSubAll = body.subBoardTabVisibility === "show_all";
     const hasCheckbox = Object.prototype.hasOwnProperty.call(body, "defaultCompleteCheckboxVisible");
     const hasTrackers = Object.prototype.hasOwnProperty.call(body, "defaultHiddenTrackerStatuses");
-    if (!hasSubAll && !hasCheckbox && !hasTrackers) {
+    const hasCardFaceLayout = Object.prototype.hasOwnProperty.call(body, "defaultCardFaceLayout");
+    const hasCardFaceMeta = Object.prototype.hasOwnProperty.call(body, "defaultCardFaceMeta");
+    if (!hasSubAll && !hasCheckbox && !hasTrackers && !hasCardFaceLayout && !hasCardFaceMeta) {
       res.status(400).json({ error: "No updates" });
       return;
     }
@@ -1085,6 +1113,17 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
       return;
     }
 
+    let layoutResolved: string | undefined;
+    if (hasCardFaceLayout) {
+      layoutResolved = sanitizeCardFaceLayout(body.defaultCardFaceLayout);
+      if (layoutResolved === undefined) {
+        res.status(400).json({ error: "Invalid defaultCardFaceLayout" });
+        return;
+      }
+    }
+
+    const metaResolved = hasCardFaceMeta ? normalizeCardFaceMetaInput(body.defaultCardFaceMeta) : undefined;
+
     const boardRows = await prisma.board.findMany({
       where: {
         archivedAt: null,
@@ -1103,15 +1142,22 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
     if (hasCheckbox) updatePatch.defaultCompleteCheckboxVisible = checkboxValue!;
     if (hiddenTrackers !== undefined) updatePatch.defaultHiddenTrackerStatuses = hiddenTrackers;
     if (hasSubAll) updatePatch.hiddenSubBoardIds = [];
+    if (hasCardFaceLayout) updatePatch.defaultCardFaceLayout = layoutResolved!;
+    if (hasCardFaceMeta) updatePatch.defaultCardFaceMeta = metaResolved! as Prisma.InputJsonValue;
 
-    const createData = (boardId: string): Prisma.BoardUserPreferenceUncheckedCreateInput => ({
-      userId,
-      boardId,
-      defaultTicketCardColor: null,
-      defaultHiddenTrackerStatuses: hiddenTrackers ?? [],
-      defaultCompleteCheckboxVisible: hasCheckbox ? checkboxValue! : true,
-      hiddenSubBoardIds: [],
-    });
+    const createData = (boardId: string): Prisma.BoardUserPreferenceUncheckedCreateInput => {
+      const c: Prisma.BoardUserPreferenceUncheckedCreateInput = {
+        userId,
+        boardId,
+        defaultTicketCardColor: null,
+        defaultHiddenTrackerStatuses: hiddenTrackers ?? [],
+        defaultCompleteCheckboxVisible: hasCheckbox ? checkboxValue! : true,
+        hiddenSubBoardIds: [],
+      };
+      if (hasCardFaceLayout) c.defaultCardFaceLayout = layoutResolved!;
+      if (hasCardFaceMeta) c.defaultCardFaceMeta = metaResolved! as Prisma.InputJsonValue;
+      return c;
+    };
 
     await prisma.$transaction(
       boardRows.map((b) =>
@@ -1153,6 +1199,7 @@ router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
         subBoardId: true,
         ticketCardColor: true,
         cardFaceLayout: true,
+        cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
         updatedAt: true,
@@ -1163,6 +1210,7 @@ router.get("/sub-boards/:subBoardId/preferences", async (req, res) => {
         subBoardId,
         ticketCardColor: null,
         cardFaceLayout: "standard",
+        cardFaceMeta: null,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: [],
         updatedAt: null,
@@ -1195,6 +1243,7 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
       ticketCardColor?: string | null;
       hiddenTrackerStatuses?: string[];
       cardFaceLayout?: string;
+      cardFaceMeta?: unknown | null;
       completeCheckboxVisibleByDefault?: boolean;
     };
 
@@ -1218,6 +1267,13 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
       }
       patch.cardFaceLayout = layout;
     }
+    if (Object.prototype.hasOwnProperty.call(body, "cardFaceMeta")) {
+      if (body.cardFaceMeta === null) {
+        patch.cardFaceMeta = Prisma.JsonNull;
+      } else {
+        patch.cardFaceMeta = normalizeCardFaceMetaInput(body.cardFaceMeta) as Prisma.InputJsonValue;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(body, "completeCheckboxVisibleByDefault")) {
       const vis = parseCompleteCheckboxVisibleByDefault(body.completeCheckboxVisibleByDefault);
       if (vis === undefined) {
@@ -1231,6 +1287,13 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
     const createLayout = sanitizeCardFaceLayout(body.cardFaceLayout) ?? "standard";
     const createCheckboxVis =
       parseCompleteCheckboxVisibleByDefault(body.completeCheckboxVisibleByDefault) ?? true;
+    const createMetaPatch: { cardFaceMeta?: Prisma.InputJsonValue | typeof Prisma.JsonNull } = {};
+    if (Object.prototype.hasOwnProperty.call(body, "cardFaceMeta")) {
+      createMetaPatch.cardFaceMeta =
+        body.cardFaceMeta === null
+          ? Prisma.JsonNull
+          : (normalizeCardFaceMetaInput(body.cardFaceMeta) as Prisma.InputJsonValue);
+    }
 
     const pref = await prisma.subBoardPreference.upsert({
       where: { userId_subBoardId: { userId: req.appUser!.id, subBoardId } },
@@ -1241,12 +1304,14 @@ router.patch("/sub-boards/:subBoardId/preferences", async (req, res) => {
         hiddenTrackerStatuses: createHidden,
         cardFaceLayout: createLayout,
         completeCheckboxVisibleByDefault: createCheckboxVis,
+        ...createMetaPatch,
       },
       update: patch,
       select: {
         subBoardId: true,
         ticketCardColor: true,
         cardFaceLayout: true,
+        cardFaceMeta: true,
         completeCheckboxVisibleByDefault: true,
         hiddenTrackerStatuses: true,
         updatedAt: true,
@@ -2789,6 +2854,7 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
       res.status(400).json({ error: "title is required" });
       return;
     }
+    const titleTrim = body.title.trim();
 
     const boardRow = await prisma.board.findUnique({ where: { id: boardId } });
     if (!boardRow || boardRow.archivedAt) {
@@ -2824,11 +2890,14 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
 
     const actorId = req.appUser!.id;
 
+    const brandIdForNum = await getBrandIdForBoardId(boardId);
+    const [ticketNo] = brandIdForNum ? await allocateBrandTicketNumbers(brandIdForNum, 1) : [];
+
     const task = await prisma.task.create({
       data: {
         subBoardId,
         trackerStatus,
-        title: body.title.trim(),
+        title: titleTrim,
         description: typeof body.description === "string" ? body.description : "",
         ...(body.priority !== undefined &&
         typeof body.priority === "string" &&
@@ -2836,6 +2905,8 @@ router.post("/boards/:boardId/tasks", async (req, res) => {
           ? { priority: body.priority }
           : {}),
         order,
+        completed: trackerStatus === "DONE",
+        ...(ticketNo !== undefined ? { brandTicketNumber: ticketNo } : {}),
         chatThreadId: body.chatThreadId ?? undefined,
         sourceMessageId: body.sourceMessageId ?? undefined,
         ...(routingSource ? { routingSource } : {}),
@@ -2969,7 +3040,22 @@ router.patch("/tasks/:taskId", async (req, res) => {
     }
     if (body.title !== undefined) patch.title = body.title;
     if (body.description !== undefined) patch.description = body.description;
-    if (body.completed !== undefined) patch.completed = body.completed;
+    {
+      // Done swim lane ↔ completed: moving into Done checks the item; moving out of Done unchecks.
+      // Card-only toggles (no tracker change) use body.completed. Those keep trackerStatus unchanged.
+      const movingCompletedWithTracker =
+        trackerDirty && (nextTracker === "DONE" || existing.trackerStatus === "DONE");
+      if (trackerDirty) {
+        if (nextTracker === "DONE") {
+          patch.completed = true;
+        } else if (existing.trackerStatus === "DONE") {
+          patch.completed = false;
+        }
+      }
+      if (body.completed !== undefined && !movingCompletedWithTracker) {
+        patch.completed = body.completed;
+      }
+    }
     if (body.priority !== undefined) patch.priority = body.priority;
     if (body.dueDate !== undefined) patch.dueDate = body.dueDate ? new Date(body.dueDate) : null;
     if (body.startDate !== undefined) patch.startDate = body.startDate ? new Date(body.startDate) : null;
@@ -3059,9 +3145,27 @@ router.post("/boards/:boardId/positions", async (req, res) => {
         const { subBoardId, trackerStatus } = parsed;
         let order = 0;
         for (const taskId of taskIds) {
-          await tx.task.updateMany({
+          const prev = await tx.task.findFirst({
             where: { id: taskId, subBoard: { boardId }, archivedAt: null },
-            data: { subBoardId, trackerStatus, order },
+            select: { trackerStatus: true },
+          });
+          if (!prev) {
+            order += 1;
+            continue;
+          }
+          const data: Prisma.TaskUncheckedUpdateInput = {
+            subBoardId,
+            trackerStatus,
+            order,
+          };
+          if (trackerStatus === "DONE") {
+            data.completed = true;
+          } else if (prev.trackerStatus === "DONE") {
+            data.completed = false;
+          }
+          await tx.task.update({
+            where: { id: taskId },
+            data,
           });
           order += 1;
         }
@@ -3422,6 +3526,126 @@ router.delete("/tasks/:taskId/labels/:labelId", async (req, res) => {
     res.json(taskJsonForApi(task));
   } catch {
     res.status(500).json({ error: "Failed to remove label" });
+  }
+});
+
+router.get("/brands/:brandId/label-suggestions", async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    if (!(await assertBrandAccess(req.appUser!, brandId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const uid = req.appUser!.id;
+
+    const boardRows = await prisma.label.findMany({
+      where: { board: { projectSpace: { workspace: { brandId } } } },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        boardId: true,
+        _count: { select: { tasks: true } },
+      },
+    });
+    const userRows = await prisma.userBrandTicketLabel.findMany({
+      where: { userId: uid, brandId },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        _count: { select: { taskLinks: true } },
+      },
+    });
+
+    type Pick = {
+      scope: "board" | "user";
+      id: string;
+      name: string;
+      color: string;
+      boardId?: string;
+      count: number;
+    };
+    const combined: Pick[] = [
+      ...boardRows.map((r) => ({
+        scope: "board" as const,
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        boardId: r.boardId,
+        count: r._count.tasks,
+      })),
+      ...userRows.map((r) => ({
+        scope: "user" as const,
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        count: r._count.taskLinks,
+      })),
+    ];
+    combined.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const frequent = combined.slice(0, 4).map(({ count: _c, ...rest }) => rest);
+    const frequentId = new Set(frequent.map((f) => `${f.scope}:${f.id}`));
+
+    type RowRec = {
+      id: string;
+      scope: string;
+      name: string;
+      color: string;
+      boardId: string | null;
+      lastu: Date;
+    };
+    const boardRecent = await prisma.$queryRaw<RowRec[]>`
+      SELECT l.id, 'board' AS scope, l.name, l.color, l."boardId", MAX(t."updatedAt") AS "lastu"
+      FROM "Label" l
+      INNER JOIN "TaskLabel" tl ON tl."labelId" = l.id
+      INNER JOIN "Task" t ON t.id = tl."taskId"
+      INNER JOIN "BoardList" bl ON bl.id = t."subBoardId"
+      INNER JOIN "Board" b ON b.id = bl."boardId"
+      INNER JOIN "ProjectSpace" ps ON ps.id = b."projectSpaceId"
+      INNER JOIN "Workspace" w ON w.id = ps."workspaceId"
+      WHERE w."brandId" = ${brandId}
+      GROUP BY l.id, l.name, l.color, l."boardId"
+    `;
+    const userRecent = await prisma.$queryRaw<RowRec[]>`
+      SELECT u.id, 'user' AS scope, u.name, u.color, NULL::text AS "boardId", MAX(t."updatedAt") AS "lastu"
+      FROM "UserBrandTicketLabel" u
+      INNER JOIN "TaskUserBrandTicketLabel" link ON link."userBrandTicketLabelId" = u.id
+      INNER JOIN "Task" t ON t.id = link."taskId"
+      INNER JOIN "BoardList" bl ON bl.id = t."subBoardId"
+      INNER JOIN "Board" b ON b.id = bl."boardId"
+      INNER JOIN "ProjectSpace" ps ON ps.id = b."projectSpaceId"
+      INNER JOIN "Workspace" w ON w.id = ps."workspaceId"
+      WHERE w."brandId" = ${brandId} AND u."userId" = ${uid}
+      GROUP BY u.id, u.name, u.color
+    `;
+    const merged = [...boardRecent, ...userRecent]
+      .filter((r) => !frequentId.has(`${r.scope}:${r.id}`))
+      .sort((a, b) => b.lastu.getTime() - a.lastu.getTime());
+    const seen = new Set<string>();
+    const recentOut: { scope: "board" | "user"; id: string; name: string; color: string; boardId?: string }[] = [];
+    for (const r of merged) {
+      const key = `${r.scope}:${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (r.scope === "user") {
+        recentOut.push({ scope: "user", id: r.id, name: r.name, color: r.color });
+      } else {
+        recentOut.push({
+          scope: "board",
+          id: r.id,
+          name: r.name,
+          color: r.color,
+          ...(r.boardId ? { boardId: r.boardId } : {}),
+        });
+      }
+      if (recentOut.length >= 4) break;
+    }
+
+    res.json({ frequent, recent: recentOut });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load label suggestions" });
   }
 });
 

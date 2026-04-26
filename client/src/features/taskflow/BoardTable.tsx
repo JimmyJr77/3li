@@ -22,6 +22,7 @@ type Row = TaskFlowTask & {
   listTitle: string;
   boardName: string;
   trackerLabel: string;
+  brandTicket: string;
 };
 
 function BoardTableRow({
@@ -72,12 +73,19 @@ export function BoardTable({
         listTitle: t.list?.title ?? "—",
         boardName: t.list?.board?.name ?? "—",
         trackerLabel: TRACKER_LABELS[normalizeTrackerStatus(t.trackerStatus)],
+        brandTicket: t.brandTicketNumber != null ? `#${t.brandTicketNumber}` : "—",
       })),
     [tasks],
   );
 
   const columns = useMemo<ColumnDef<Row>[]>(
     () => [
+      {
+        accessorKey: "brandTicket",
+        header: "Ticket",
+        size: 70,
+        cell: (info) => <span className="font-mono tabular-nums">{String(info.getValue())}</span>,
+      },
       {
         accessorKey: "title",
         header: "Title",

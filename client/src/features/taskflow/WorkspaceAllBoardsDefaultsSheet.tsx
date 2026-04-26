@@ -17,6 +17,12 @@ import {
 } from "@/hooks/useResizableRightAppSheetWidth";
 import { cn } from "@/lib/utils";
 import { applyUserBoardDefaultsForWorkspace } from "./api";
+import {
+  CARD_FACE_META_KEYS,
+  CARD_FACE_META_LABELS,
+  DEFAULT_CARD_FACE_META,
+  type CardFaceMeta,
+} from "./cardFaceMeta";
 import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus } from "./trackerMeta";
 
 type Props = {
@@ -31,6 +37,8 @@ export function WorkspaceAllBoardsDefaultsSheet({ open, onOpenChange, workspaceI
   const [completeCb, setCompleteCb] = useState(true);
   const [hidden, setHidden] = useState<TrackerStatus[]>([]);
   const [showAllSubTabs, setShowAllSubTabs] = useState(false);
+  const [cardFaceLayout, setCardFaceLayout] = useState<"standard" | "minimal">("standard");
+  const [cardFaceMeta, setCardFaceMeta] = useState<CardFaceMeta>(() => ({ ...DEFAULT_CARD_FACE_META }));
   const sheetSizing = useResizableRightAppSheetWidth({ open });
 
   useEffect(() => {
@@ -38,6 +46,8 @@ export function WorkspaceAllBoardsDefaultsSheet({ open, onOpenChange, workspaceI
     setCompleteCb(true);
     setHidden([]);
     setShowAllSubTabs(false);
+    setCardFaceLayout("standard");
+    setCardFaceMeta({ ...DEFAULT_CARD_FACE_META });
   }, [open]);
 
   const mutation = useMutation({
@@ -46,9 +56,12 @@ export function WorkspaceAllBoardsDefaultsSheet({ open, onOpenChange, workspaceI
         defaultCompleteCheckboxVisible: completeCb,
         defaultHiddenTrackerStatuses: hidden,
         subBoardTabVisibility: showAllSubTabs ? "show_all" : undefined,
+        defaultCardFaceLayout: cardFaceLayout,
+        defaultCardFaceMeta: cardFaceMeta,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["board-user-prefs"] });
+      queryClient.invalidateQueries({ queryKey: ["sub-board-prefs"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
       onOpenChange(false);
@@ -122,6 +135,38 @@ export function WorkspaceAllBoardsDefaultsSheet({ open, onOpenChange, workspaceI
                     );
                   })}
                 </div>
+              </div>
+              <div className="space-y-2 border-t border-border/60 pt-4">
+                <p className="text-sm font-medium">Default ticket card face</p>
+                <p className="text-xs text-muted-foreground">
+                  Sets your <strong>board-level</strong> defaults on every project board. Sub-boards you have not
+                  customized inherit layout and meta; sub-board options can still override.
+                </p>
+                <select
+                  className="border-input bg-background h-9 w-full max-w-md rounded-md border px-2 text-sm"
+                  value={cardFaceLayout}
+                  onChange={(e) => setCardFaceLayout(e.target.value === "minimal" ? "minimal" : "standard")}
+                >
+                  <option value="standard">Standard (title + meta)</option>
+                  <option value="minimal">Title only</option>
+                </select>
+                {cardFaceLayout === "standard" ? (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Include on standard cards</p>
+                    {CARD_FACE_META_KEYS.map((key) => (
+                      <label key={key} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={cardFaceMeta[key]}
+                          onChange={(e) =>
+                            setCardFaceMeta((prev) => ({ ...prev, [key]: e.target.checked }))
+                          }
+                        />
+                        {CARD_FACE_META_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-2 border-t border-border/60 pt-4">
                 <p className="text-sm font-medium">Sub-board tabs (task lists)</p>

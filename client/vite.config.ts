@@ -14,7 +14,8 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        // Use IPv4 loopback so the proxy does not hit ::1 while the API listens on 127.0.0.1 (common 502 in dev).
+        target: "http://127.0.0.1:3001",
         changeOrigin: true,
       },
     },
