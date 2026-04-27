@@ -65,13 +65,13 @@ export async function fetchBoardUserPreferences(boardId: string): Promise<BoardU
 export async function patchBoardUserPreferences(
   boardId: string,
   body: Partial<{
-    defaultTicketCardColor: string | null;
     defaultHiddenTrackerStatuses: string[];
     defaultCompleteCheckboxVisible: boolean;
     defaultCardFaceLayout: string;
     defaultCardFaceMeta: unknown;
     hiddenSubBoardIds: string[];
     showBoardAccentBorder: boolean;
+    showSubBoardAccentStrip: boolean;
   }>,
 ): Promise<BoardUserPreferenceDto> {
   const { data } = await api.patch<BoardUserPreferenceDto>(
@@ -105,16 +105,28 @@ export async function patchWorkspaceUserPreferences(
 export async function applyUserBoardDefaultsForWorkspace(
   workspaceId: string,
   body: {
-    defaultCompleteCheckboxVisible: boolean;
-    defaultHiddenTrackerStatuses: TrackerStatus[];
+    defaultCompleteCheckboxVisible?: boolean;
+    defaultHiddenTrackerStatuses?: TrackerStatus[];
     subBoardTabVisibility?: "show_all";
     defaultCardFaceLayout?: string;
     defaultCardFaceMeta?: unknown;
+    showBoardAccentBorder?: boolean;
+    showSubBoardAccentStrip?: boolean;
   },
 ): Promise<{ ok: boolean; boardCount: number }> {
   const { data } = await api.post<{ ok: boolean; boardCount: number }>(
     `/api/task-app/workspaces/${workspaceId}/apply-user-board-defaults`,
     body,
+  );
+  return data;
+}
+
+export async function clearWorkspaceTaskCheckboxOverrides(
+  workspaceId: string,
+): Promise<{ ok: boolean; count: number }> {
+  const { data } = await api.post<{ ok: boolean; count: number }>(
+    `/api/task-app/workspaces/${workspaceId}/clear-task-checkbox-overrides`,
+    {},
   );
   return data;
 }

@@ -538,6 +538,10 @@ export function BoardsPage() {
     () => projectSpaces.reduce((n, ps) => n + (ps.boards?.length ?? 0), 0),
     [projectSpaces],
   );
+  const workspaceBoardIds = useMemo(
+    () => projectSpaces.flatMap((ps) => ps.boards.map((b) => b.id)),
+    [projectSpaces],
+  );
 
   useEffect(() => {
     if (!projectSpaceEditId) return;
@@ -1442,24 +1446,17 @@ export function BoardsPage() {
           <div className="flex items-start justify-between gap-2">
             <h2 className="text-lg font-semibold">Project spaces</h2>
             {activeWorkspaceId && activeWorkspace ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0 text-muted-foreground hover:text-foreground -mt-0.5"
-                    aria-label="Project spaces options"
-                  >
-                    <SlidersHorizontal className="size-4" aria-hidden />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-56">
-                  <DropdownMenuItem onSelect={() => setAllBoardsDefaultsOpen(true)}>
-                    Set defaults for all boards
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-muted-foreground hover:text-foreground -mt-0.5"
+                aria-label="Project spaces settings"
+                title="Project spaces settings"
+                onClick={() => setAllBoardsDefaultsOpen(true)}
+              >
+                <SlidersHorizontal className="size-4" aria-hidden />
+              </Button>
             ) : null}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1481,6 +1478,7 @@ export function BoardsPage() {
             onOpenChange={setAllBoardsDefaultsOpen}
             workspaceId={activeWorkspaceId}
             boardCount={workspaceBoardCount}
+            boardIds={workspaceBoardIds}
           />
         ) : null}
         <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">

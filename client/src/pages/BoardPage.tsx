@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, Kanban, LayoutGrid, Loader2, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { PMAgentSheet, buildBoardContextSnapshot } from "@/features/agents/PMAgentSheet";
@@ -12,7 +12,11 @@ import {
   filterBoard,
   type BoardFilterState,
 } from "@/features/taskflow/filters";
-import { createBoardList, fetchBoard, fetchMyTicketLabels, patchBoard } from "@/features/taskflow/api";
+import { createBoardList, fetchBoard, fetchMyTicketLabels, patchBoard, patchTask } from "@/features/taskflow/api";
+import {
+  TaskTicketArchiveContextMenu,
+  type TicketArchiveMenuState,
+} from "@/features/taskflow/TaskTicketArchiveContextMenu";
 import type { BoardDto, TaskFlowTask } from "@/features/taskflow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +57,7 @@ export function BoardPage() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("board");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [ticketArchiveMenu, setTicketArchiveMenu] = useState<TicketArchiveMenuState>(null);
   const [filters, setFilters] = useState<BoardFilterState>(defaultBoardFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -80,6 +85,14 @@ export function BoardPage() {
     },
   });
 
+  const archiveTicketMutation = useMutation({
+    mutationFn: (taskId: string) => patchTask(taskId, { archived: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["board", boardId] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+
   const displayBoard = useMemo(
     () => (board ? filterBoard(board, filters) : null),
     [board, filters],
@@ -87,6 +100,13 @@ export function BoardPage() {
 
   const filtersOn = board ? boardFiltersActive(filters) : false;
   const boardArchived = Boolean(board?.archivedAt);
+
+  const openTicketArchiveFromTable = useCallback((e: MouseEvent<HTMLTableRowElement>, task: TaskFlowTask) => {
+    if (boardArchived) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setTicketArchiveMenu({ clientX: e.clientX, clientY: e.clientY, task });
+  }, [boardArchived]);
 
   const selectedTask = useMemo(() => {
     if (!selectedTaskId || !board) return null;
@@ -371,11 +391,20 @@ export function BoardPage() {
       ) : view === "table" ? (
         <BoardTable
           tasks={tableTasks}
+          boardArchived={boardArchived}
+          onTicketContextMenu={boardArchived ? undefined : openTicketArchiveFromTable}
           onRowClick={(t) => {
             setSelectedTaskId(t.id);
           }}
         />
       ) : null}
+
+      <TaskTicketArchiveContextMenu
+        state={ticketArchiveMenu}
+        onClose={() => setTicketArchiveMenu(null)}
+        onArchive={(t) => archiveTicketMutation.mutate(t.id)}
+        archivePending={archiveTicketMutation.isPending}
+      />
 
       <TaskDetailSheet
         board={board}

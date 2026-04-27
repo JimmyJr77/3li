@@ -8,7 +8,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import {
   clearRoutedGlow,
@@ -30,12 +30,16 @@ function BoardTableRow({
   onRowClick,
   colorByBoard,
   subBoardStrip,
+  boardArchived,
+  onTicketContextMenu,
 }: {
   row: TanstackRow<Row>;
   onRowClick: (task: TaskFlowTask) => void;
   colorByBoard?: boolean;
   /** Right-edge inset bar from each ticket’s sub-board accent (Ticket Tracker). */
   subBoardStrip?: boolean;
+  boardArchived?: boolean;
+  onTicketContextMenu?: (e: MouseEvent<HTMLTableRowElement>, task: TaskFlowTask) => void;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = row.original.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -59,6 +63,12 @@ function BoardTableRow({
         glow && "bg-yellow-500/5 dark:bg-yellow-500/10",
       )}
       style={boxShadow ? { boxShadow } : undefined}
+      onContextMenu={(e) => {
+        if (boardArchived || !onTicketContextMenu) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onTicketContextMenu(e, row.original);
+      }}
       onClick={() => {
         if (taskWs) clearRoutedGlow("task", row.original.id, taskWs);
         onRowClick(row.original);
@@ -78,6 +88,8 @@ export function BoardTable({
   onRowClick,
   colorByBoard,
   subBoardStrip,
+  boardArchived,
+  onTicketContextMenu,
 }: {
   tasks: TaskFlowTask[];
   onRowClick: (task: TaskFlowTask) => void;
@@ -85,6 +97,8 @@ export function BoardTable({
   colorByBoard?: boolean;
   /** When true, rows show a right inset bar from each ticket’s sub-board accent color. */
   subBoardStrip?: boolean;
+  boardArchived?: boolean;
+  onTicketContextMenu?: (e: MouseEvent<HTMLTableRowElement>, task: TaskFlowTask) => void;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -195,6 +209,8 @@ export function BoardTable({
               onRowClick={onRowClick}
               colorByBoard={colorByBoard}
               subBoardStrip={subBoardStrip}
+              boardArchived={boardArchived}
+              onTicketContextMenu={onTicketContextMenu}
             />
           ))}
         </tbody>

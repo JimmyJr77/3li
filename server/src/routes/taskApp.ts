@@ -1000,13 +1000,13 @@ router.get("/boards/:boardId/sub-board-preferences", async (req, res) => {
 
 const boardUserPreferenceSelect = {
   boardId: true,
-  defaultTicketCardColor: true,
   defaultHiddenTrackerStatuses: true,
   defaultCompleteCheckboxVisible: true,
   defaultCardFaceLayout: true,
   defaultCardFaceMeta: true,
   hiddenSubBoardIds: true,
   showBoardAccentBorder: true,
+  showSubBoardAccentStrip: true,
   updatedAt: true,
 } as const;
 
@@ -1036,13 +1036,13 @@ router.get("/boards/:boardId/user-board-preferences", async (req, res) => {
     res.json(
       row ?? {
         boardId,
-        defaultTicketCardColor: null,
         defaultHiddenTrackerStatuses: [],
         defaultCompleteCheckboxVisible: true,
         defaultCardFaceLayout: "standard",
         defaultCardFaceMeta: {},
         hiddenSubBoardIds: [],
         showBoardAccentBorder: true,
+        showSubBoardAccentStrip: true,
         updatedAt: null,
       },
     );
@@ -1056,19 +1056,16 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
   try {
     const boardId = req.params.boardId;
     const body = req.body as {
-      defaultTicketCardColor?: string | null;
       defaultHiddenTrackerStatuses?: string[];
       defaultCompleteCheckboxVisible?: boolean;
       defaultCardFaceLayout?: string;
       defaultCardFaceMeta?: unknown;
       hiddenSubBoardIds?: string[];
       showBoardAccentBorder?: boolean;
+      showSubBoardAccentStrip?: boolean;
     };
 
     const patch: Prisma.BoardUserPreferenceUncheckedUpdateInput = {};
-    if (Object.prototype.hasOwnProperty.call(body, "defaultTicketCardColor")) {
-      patch.defaultTicketCardColor = sanitizeTicketCardColor(body.defaultTicketCardColor);
-    }
     if (Object.prototype.hasOwnProperty.call(body, "defaultHiddenTrackerStatuses")) {
       const hidden = parseHiddenTrackerStatuses(body.defaultHiddenTrackerStatuses);
       if (hidden == null) {
@@ -1111,6 +1108,13 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
       }
       patch.showBoardAccentBorder = body.showBoardAccentBorder;
     }
+    if (Object.prototype.hasOwnProperty.call(body, "showSubBoardAccentStrip")) {
+      if (typeof body.showSubBoardAccentStrip !== "boolean") {
+        res.status(400).json({ error: "Invalid showSubBoardAccentStrip" });
+        return;
+      }
+      patch.showSubBoardAccentStrip = body.showSubBoardAccentStrip;
+    }
 
     if (Object.keys(patch).length === 0) {
       res.status(400).json({ error: "No updates" });
@@ -1127,11 +1131,6 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
       create: {
         userId: req.appUser!.id,
         boardId,
-        defaultTicketCardColor: sanitizeTicketCardColor(
-          Object.prototype.hasOwnProperty.call(body, "defaultTicketCardColor")
-            ? body.defaultTicketCardColor
-            : null,
-        ),
         defaultHiddenTrackerStatuses:
           parseHiddenTrackerStatuses(body.defaultHiddenTrackerStatuses) ?? [],
         defaultCompleteCheckboxVisible:
@@ -1143,6 +1142,9 @@ router.patch("/boards/:boardId/user-board-preferences", async (req, res) => {
         hiddenSubBoardIds: createHiddenIds,
         showBoardAccentBorder: Object.prototype.hasOwnProperty.call(body, "showBoardAccentBorder")
           ? Boolean(body.showBoardAccentBorder)
+          : true,
+        showSubBoardAccentStrip: Object.prototype.hasOwnProperty.call(body, "showSubBoardAccentStrip")
+          ? Boolean(body.showSubBoardAccentStrip)
           : true,
       },
       update: patch,
@@ -1175,6 +1177,8 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
       subBoardTabVisibility?: "show_all";
       defaultCardFaceLayout?: unknown;
       defaultCardFaceMeta?: unknown;
+      showBoardAccentBorder?: boolean;
+      showSubBoardAccentStrip?: boolean;
     };
 
     const hasSubAll = body.subBoardTabVisibility === "show_all";
@@ -1182,8 +1186,26 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
     const hasTrackers = Object.prototype.hasOwnProperty.call(body, "defaultHiddenTrackerStatuses");
     const hasCardFaceLayout = Object.prototype.hasOwnProperty.call(body, "defaultCardFaceLayout");
     const hasCardFaceMeta = Object.prototype.hasOwnProperty.call(body, "defaultCardFaceMeta");
-    if (!hasSubAll && !hasCheckbox && !hasTrackers && !hasCardFaceLayout && !hasCardFaceMeta) {
+    const hasShowBoardBorder = Object.prototype.hasOwnProperty.call(body, "showBoardAccentBorder");
+    const hasShowSubStrip = Object.prototype.hasOwnProperty.call(body, "showSubBoardAccentStrip");
+    if (
+      !hasSubAll &&
+      !hasCheckbox &&
+      !hasTrackers &&
+      !hasCardFaceLayout &&
+      !hasCardFaceMeta &&
+      !hasShowBoardBorder &&
+      !hasShowSubStrip
+    ) {
       res.status(400).json({ error: "No updates" });
+      return;
+    }
+    if (hasShowBoardBorder && typeof body.showBoardAccentBorder !== "boolean") {
+      res.status(400).json({ error: "Invalid showBoardAccentBorder" });
+      return;
+    }
+    if (hasShowSubStrip && typeof body.showSubBoardAccentStrip !== "boolean") {
+      res.status(400).json({ error: "Invalid showSubBoardAccentStrip" });
       return;
     }
     if (body.subBoardTabVisibility !== undefined && body.subBoardTabVisibility !== "show_all") {
@@ -1240,15 +1262,22 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
     if (hasSubAll) updatePatch.hiddenSubBoardIds = [];
     if (hasCardFaceLayout) updatePatch.defaultCardFaceLayout = layoutResolved!;
     if (hasCardFaceMeta) updatePatch.defaultCardFaceMeta = metaResolved! as Prisma.InputJsonValue;
+    if (hasShowBoardBorder) updatePatch.showBoardAccentBorder = Boolean(body.showBoardAccentBorder);
+    if (hasShowSubStrip) updatePatch.showSubBoardAccentStrip = Boolean(body.showSubBoardAccentStrip);
 
     const createData = (boardId: string): Prisma.BoardUserPreferenceUncheckedCreateInput => {
       const c: Prisma.BoardUserPreferenceUncheckedCreateInput = {
         userId,
         boardId,
-        defaultTicketCardColor: null,
         defaultHiddenTrackerStatuses: hiddenTrackers ?? [],
         defaultCompleteCheckboxVisible: hasCheckbox ? checkboxValue! : true,
         hiddenSubBoardIds: [],
+        defaultCardFaceLayout: layoutResolved ?? "standard",
+        defaultCardFaceMeta: (metaResolved !== undefined
+          ? metaResolved
+          : normalizeCardFaceMetaInput({})) as Prisma.InputJsonValue,
+        showBoardAccentBorder: hasShowBoardBorder ? Boolean(body.showBoardAccentBorder) : true,
+        showSubBoardAccentStrip: hasShowSubStrip ? Boolean(body.showSubBoardAccentStrip) : true,
       };
       if (hasCardFaceLayout) c.defaultCardFaceLayout = layoutResolved!;
       if (hasCardFaceMeta) c.defaultCardFaceMeta = metaResolved! as Prisma.InputJsonValue;
@@ -1269,6 +1298,37 @@ router.post("/workspaces/:workspaceId/apply-user-board-defaults", async (req, re
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to apply board defaults" });
+  }
+});
+
+/** Clear per-ticket “Done” checkbox overrides so tickets inherit sub-board defaults (workspace-wide). */
+router.post("/workspaces/:workspaceId/clear-task-checkbox-overrides", async (req, res) => {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const user = req.appUser!;
+    const ok = await assertWorkspaceAccess(user, workspaceId);
+    if (!ok) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+
+    const result = await prisma.task.updateMany({
+      where: {
+        archivedAt: null,
+        subBoard: {
+          board: {
+            archivedAt: null,
+            projectSpace: { workspaceId, archivedAt: null },
+          },
+        },
+      },
+      data: { showCompleteCheckbox: null },
+    });
+
+    res.json({ ok: true, count: result.count });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to clear task checkbox overrides" });
   }
 });
 

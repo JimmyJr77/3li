@@ -105,7 +105,6 @@ export type SubBoardPreferenceDto = {
 /** Per-user defaults for an entire project board (`/boards/:boardId/user-board-preferences`). */
 export type BoardUserPreferenceDto = {
   boardId: string;
-  defaultTicketCardColor: string | null;
   defaultHiddenTrackerStatuses: TrackerStatus[];
   defaultCompleteCheckboxVisible: boolean;
   /** standard | minimal — default for sub-boards with no saved layout preference row. */
@@ -115,6 +114,8 @@ export type BoardUserPreferenceDto = {
   hiddenSubBoardIds: string[];
   /** When true, ticket cards on this board use the project board accent as their colored border (when no sub-board override). */
   showBoardAccentBorder?: boolean;
+  /** When true, show each sub-board’s accent strip on ticket cards (combined with per-sub-board preference when set). */
+  showSubBoardAccentStrip?: boolean;
   updatedAt: string | null;
 };
 

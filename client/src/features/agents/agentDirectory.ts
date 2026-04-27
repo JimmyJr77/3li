@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Bot, Goal, Lightbulb, MessageSquare, Users, Zap } from "lucide-react";
+import { Bot, Goal, Lightbulb, Mail, MessageSquare, Users } from "lucide-react";
 
 /** Hub keys — must match server `agentKind` for logged sessions (except `consultant`). */
 export type AgentHubKind =
@@ -32,7 +32,7 @@ export const agentDirectory: AgentDirectoryEntry[] = [
     livePath: "/app/rapid-router",
     sessionSource: "agent_sessions",
     listAgentKind: "mail_clerk",
-    icon: Zap,
+    icon: Mail,
   },
   {
     kind: "advisor_agents",

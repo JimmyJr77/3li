@@ -420,14 +420,13 @@ model Board {
   @@index([projectSpaceId, archivedAt])
 }
 
-/// Per-user defaults for a project board (card color, lane visibility, checkbox default, hidden sub-boards).
+/// Per-user defaults for a project board (lane visibility, checkbox default, hidden sub-boards).
 model BoardUserPreference {
   id                             String          @id @default(cuid())
   userId                         String
   user                           AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
   boardId                        String
   board                          Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  defaultTicketCardColor         String?         @db.VarChar(32)
   defaultHiddenTrackerStatuses   TrackerStatus[]
   defaultCompleteCheckboxVisible Boolean         @default(true)
   /// standard | minimal — default for sub-boards until you open sub-board options (per-user).
@@ -438,6 +437,8 @@ model BoardUserPreference {
   hiddenSubBoardIds              String[]
   /// When true, this user sees the project board accent as a colored border on ticket cards on this board.
   showBoardAccentBorder          Boolean         @default(true)
+  /// When true, this user sees each sub-board’s accent as a colored strip on the right edge of ticket cards (subject to per-sub-board preference when set).
+  showSubBoardAccentStrip        Boolean         @default(true)
   createdAt                      DateTime        @default(now())
   updatedAt                      DateTime        @updatedAt
 

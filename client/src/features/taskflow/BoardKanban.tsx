@@ -25,6 +25,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
+  CheckSquare2,
   ChevronLeft,
   ChevronRight,
   EllipsisVertical,
@@ -34,19 +35,23 @@ import {
   Plus,
   Settings2,
   SlidersHorizontal,
-  Trash2,
+  Zap,
 } from "lucide-react";
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type Dispatch,
+  type MouseEvent,
   type ReactNode,
   type SetStateAction,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,12 +65,12 @@ import {
   fetchBoardSubBoardPreferences,
   fetchBoardUserPreferences,
   patchBoardList,
+  patchBoardUserPreferences,
   patchSubBoardPreference,
   patchTask,
   reorderBoardLists,
 } from "./api";
 import { ProjectBoardSettingsPanel } from "./ProjectBoardSettingsPanel";
-import { UserTicketLabelsPanel } from "./UserTicketLabelsPanel";
 import {
   CARD_FACE_META_KEYS,
   CARD_FACE_META_LABELS,
@@ -83,6 +88,11 @@ import {
   TRACKER_STATUSES,
   type TrackerStatus,
 } from "./trackerMeta";
+import { BulkTaskActionsSheet } from "./BulkTaskActionsSheet";
+import {
+  TaskTicketArchiveContextMenu,
+  type TicketArchiveMenuState,
+} from "./TaskTicketArchiveContextMenu";
 import {
   clearRoutedGlow,
   useRoutedTaskGlow,
@@ -91,20 +101,11 @@ import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
+import { SUB_BOARD_ACCENT_PALETTE } from "./subBoardAccentPalette";
 
 const SB_PREFIX = "board-subboard:";
 const PIN_PREFIX = "board-pinned-subboard:";
 const PIN_DROP_ZONE_ID = "board-pinned-drop-zone";
-const SUB_BOARD_COLOR_OPTIONS = [
-  "#64748b",
-  "#3b82f6",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-  "#a855f7",
-  "#14b8a6",
-  "#f97316",
-] as const;
 
 function sbDragId(subBoardId: string) {
   return `${SB_PREFIX}${subBoardId}`;
@@ -202,8 +203,7 @@ function cardColorForSubBoard(
   const showAccent = boardUserPref?.showBoardAccentBorder !== false;
   const accent = board.accentColor;
   if (showAccent && accent) return accent;
-  const c = boardUserPref?.defaultTicketCardColor ?? null;
-  return c ?? undefined;
+  return undefined;
 }
 
 /** Effective prefs for cards (merges board-level defaults with per-sub-board row). */
@@ -242,7 +242,8 @@ function normalizedSubBoardPref(
     cardFaceMeta: row?.cardFaceMeta ?? null,
     completeCheckboxVisibleByDefault: checkboxMerged,
     hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
-    showSubBoardAccentStrip: row?.showSubBoardAccentStrip !== false,
+    showSubBoardAccentStrip:
+      (boardUserPref?.showSubBoardAccentStrip !== false) && (row?.showSubBoardAccentStrip !== false),
     updatedAt: row?.updatedAt ?? null,
     cardFaceMetaMerged: mergedMeta,
   };
@@ -259,13 +260,13 @@ function effectiveCompleteCheckboxOnCard(
 
 type SubBoardPrefSavePayload = {
   subBoardId: string;
-  ticketCardColor: string | null;
+  ticketCardColor?: string | null;
   hiddenTrackerStatuses: TrackerStatus[];
   cardFaceLayout: string;
   /** Omit to leave unchanged; `null` clears overrides (inherit board defaults). */
   cardFaceMeta?: CardFaceMeta | null;
   completeCheckboxVisibleByDefault: boolean;
-  showSubBoardAccentStrip: boolean;
+  showSubBoardAccentStrip?: boolean;
 };
 
 function upsertPrefRows(
@@ -299,7 +300,7 @@ function confirmDeleteSubBoard(list: BoardListDto): boolean {
     n > 0
       ? ` ${n} ticket${n === 1 ? "" : "s"} will move to another sub-board (Backlog lane if that sub-board exists).`
       : "";
-  return window.confirm(`Delete the sub-board “${list.title}”?${detail}`);
+  return window.confirm(`Archive the sub-board “${list.title}”?${detail}`);
 }
 
 /** Short priority label for the card face (same line as due date). */
@@ -391,11 +392,14 @@ function TaskCardFace({
   onOpen,
   onToggleComplete,
   subBoardPref,
+  selectionMode,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   onToggleComplete: (t: TaskFlowTask) => void;
   subBoardPref: EffectiveSubBoardPreference;
+  /** When true, card face does not open the ticket or toggle completion (multi-select on the card shell). */
+  selectionMode?: boolean;
 }) {
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
@@ -417,23 +421,23 @@ function TaskCardFace({
         <input
           type="checkbox"
           checked={task.completed}
-          className={cn("size-4 shrink-0 rounded border", !minimal && "mt-0.5")}
+          className={cn(
+            "size-4 shrink-0 rounded border",
+            !minimal && "mt-0.5",
+            selectionMode && "pointer-events-none opacity-40",
+          )}
           aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
           onClick={(e) => e.stopPropagation()}
           onChange={() => {
+            if (selectionMode) return;
             if (taskWs) clearRoutedGlow("task", task.id, taskWs);
             onToggleComplete(task);
           }}
+          tabIndex={selectionMode ? -1 : undefined}
         />
       ) : null}
-      <button
-        type="button"
-        className={cn("min-w-0 flex-1 text-left", !showDoneCheckbox && "pl-0.5")}
-        onClick={() => {
-          if (taskWs) clearRoutedGlow("task", task.id, taskWs);
-          onOpen(task);
-        }}
-      >
+      {selectionMode ? (
+        <div className={cn("min-w-0 flex-1 text-left", !showDoneCheckbox && "pl-0.5")}>
         <p
           className={cn(
             "font-medium leading-snug",
@@ -496,7 +500,80 @@ function TaskCardFace({
             )}
           </>
         ) : null}
-      </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={cn("min-w-0 flex-1 text-left", !showDoneCheckbox && "pl-0.5")}
+          onClick={() => {
+            if (taskWs) clearRoutedGlow("task", task.id, taskWs);
+            onOpen(task);
+          }}
+        >
+          <p
+            className={cn(
+              "font-medium leading-snug",
+              task.completed && "text-muted-foreground line-through",
+            )}
+          >
+            {task.title}
+          </p>
+          {!minimal ? (
+            <>
+              {meta.showLabels && task.labels.length > 0 ? (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {task.labels.map(({ label }) => (
+                    <span
+                      key={label.id}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium leading-none text-white"
+                      style={{ backgroundColor: label.color }}
+                    >
+                      {label.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {(() => {
+                const pri =
+                  meta.showPriority && task.priority ? formatTaskCardPriorityShort(task.priority) : null;
+                const hasDue = Boolean(meta.showDueDate && task.dueDate);
+                const assigneeShort =
+                  meta.showAssignee && task.assignee?.label?.trim()
+                    ? formatAssigneeNameForCard(task.assignee.label)
+                    : null;
+                if (!hasDue && !pri && !assigneeShort) return null;
+                const assigneeFull = task.assignee?.label?.trim() ?? "";
+                return (
+                  <p
+                    className="mt-1 inline-flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground"
+                    {...(assigneeFull ? { title: `Assigned: ${assigneeFull}` } : {})}
+                  >
+                    {hasDue ? <span>Due {new Date(task.dueDate!).toLocaleDateString()}</span> : null}
+                    {pri ? <span className="font-medium text-foreground">{pri}</span> : null}
+                    {assigneeShort ? (
+                      <>
+                        <span className="sr-only">Assigned </span>
+                        <span aria-hidden className="text-muted-foreground">
+                          {"→ "}
+                        </span>
+                        <span className="font-medium text-foreground">{assigneeShort}</span>
+                      </>
+                    ) : null}
+                  </p>
+                );
+              })()}
+              {task.ideaNode && (
+                <p className="mt-1 text-xs text-muted-foreground">Idea: {task.ideaNode.title}</p>
+              )}
+              {checkTotal > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Checklist {doneCount}/{checkTotal}
+                </p>
+              )}
+            </>
+          ) : null}
+        </button>
+      )}
     </div>
   );
 }
@@ -508,6 +585,7 @@ function SortableTaskCard({
   cardColor,
   subBoardPref,
   listAccentColor,
+  boardArchived,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
@@ -516,7 +594,9 @@ function SortableTaskCard({
   subBoardPref: EffectiveSubBoardPreference;
   /** Canonical sub-board accent for the right strip (from `BoardList`). */
   listAccentColor?: string | null;
+  boardArchived?: boolean;
 }) {
+  const ui = useBoardKanbanUi();
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(task.id, taskWs);
@@ -531,6 +611,7 @@ function SortableTaskCard({
   const meta = subBoardPref.cardFaceMetaMerged;
   const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
   const showSubStrip = subBoardPref.showSubBoardAccentStrip !== false;
+  const isSelected = ui.selectedTaskIds.includes(task.id);
 
   return (
     <div
@@ -542,7 +623,20 @@ function SortableTaskCard({
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
         isDragging && "z-10 opacity-40",
+        ui.bulkSelectMode && isSelected && "bg-emerald-500/[0.14] ring-2 ring-emerald-400/45 ring-offset-0",
       )}
+      onClick={(e) => {
+        if (!ui.bulkSelectMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        ui.toggleTaskSelection(task.id);
+      }}
+      onContextMenu={(e) => {
+        if (boardArchived) return;
+        e.preventDefault();
+        e.stopPropagation();
+        ui.openTicketContextMenu(e, task);
+      }}
     >
       <TaskCardLeftTicketStrip show={showTicketStrip} number={task.brandTicketNumber} />
       <button
@@ -559,6 +653,7 @@ function SortableTaskCard({
         onOpen={onOpen}
         onToggleComplete={onToggleComplete}
         subBoardPref={subBoardPref}
+        selectionMode={ui.bulkSelectMode}
       />
       <TaskCardRightRail accentColor={listAccentColor} showStrip={showSubStrip} />
     </div>
@@ -572,6 +667,7 @@ function ReadOnlyTaskCard({
   cardColor,
   subBoardPref,
   listAccentColor,
+  boardArchived,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
@@ -579,13 +675,16 @@ function ReadOnlyTaskCard({
   cardColor?: string;
   subBoardPref: EffectiveSubBoardPreference;
   listAccentColor?: string | null;
+  boardArchived?: boolean;
 }) {
+  const ui = useBoardKanbanUi();
   const { activeWorkspaceId } = useActiveWorkspace();
   const taskWs = task.list?.board?.workspaceId ?? activeWorkspaceId ?? undefined;
   const glow = useRoutedTaskGlow(task.id, taskWs);
   const meta = subBoardPref.cardFaceMetaMerged;
   const showTicketStrip = Boolean(meta.showTicketNumber && task.brandTicketNumber != null);
   const showSubStrip = subBoardPref.showSubBoardAccentStrip !== false;
+  const isSelected = ui.selectedTaskIds.includes(task.id);
 
   return (
     <div
@@ -594,8 +693,21 @@ function ReadOnlyTaskCard({
         cardColor ? "border-2" : "border",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_18px_rgba(234,179,8,0.42)]",
+        ui.bulkSelectMode && isSelected && "bg-emerald-500/[0.14] ring-2 ring-emerald-400/45 ring-offset-0",
       )}
       style={cardColor ? { borderColor: cardColor } : undefined}
+      onClick={(e) => {
+        if (!ui.bulkSelectMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        ui.toggleTaskSelection(task.id);
+      }}
+      onContextMenu={(e) => {
+        if (boardArchived) return;
+        e.preventDefault();
+        e.stopPropagation();
+        ui.openTicketContextMenu(e, task);
+      }}
     >
       <TaskCardLeftTicketStrip show={showTicketStrip} number={task.brandTicketNumber} />
       <TaskCardFace
@@ -603,6 +715,7 @@ function ReadOnlyTaskCard({
         onOpen={onOpen}
         onToggleComplete={onToggleComplete}
         subBoardPref={subBoardPref}
+        selectionMode={ui.bulkSelectMode}
       />
       <TaskCardRightRail accentColor={listAccentColor} showStrip={showSubStrip} />
     </div>
@@ -633,7 +746,7 @@ function SubBoardTitleInput({
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
       }}
-      className="border-input bg-background text-foreground focus-visible:ring-ring max-w-[min(100%,20rem)] rounded-md border px-2 py-1 text-base font-semibold tracking-tight focus-visible:ring-2 focus-visible:outline-none"
+      className="border-input bg-background text-foreground focus-visible:ring-ring w-full min-w-0 rounded-md border px-2 py-1 text-base font-semibold tracking-tight focus-visible:ring-2 focus-visible:outline-none"
     />
   );
 }
@@ -789,6 +902,7 @@ function TrackerLane({
   cardColor,
   subBoardPref,
   listAccentColor,
+  boardArchived,
 }: {
   laneId: string;
   label: string;
@@ -801,7 +915,9 @@ function TrackerLane({
   cardColor?: string;
   subBoardPref: EffectiveSubBoardPreference;
   listAccentColor?: string | null;
+  boardArchived?: boolean;
 }) {
+  const ui = useBoardKanbanUi();
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
   return (
@@ -832,6 +948,8 @@ function TrackerLane({
                 cardColor={cardColor}
                 subBoardPref={subBoardPref}
                 listAccentColor={listAccentColor}
+                boardArchived={boardArchived}
+                onTicketContextMenu={ui.openTicketContextMenu}
               />
             );
           })}
@@ -852,6 +970,58 @@ type BoardKanbanProps = {
   boardArchived?: boolean;
 };
 
+type BoardKanbanUiValue = {
+  bulkSelectMode: boolean;
+  setBulkSelectMode: Dispatch<SetStateAction<boolean>>;
+  selectedTaskIds: string[];
+  toggleTaskSelection: (taskId: string) => void;
+  bulkSheetOpen: boolean;
+  setBulkSheetOpen: Dispatch<SetStateAction<boolean>>;
+  ticketArchiveMenu: TicketArchiveMenuState;
+  setTicketArchiveMenu: Dispatch<SetStateAction<TicketArchiveMenuState>>;
+  openTicketContextMenu: (e: MouseEvent, task: TaskFlowTask) => void;
+};
+
+const BoardKanbanUiContext = createContext<BoardKanbanUiValue | null>(null);
+
+function useBoardKanbanUi(): BoardKanbanUiValue {
+  const v = useContext(BoardKanbanUiContext);
+  if (!v) throw new Error("useBoardKanbanUi must be used within BoardKanban");
+  return v;
+}
+
+function BoardKanbanBulkToolbar() {
+  const ui = useBoardKanbanUi();
+  const n = ui.selectedTaskIds.length;
+  return (
+    <>
+      <Button
+        type="button"
+        variant={ui.bulkSelectMode ? "secondary" : "ghost"}
+        size="icon"
+        className="size-8 text-muted-foreground"
+        aria-label={ui.bulkSelectMode ? "Exit multi-select mode" : "Select multiple tickets"}
+        aria-pressed={ui.bulkSelectMode}
+        onClick={() => ui.setBulkSelectMode((v) => !v)}
+      >
+        <CheckSquare2 className="size-4" />
+      </Button>
+      {ui.bulkSelectMode && n > 0 ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="size-8 text-amber-600 dark:text-amber-400"
+          aria-label="Open bulk actions"
+          onClick={() => ui.setBulkSheetOpen(true)}
+        >
+          <Zap className="size-4" />
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
 function ReadOnlyTrackerGrid({
   board,
   activeSub,
@@ -862,6 +1032,8 @@ function ReadOnlyTrackerGrid({
   cardColor,
   prefBySubBoard,
   boardUserPref,
+  boardArchived,
+  onTicketContextMenu,
 }: {
   board: BoardDto;
   activeSub: BoardListDto;
@@ -872,6 +1044,8 @@ function ReadOnlyTrackerGrid({
   cardColor?: string;
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
   boardUserPref?: BoardUserPreferenceDto;
+  boardArchived?: boolean;
+  onTicketContextMenu?: (e: MouseEvent, task: TaskFlowTask) => void;
 }) {
   const byLane = buildLaneItems(activeSub);
 
@@ -892,6 +1066,8 @@ function ReadOnlyTrackerGrid({
             prefBySubBoard={prefBySubBoard}
             boardUserPref={boardUserPref}
             listAccentColor={activeSub.accentColor}
+            boardArchived={boardArchived}
+            onTicketContextMenu={onTicketContextMenu}
           />
         ))}
       </div>
@@ -911,6 +1087,8 @@ function ReadOnlyLaneInner({
   prefBySubBoard,
   boardUserPref,
   listAccentColor,
+  boardArchived,
+  onTicketContextMenu,
 }: {
   laneId: string;
   label: string;
@@ -923,6 +1101,8 @@ function ReadOnlyLaneInner({
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
   boardUserPref?: BoardUserPreferenceDto;
   listAccentColor?: string | null;
+  boardArchived?: boolean;
+  onTicketContextMenu?: (e: MouseEvent, task: TaskFlowTask) => void;
 }) {
   const laneSubBoardId = parseLaneKey(laneId)?.subBoardId ?? "";
   const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId], boardUserPref);
@@ -947,6 +1127,8 @@ function ReadOnlyLaneInner({
               cardColor={cardColor}
               subBoardPref={subBoardPref}
               listAccentColor={listAccentColor}
+              boardArchived={boardArchived}
+              onTicketContextMenu={onTicketContextMenu}
             />
           );
         })}
@@ -957,11 +1139,10 @@ function ReadOnlyLaneInner({
 
 function SubBoardPrefsEditor({
   editorSubBoard,
+  board,
   pinnedSubBoardIds,
   pinSubBoard,
   unpinSubBoard,
-  editorColorDraft,
-  setEditorColorDraft,
   editorHiddenDraft,
   setEditorHiddenDraft,
   editorCardFaceDraft,
@@ -973,23 +1154,17 @@ function SubBoardPrefsEditor({
   editorShowStripDraft,
   setEditorShowStripDraft,
   boardUserPref,
-  rawSubBoardCardFaceMeta,
   savePref,
-  brandId,
-  boardId,
-  canDeleteSubBoard,
-  deleteBusy,
-  onRequestDelete,
-  onTitleCommit,
-  onPickListAccent,
+  patchBoardUserPrefs,
   listAccentBusy,
+  onPickListAccent,
+  onTitleCommit,
 }: {
   editorSubBoard: BoardListDto;
+  board: BoardDto;
   pinnedSubBoardIds: string[];
   pinSubBoard: (id: string) => void;
   unpinSubBoard: (id: string) => void;
-  editorColorDraft: string;
-  setEditorColorDraft: (s: string) => void;
   editorHiddenDraft: TrackerStatus[];
   setEditorHiddenDraft: Dispatch<SetStateAction<TrackerStatus[]>>;
   editorCardFaceDraft: string;
@@ -1001,22 +1176,16 @@ function SubBoardPrefsEditor({
   editorShowStripDraft: boolean;
   setEditorShowStripDraft: (b: boolean) => void;
   boardUserPref?: BoardUserPreferenceDto | null;
-  rawSubBoardCardFaceMeta?: unknown | null;
   savePref: (payload: SubBoardPrefSavePayload) => void;
-  brandId?: string | null;
-  boardId?: string;
-  canDeleteSubBoard: boolean;
-  deleteBusy: boolean;
-  onRequestDelete: (list: BoardListDto) => void;
-  onTitleCommit: (subBoardId: string, title: string) => void;
-  onPickListAccent: (hex: string) => void;
+  patchBoardUserPrefs: (body: Parameters<typeof patchBoardUserPreferences>[1]) => void;
   listAccentBusy: boolean;
+  onPickListAccent: (hex: string) => void;
+  onTitleCommit: (subBoardId: string, title: string) => void;
 }) {
   const flush = (overrides?: Partial<SubBoardPrefSavePayload>) => {
     const layout = overrides?.cardFaceLayout ?? editorCardFaceDraft;
     const payload: SubBoardPrefSavePayload = {
       subBoardId: editorSubBoard.id,
-      ticketCardColor: overrides?.ticketCardColor ?? (editorColorDraft.trim() || null),
       hiddenTrackerStatuses: overrides?.hiddenTrackerStatuses ?? editorHiddenDraft,
       cardFaceLayout: layout,
       completeCheckboxVisibleByDefault:
@@ -1031,39 +1200,29 @@ function SubBoardPrefsEditor({
     savePref(payload);
   };
 
+  const hiddenSubIds = new Set(boardUserPref?.hiddenSubBoardIds ?? []);
+  const visibleSubCount = board.lists.filter((l) => !hiddenSubIds.has(l.id)).length;
+  const hideSubChecked = hiddenSubIds.has(editorSubBoard.id);
+  const hideSubDisabled = !hideSubChecked && visibleSubCount <= 1;
+
+  const stripTitle = `Sub-board (${editorSubBoard.title}) accent strip color`;
+
   return (
-    <div className="space-y-4 px-5 py-4 pb-10 pl-10 pr-6 pt-2 sm:px-7 sm:pl-12 sm:pr-8">
-      <div className="space-y-3 border-b border-border/60 pb-4">
-        <p className="text-sm font-medium">Sub-board name</p>
-        <SubBoardTitleInput
-          subBoardId={editorSubBoard.id}
-          title={editorSubBoard.title}
-          onCommit={onTitleCommit}
-        />
-        {canDeleteSubBoard ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            disabled={deleteBusy}
-            onClick={() => onRequestDelete(editorSubBoard)}
-          >
-            <Trash2 className="mr-1 size-3.5" />
-            Delete this sub-board
-          </Button>
-        ) : null}
-      </div>
-      {brandId ? (
-        <div className="space-y-2 border-b border-border/60 pb-4">
-          <p className="text-sm font-medium">Brand ticket labels</p>
-          <p className="text-xs text-muted-foreground">
-            Shared across this brand. Full edit and delete are under Settings → Ticket labels.
-          </p>
-          <UserTicketLabelsPanel brandId={brandId} boardId={boardId} mode="quick" />
+    <div className="space-y-6 px-5 py-2 pb-10 pl-10 pr-6 sm:px-7 sm:pl-12 sm:pr-8">
+      <div className="space-y-2 border-b border-border/60 pb-4">
+        <Label htmlFor={`sub-board-title-${editorSubBoard.id}`} className="text-sm font-medium">
+          Sub-board name
+        </Label>
+        <div id={`sub-board-title-${editorSubBoard.id}`} className="w-full min-w-0">
+          <SubBoardTitleInput
+            subBoardId={editorSubBoard.id}
+            title={editorSubBoard.title}
+            onCommit={onTitleCommit}
+          />
         </div>
-      ) : null}
-      <div className="space-y-2">
+      </div>
+
+      <div className="space-y-2 border-b border-border/60 pb-6">
         <p className="text-sm font-medium">Pinned secondary view</p>
         <Button
           type="button"
@@ -1087,48 +1246,11 @@ function SubBoardPrefsEditor({
           )}
         </Button>
       </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Ticket card color</p>
+
+      <div className="space-y-2 border-b border-border/60 pb-6">
+        <p className="text-sm font-medium">{stripTitle}</p>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={cn(
-              "rounded-md border px-2 py-1 text-xs",
-              !editorColorDraft ? "border-primary text-foreground" : "text-muted-foreground",
-            )}
-            onClick={() => {
-              setEditorColorDraft("");
-              flush({ ticketCardColor: null });
-            }}
-          >
-            None
-          </button>
-          {SUB_BOARD_COLOR_OPTIONS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className={cn(
-                "size-7 rounded-md border-2",
-                editorColorDraft === color ? "border-primary ring-2 ring-primary/30" : "border-border",
-              )}
-              style={{ backgroundColor: color }}
-              aria-label={`Use ${color} card color`}
-              onClick={() => {
-                setEditorColorDraft(color);
-                flush({ ticketCardColor: color });
-              }}
-            />
-          ))}
-        </div>
-      </div>
-      <div className="space-y-2 border-b border-border/60 pb-4">
-        <p className="text-sm font-medium">Sub-board accent strip</p>
-        <p className="text-xs text-muted-foreground">
-          Shared color for this sub-board (right edge of ticket cards). Ticket Tracker can show the same strip when
-          enabled there.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {SUB_BOARD_COLOR_OPTIONS.map((color) => (
+          {SUB_BOARD_ACCENT_PALETTE.map((color) => (
             <button
               key={color}
               type="button"
@@ -1139,13 +1261,13 @@ function SubBoardPrefsEditor({
                   : "border-border",
               )}
               style={{ backgroundColor: color }}
-              aria-label={`Sub-board accent ${color}`}
+              aria-label={`${stripTitle} ${color}`}
               disabled={listAccentBusy}
               onClick={() => onPickListAccent(color)}
             />
           ))}
         </div>
-        <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={editorShowStripDraft}
@@ -1158,10 +1280,23 @@ function SubBoardPrefsEditor({
           <span>Show colored strip on ticket cards (right edge)</span>
         </label>
       </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Card face</p>
+
+      <div className="border-b border-border/60 pb-6">
+        <p className="mb-2 text-sm font-medium">Default ticket view</p>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={editorCheckboxDefaultDraft}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setEditorCheckboxDefaultDraft(next);
+              flush({ completeCheckboxVisibleByDefault: next });
+            }}
+          />
+          <span>Enable &quot;Done&quot; checkmark</span>
+        </label>
         <select
-          className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+          className="border-input bg-background mt-3 h-9 max-w-md rounded-md border px-2 text-sm"
           value={editorCardFaceDraft}
           onChange={(e) => {
             const v = e.target.value;
@@ -1172,17 +1307,9 @@ function SubBoardPrefsEditor({
           <option value="standard">Standard (title + meta)</option>
           <option value="minimal">Title only</option>
         </select>
-        <p className="text-xs text-muted-foreground">
-          Applies to every ticket on this sub-board on the board for you.
-        </p>
-      </div>
-      {editorCardFaceDraft === "standard" ? (
-        <div className="space-y-2 border-t border-border/60 pt-3">
-          <p className="text-sm font-medium">Title + meta on cards</p>
-          <p className="text-xs text-muted-foreground">
-            Choose which lines appear under the title. Project board defaults apply unless you override here.
-          </p>
-          <div className="space-y-2">
+        {editorCardFaceDraft === "standard" ? (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Include on standard cards</p>
             {CARD_FACE_META_KEYS.map((key) => (
               <label key={key} className="flex items-center gap-2 text-sm">
                 <input
@@ -1198,42 +1325,11 @@ function SubBoardPrefsEditor({
               </label>
             ))}
           </div>
-          {boardUserPref && rawSubBoardCardFaceMeta != null ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => {
-                const next = resolveCardFaceMeta(boardUserPref.defaultCardFaceMeta, null);
-                setEditorCardFaceMetaDraft(next);
-                flush({ cardFaceMeta: null });
-              }}
-            >
-              Use project board meta defaults
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="space-y-2">
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={editorCheckboxDefaultDraft}
-            onChange={(e) => {
-              const next = e.target.checked;
-              setEditorCheckboxDefaultDraft(next);
-              flush({ completeCheckboxVisibleByDefault: next });
-            }}
-          />
-          <span>Show complete checkbox on ticket cards by default</span>
-        </label>
-        <p className="text-xs text-muted-foreground">
-          You can still show or hide the checkbox per ticket in ticket settings.
-        </p>
+        ) : null}
       </div>
+
       <div className="space-y-2">
-        <p className="text-sm font-medium">Visible tracker lanes</p>
+        <p className="text-sm font-medium">Default visible tracker lanes</p>
         <div className="space-y-2">
           {TRACKER_STATUSES.map((st) => {
             const checked = !editorHiddenDraft.includes(st);
@@ -1263,6 +1359,26 @@ function SubBoardPrefsEditor({
             );
           })}
         </div>
+      </div>
+
+      <div className="space-y-2 border-t border-border/60 pt-4">
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={hideSubChecked}
+            disabled={hideSubDisabled}
+            onChange={(e) => {
+              const next = new Set(hiddenSubIds);
+              if (e.target.checked) next.add(editorSubBoard.id);
+              else next.delete(editorSubBoard.id);
+              const hidden = [...next];
+              const visibleCount = board.lists.length - hidden.length;
+              if (visibleCount < 1) return;
+              patchBoardUserPrefs({ hiddenSubBoardIds: hidden });
+            }}
+          />
+          <span>Hide sub-board</span>
+        </label>
       </div>
     </div>
   );
@@ -1573,7 +1689,6 @@ function BoardKanbanFiltered({
   );
 
   const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
-  const [editorColorDraft, setEditorColorDraft] = useState("");
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
@@ -1634,6 +1749,7 @@ function BoardKanbanFiltered({
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
     },
   });
 
@@ -1654,37 +1770,47 @@ function BoardKanbanFiltered({
     },
   });
 
+  const boardUserPrefMutation = useMutation({
+    mutationFn: (body: Parameters<typeof patchBoardUserPreferences>[1]) =>
+      patchBoardUserPreferences(board.id, body),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["board-user-prefs", board.id], next);
+    },
+  });
+
   const prefMutation = useMutation({
     mutationFn: (payload: SubBoardPrefSavePayload) => {
       const body: Parameters<typeof patchSubBoardPreference>[1] = {
-        ticketCardColor: payload.ticketCardColor,
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
       };
-      if (payload.cardFaceMeta !== undefined) {
-        body.cardFaceMeta = payload.cardFaceMeta;
-      }
+      if (payload.ticketCardColor !== undefined) body.ticketCardColor = payload.ticketCardColor;
+      if (payload.cardFaceMeta !== undefined) body.cardFaceMeta = payload.cardFaceMeta;
+      if (payload.showSubBoardAccentStrip !== undefined) body.showSubBoardAccentStrip = payload.showSubBoardAccentStrip;
       return patchSubBoardPreference(payload.subBoardId, body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
     },
     onMutate: async (payload) => {
-      const optimistic: SubBoardPreferenceDto = {
-        subBoardId: payload.subBoardId,
-        ticketCardColor: payload.ticketCardColor ?? null,
-        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
-        cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
-        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
-        ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
-        updatedAt: new Date().toISOString(),
-      };
       queryClient.setQueryData<SubBoardPreferenceDto[]>(
         ["sub-board-prefs", board.id],
-        (prev) => upsertPrefRows(prev, optimistic),
+        (prev) => {
+          const old = prev?.find((r) => r.subBoardId === payload.subBoardId);
+          const optimistic: SubBoardPreferenceDto = {
+            subBoardId: payload.subBoardId,
+            ticketCardColor: old?.ticketCardColor ?? null,
+            hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+            cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
+            completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+            showSubBoardAccentStrip:
+              payload.showSubBoardAccentStrip ?? old?.showSubBoardAccentStrip ?? true,
+            ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
+            updatedAt: new Date().toISOString(),
+          };
+          return upsertPrefRows(prev, optimistic);
+        },
       );
     },
   });
@@ -1699,12 +1825,11 @@ function BoardKanbanFiltered({
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
     const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
-    setEditorColorDraft(pref?.ticketCardColor ?? "");
     setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
     setEditorCardFaceDraft(norm.cardFaceLayout);
     setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
     setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
-    setEditorShowStripDraft(norm.showSubBoardAccentStrip !== false);
+    setEditorShowStripDraft(pref?.showSubBoardAccentStrip !== false);
   }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   if (!board.lists.length) {
@@ -1732,16 +1857,19 @@ function BoardKanbanFiltered({
         </p>
         <div className="flex shrink-0 items-center gap-0.5">
           {!boardArchived ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label="Project board settings"
-              onClick={() => setBoardSettingsOpen(true)}
-            >
-              <SlidersHorizontal className="size-4" />
-            </Button>
+            <>
+              <BoardKanbanBulkToolbar />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                aria-label="Project board settings"
+                onClick={() => setBoardSettingsOpen(true)}
+              >
+                <SlidersHorizontal className="size-4" />
+              </Button>
+            </>
           ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1750,7 +1878,10 @@ function BoardKanbanFiltered({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>
+                <Plus className="mr-2 size-4" />
+                Add sub-board
+              </DropdownMenuItem>
               {onArchiveBoard && !boardArchived ? (
                 <DropdownMenuItem
                   onSelect={() => {
@@ -1792,6 +1923,7 @@ function BoardKanbanFiltered({
             cardColor={activeCardColor}
             prefBySubBoard={prefBySubBoard}
             boardUserPref={boardUserPref}
+            boardArchived={boardArchived}
           />
           <div className="space-y-3">
             <PinnedDropZone draggingSubBoard={false} />
@@ -1827,6 +1959,7 @@ function BoardKanbanFiltered({
                         prefBySubBoard={prefBySubBoard}
                         boardUserPref={boardUserPref}
                         listAccentColor={sb.accentColor}
+                        boardArchived={boardArchived}
                       />
                     ))}
                   </div>
@@ -1839,76 +1972,109 @@ function BoardKanbanFiltered({
       <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
         <SheetContent
           side="right"
-          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
           style={subBoardSheetSizing.sheetWidthStyle}
         >
           <RightAppSheetResizeHandle onMouseDown={subBoardSheetSizing.startResize} />
-          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
-            <SheetTitle>Sub-board options</SheetTitle>
-            <SheetDescription>
-              {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
-            </SheetDescription>
-          </SheetHeader>
-          {editorSubBoard ? (
-            <SubBoardPrefsEditor
-              editorSubBoard={editorSubBoard}
-              pinnedSubBoardIds={pinnedSubBoardIds}
-              pinSubBoard={pinSubBoard}
-              unpinSubBoard={unpinSubBoard}
-              editorColorDraft={editorColorDraft}
-              setEditorColorDraft={setEditorColorDraft}
-              editorHiddenDraft={editorHiddenDraft}
-              setEditorHiddenDraft={setEditorHiddenDraft}
-              editorCardFaceDraft={editorCardFaceDraft}
-              setEditorCardFaceDraft={setEditorCardFaceDraft}
-              editorCardFaceMetaDraft={editorCardFaceMetaDraft}
-              setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
-              editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
-              setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
-              editorShowStripDraft={editorShowStripDraft}
-              setEditorShowStripDraft={setEditorShowStripDraft}
-              boardUserPref={boardUserPref}
-              rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
-              savePref={(p) => prefMutation.mutate(p)}
-              brandId={board.brandId}
-              boardId={board.id}
-              canDeleteSubBoard={canDeleteSubBoard}
-              deleteBusy={deleteListMutation.isPending}
-              onRequestDelete={requestDeleteSubBoard}
-              onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
-              onPickListAccent={(hex) =>
-                listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
-              }
-              listAccentBusy={listAccentMutation.isPending}
-            />
-          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+              <SheetTitle>Sub-board settings</SheetTitle>
+              <SheetDescription>
+                {editorSubBoard
+                  ? `Settings for ${editorSubBoard.title} mirror project board settings where applicable.`
+                  : ""}
+              </SheetDescription>
+            </SheetHeader>
+            {editorSubBoard ? (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  <SubBoardPrefsEditor
+                    editorSubBoard={editorSubBoard}
+                    board={board}
+                    pinnedSubBoardIds={pinnedSubBoardIds}
+                    pinSubBoard={pinSubBoard}
+                    unpinSubBoard={unpinSubBoard}
+                    editorHiddenDraft={editorHiddenDraft}
+                    setEditorHiddenDraft={setEditorHiddenDraft}
+                    editorCardFaceDraft={editorCardFaceDraft}
+                    setEditorCardFaceDraft={setEditorCardFaceDraft}
+                    editorCardFaceMetaDraft={editorCardFaceMetaDraft}
+                    setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
+                    editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
+                    setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+                    editorShowStripDraft={editorShowStripDraft}
+                    setEditorShowStripDraft={setEditorShowStripDraft}
+                    boardUserPref={boardUserPref}
+                    savePref={(p) => prefMutation.mutate(p)}
+                    patchBoardUserPrefs={(b) => boardUserPrefMutation.mutate(b)}
+                    listAccentBusy={listAccentMutation.isPending}
+                    onPickListAccent={(hex) =>
+                      listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
+                    }
+                    onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+                  />
+                </div>
+                <div className="shrink-0 border-t border-border bg-card/95 px-10 pt-3 pb-5 sm:px-12 sm:pb-6">
+                  <div className="flex w-full flex-wrap items-center justify-start gap-2">
+                    <Button type="button" onClick={() => setEditorSubBoardId(null)}>
+                      Save & close
+                    </Button>
+                    {canDeleteSubBoard ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={deleteListMutation.isPending}
+                        onClick={() => requestDeleteSubBoard(editorSubBoard)}
+                      >
+                        <Archive className="mr-1 size-3.5" />
+                        Archive Sub-board
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
         </SheetContent>
       </Sheet>
       <Sheet open={boardSettingsOpen} onOpenChange={setBoardSettingsOpen}>
         <SheetContent
           side="right"
-          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
           style={boardSettingsSheetSizing.sheetWidthStyle}
         >
           <RightAppSheetResizeHandle onMouseDown={boardSettingsSheetSizing.startResize} />
-          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
-            <SheetTitle>Project board settings</SheetTitle>
-            <SheetDescription>
-              Defaults for every sub-board on this board. Sub-board options can still override.
-            </SheetDescription>
-          </SheetHeader>
-          {boardPrefsQuery.isError ? (
-            <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
-              Could not load board preferences. If you recently updated the app, run database migrations
-              (`npx prisma migrate deploy`) and reload.
-            </p>
-          ) : boardPrefsQuery.data ? (
-            <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
-          ) : (
-            <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
-              Loading preferences…
-            </p>
-          )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+              <SheetTitle>Project board settings</SheetTitle>
+              <SheetDescription>
+                Defaults for every sub-board on this project board. Sub-board options can still override these
+                settings.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {boardPrefsQuery.isError ? (
+                <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
+                  Could not load board preferences. If you recently updated the app, run database migrations
+                  (`npx prisma migrate deploy`) and reload.
+                </p>
+              ) : boardPrefsQuery.data ? (
+                <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
+              ) : (
+                <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
+                  Loading preferences…
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 border-t border-border bg-card/95 px-10 pt-3 pb-5 sm:px-12 sm:pb-6">
+              <div className="flex flex-wrap items-center justify-start gap-2">
+                <Button type="button" onClick={() => setBoardSettingsOpen(false)}>
+                  Save & close
+                </Button>
+              </div>
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </section>
@@ -1924,7 +2090,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   const [pinnedSubBoardIds, setPinnedSubBoardIds] = useState<string[]>([]);
   const [editorSubBoardId, setEditorSubBoardId] = useState<string | null>(null);
   const [boardSettingsOpen, setBoardSettingsOpen] = useState(false);
-  const [editorColorDraft, setEditorColorDraft] = useState("");
   const [editorHiddenDraft, setEditorHiddenDraft] = useState<TrackerStatus[]>([]);
   const [editorCardFaceDraft, setEditorCardFaceDraft] = useState("standard");
   const [editorCardFaceMetaDraft, setEditorCardFaceMetaDraft] = useState<CardFaceMeta>(DEFAULT_CARD_FACE_META);
@@ -2019,12 +2184,11 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
     const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
-    setEditorColorDraft(pref?.ticketCardColor ?? "");
     setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
     setEditorCardFaceDraft(norm.cardFaceLayout);
     setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
     setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
-    setEditorShowStripDraft(norm.showSubBoardAccentStrip !== false);
+    setEditorShowStripDraft(pref?.showSubBoardAccentStrip !== false);
   }, [editorSubBoardId, prefBySubBoard, boardUserPref]);
 
   useEffect(() => {
@@ -2068,9 +2232,10 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     [taskMap],
   );
 
+  const ui = useBoardKanbanUi();
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
+      activationConstraint: { distance: ui.bulkSelectMode ? 9999 : 8 },
     }),
   );
 
@@ -2121,6 +2286,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     onSuccess: (next) => {
       queryClient.setQueryData(["board", board.id], next);
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
     },
   });
 
@@ -2141,37 +2307,47 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     },
   });
 
+  const boardUserPrefMutation = useMutation({
+    mutationFn: (body: Parameters<typeof patchBoardUserPreferences>[1]) =>
+      patchBoardUserPreferences(board.id, body),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["board-user-prefs", board.id], next);
+    },
+  });
+
   const prefMutation = useMutation({
     mutationFn: (payload: SubBoardPrefSavePayload) => {
       const body: Parameters<typeof patchSubBoardPreference>[1] = {
-        ticketCardColor: payload.ticketCardColor,
         hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
         cardFaceLayout: payload.cardFaceLayout,
         completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
       };
-      if (payload.cardFaceMeta !== undefined) {
-        body.cardFaceMeta = payload.cardFaceMeta;
-      }
+      if (payload.ticketCardColor !== undefined) body.ticketCardColor = payload.ticketCardColor;
+      if (payload.cardFaceMeta !== undefined) body.cardFaceMeta = payload.cardFaceMeta;
+      if (payload.showSubBoardAccentStrip !== undefined) body.showSubBoardAccentStrip = payload.showSubBoardAccentStrip;
       return patchSubBoardPreference(payload.subBoardId, body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sub-board-prefs", board.id] });
     },
     onMutate: async (payload) => {
-      const optimistic: SubBoardPreferenceDto = {
-        subBoardId: payload.subBoardId,
-        ticketCardColor: payload.ticketCardColor ?? null,
-        hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
-        cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
-        completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
-        showSubBoardAccentStrip: payload.showSubBoardAccentStrip,
-        ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
-        updatedAt: new Date().toISOString(),
-      };
       queryClient.setQueryData<SubBoardPreferenceDto[]>(
         ["sub-board-prefs", board.id],
-        (prev) => upsertPrefRows(prev, optimistic),
+        (prev) => {
+          const old = prev?.find((r) => r.subBoardId === payload.subBoardId);
+          const optimistic: SubBoardPreferenceDto = {
+            subBoardId: payload.subBoardId,
+            ticketCardColor: old?.ticketCardColor ?? null,
+            hiddenTrackerStatuses: payload.hiddenTrackerStatuses,
+            cardFaceLayout: payload.cardFaceLayout === "minimal" ? "minimal" : "standard",
+            completeCheckboxVisibleByDefault: payload.completeCheckboxVisibleByDefault,
+            showSubBoardAccentStrip:
+              payload.showSubBoardAccentStrip ?? old?.showSubBoardAccentStrip ?? true,
+            ...(payload.cardFaceMeta !== undefined ? { cardFaceMeta: payload.cardFaceMeta } : {}),
+            updatedAt: new Date().toISOString(),
+          };
+          return upsertPrefRows(prev, optimistic);
+        },
       );
     },
   });
@@ -2360,16 +2536,19 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
           </p>
           <div className="flex shrink-0 items-center gap-0.5">
             {!boardArchived ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground"
-                aria-label="Project board settings"
-                onClick={() => setBoardSettingsOpen(true)}
-              >
-                <SlidersHorizontal className="size-4" />
-              </Button>
+              <>
+                <BoardKanbanBulkToolbar />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground"
+                  aria-label="Project board settings"
+                  onClick={() => setBoardSettingsOpen(true)}
+                >
+                  <SlidersHorizontal className="size-4" />
+                </Button>
+              </>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -2378,7 +2557,10 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>Add sub-board</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onAddSubBoard?.()}>
+                  <Plus className="mr-2 size-4" />
+                  Add sub-board
+                </DropdownMenuItem>
                 {onArchiveBoard && !boardArchived ? (
                   <DropdownMenuItem onSelect={() => onArchiveBoard()}>
                     <Archive className="mr-2 size-4" />
@@ -2414,6 +2596,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                 cardColor={activeCardColor}
                 subBoardPref={normalizedSubBoardPref(activeSub.id, prefBySubBoard[activeSub.id], boardUserPref)}
                 listAccentColor={activeSub.accentColor}
+                boardArchived={boardArchived}
               />
             );
           })}
@@ -2453,6 +2636,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
                         cardColor={cardColorForSubBoard(board, sb.id, prefBySubBoard, boardUserPref)}
                         subBoardPref={normalizedSubBoardPref(sb.id, prefBySubBoard[sb.id], boardUserPref)}
                         listAccentColor={sb.accentColor}
+                        boardArchived={boardArchived}
                       />
                     );
                   })}
@@ -2465,76 +2649,109 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
       <Sheet open={Boolean(editorSubBoard)} onOpenChange={(open) => !open && setEditorSubBoardId(null)}>
         <SheetContent
           side="right"
-          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
           style={subBoardSheetSizingDnd.sheetWidthStyle}
         >
           <RightAppSheetResizeHandle onMouseDown={subBoardSheetSizingDnd.startResize} />
-          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
-            <SheetTitle>Sub-board options</SheetTitle>
-            <SheetDescription>
-              {editorSubBoard ? `Customize ${editorSubBoard.title} across all board views.` : ""}
-            </SheetDescription>
-          </SheetHeader>
-          {editorSubBoard ? (
-            <SubBoardPrefsEditor
-              editorSubBoard={editorSubBoard}
-              pinnedSubBoardIds={pinnedSubBoardIds}
-              pinSubBoard={pinSubBoard}
-              unpinSubBoard={unpinSubBoard}
-              editorColorDraft={editorColorDraft}
-              setEditorColorDraft={setEditorColorDraft}
-              editorHiddenDraft={editorHiddenDraft}
-              setEditorHiddenDraft={setEditorHiddenDraft}
-              editorCardFaceDraft={editorCardFaceDraft}
-              setEditorCardFaceDraft={setEditorCardFaceDraft}
-              editorCardFaceMetaDraft={editorCardFaceMetaDraft}
-              setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
-              editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
-              setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
-              editorShowStripDraft={editorShowStripDraft}
-              setEditorShowStripDraft={setEditorShowStripDraft}
-              boardUserPref={boardUserPref}
-              rawSubBoardCardFaceMeta={prefBySubBoard[editorSubBoard.id]?.cardFaceMeta}
-              savePref={(p) => prefMutation.mutate(p)}
-              brandId={board.brandId}
-              boardId={board.id}
-              canDeleteSubBoard={canDeleteSubBoard}
-              deleteBusy={deleteListMutation.isPending}
-              onRequestDelete={requestDeleteSubBoard}
-              onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
-              onPickListAccent={(hex) =>
-                listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
-              }
-              listAccentBusy={listAccentMutation.isPending}
-            />
-          ) : null}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+              <SheetTitle>Sub-board settings</SheetTitle>
+              <SheetDescription>
+                {editorSubBoard
+                  ? `Settings for ${editorSubBoard.title} mirror project board settings where applicable.`
+                  : ""}
+              </SheetDescription>
+            </SheetHeader>
+            {editorSubBoard ? (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  <SubBoardPrefsEditor
+                    editorSubBoard={editorSubBoard}
+                    board={board}
+                    pinnedSubBoardIds={pinnedSubBoardIds}
+                    pinSubBoard={pinSubBoard}
+                    unpinSubBoard={unpinSubBoard}
+                    editorHiddenDraft={editorHiddenDraft}
+                    setEditorHiddenDraft={setEditorHiddenDraft}
+                    editorCardFaceDraft={editorCardFaceDraft}
+                    setEditorCardFaceDraft={setEditorCardFaceDraft}
+                    editorCardFaceMetaDraft={editorCardFaceMetaDraft}
+                    setEditorCardFaceMetaDraft={setEditorCardFaceMetaDraft}
+                    editorCheckboxDefaultDraft={editorCheckboxDefaultDraft}
+                    setEditorCheckboxDefaultDraft={setEditorCheckboxDefaultDraft}
+                    editorShowStripDraft={editorShowStripDraft}
+                    setEditorShowStripDraft={setEditorShowStripDraft}
+                    boardUserPref={boardUserPref}
+                    savePref={(p) => prefMutation.mutate(p)}
+                    patchBoardUserPrefs={(b) => boardUserPrefMutation.mutate(b)}
+                    listAccentBusy={listAccentMutation.isPending}
+                    onPickListAccent={(hex) =>
+                      listAccentMutation.mutate({ subBoardId: editorSubBoard.id, accentColor: hex })
+                    }
+                    onTitleCommit={(subBoardId, title) => titleMutation.mutate({ subBoardId, title })}
+                  />
+                </div>
+                <div className="shrink-0 border-t border-border bg-card/95 px-10 pt-3 pb-5 sm:px-12 sm:pb-6">
+                  <div className="flex w-full flex-wrap items-center justify-start gap-2">
+                    <Button type="button" onClick={() => setEditorSubBoardId(null)}>
+                      Save & close
+                    </Button>
+                    {canDeleteSubBoard ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={deleteListMutation.isPending}
+                        onClick={() => requestDeleteSubBoard(editorSubBoard)}
+                      >
+                        <Archive className="mr-1 size-3.5" />
+                        Archive Sub-board
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
         </SheetContent>
       </Sheet>
       <Sheet open={boardSettingsOpen} onOpenChange={setBoardSettingsOpen}>
         <SheetContent
           side="right"
-          className={cn(rightAppSheetContentClassName, "overflow-y-auto")}
+          className={cn(rightAppSheetContentClassName, "!gap-0 min-h-0 overflow-hidden")}
           style={boardSettingsSheetSizingDnd.sheetWidthStyle}
         >
           <RightAppSheetResizeHandle onMouseDown={boardSettingsSheetSizingDnd.startResize} />
-          <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
-            <SheetTitle>Project board settings</SheetTitle>
-            <SheetDescription>
-              Defaults for every sub-board on this board. Sub-board options can still override.
-            </SheetDescription>
-          </SheetHeader>
-          {boardPrefsQuery.isError ? (
-            <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
-              Could not load board preferences. If you recently updated the app, run database migrations
-              (`npx prisma migrate deploy`) and reload.
-            </p>
-          ) : boardPrefsQuery.data ? (
-            <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
-          ) : (
-            <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
-              Loading preferences…
-            </p>
-          )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SheetHeader className="border-b px-5 py-4 pl-10 pr-6 sm:px-6 sm:pl-12 sm:pr-8">
+              <SheetTitle>Project board settings</SheetTitle>
+              <SheetDescription>
+                Defaults for every sub-board on this project board. Sub-board options can still override these
+                settings.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {boardPrefsQuery.isError ? (
+                <p className="px-5 py-4 pl-10 pr-6 text-sm text-destructive sm:px-6 sm:pl-12 sm:pr-8">
+                  Could not load board preferences. If you recently updated the app, run database migrations
+                  (`npx prisma migrate deploy`) and reload.
+                </p>
+              ) : boardPrefsQuery.data ? (
+                <ProjectBoardSettingsPanel board={board} preference={boardPrefsQuery.data} />
+              ) : (
+                <p className="px-5 py-4 pl-10 pr-6 text-sm text-muted-foreground sm:px-6 sm:pl-12 sm:pr-8">
+                  Loading preferences…
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 border-t border-border bg-card/95 px-10 pt-3 pb-5 sm:px-12 sm:pb-6">
+              <div className="flex flex-wrap items-center justify-start gap-2">
+                <Button type="button" onClick={() => setBoardSettingsOpen(false)}>
+                  Save & close
+                </Button>
+              </div>
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
       <DragOverlay dropAnimation={dropAnimation}>
@@ -2553,9 +2770,94 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
   );
 }
 
-export function BoardKanban({ dragDisabled = false, ...rest }: BoardKanbanProps) {
+function BoardKanbanBody(props: BoardKanbanProps) {
+  const { dragDisabled, ...rest } = props;
   if (dragDisabled) {
     return <BoardKanbanFiltered {...rest} />;
   }
   return <BoardKanbanDnd {...rest} />;
+}
+
+function BoardKanbanShell(props: BoardKanbanProps) {
+  const { board, boardArchived = false } = props;
+  const queryClient = useQueryClient();
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
+  const [ticketArchiveMenu, setTicketArchiveMenu] = useState<TicketArchiveMenuState>(null);
+
+  useEffect(() => {
+    if (!bulkSelectMode) setSelectedTaskIds([]);
+  }, [bulkSelectMode]);
+
+  const toggleTaskSelection = useCallback((taskId: string) => {
+    setSelectedTaskIds((prev) => (prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]));
+  }, []);
+
+  const archiveTicketMutation = useMutation({
+    mutationFn: (task: TaskFlowTask) => patchTask(task.id, { archived: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["board", board.id] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+    },
+  });
+
+  const openTicketContextMenu = useCallback(
+    (e: MouseEvent, task: TaskFlowTask) => {
+      if (boardArchived) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setTicketArchiveMenu({ clientX: e.clientX, clientY: e.clientY, task });
+    },
+    [boardArchived],
+  );
+
+  const ui = useMemo(
+    (): BoardKanbanUiValue => ({
+      bulkSelectMode,
+      setBulkSelectMode,
+      selectedTaskIds,
+      toggleTaskSelection,
+      bulkSheetOpen,
+      setBulkSheetOpen,
+      ticketArchiveMenu,
+      setTicketArchiveMenu,
+      openTicketContextMenu,
+    }),
+    [
+      bulkSelectMode,
+      selectedTaskIds,
+      bulkSheetOpen,
+      ticketArchiveMenu,
+      openTicketContextMenu,
+      toggleTaskSelection,
+    ],
+  );
+
+  return (
+    <BoardKanbanUiContext.Provider value={ui}>
+      <BoardKanbanBody {...props} />
+      <BulkTaskActionsSheet
+        board={board}
+        boardArchived={boardArchived}
+        open={bulkSheetOpen}
+        onOpenChange={setBulkSheetOpen}
+        selectedTaskIds={selectedTaskIds}
+      />
+      <TaskTicketArchiveContextMenu
+        state={ticketArchiveMenu}
+        onClose={() => setTicketArchiveMenu(null)}
+        onArchive={(t) => archiveTicketMutation.mutate(t)}
+        archivePending={archiveTicketMutation.isPending}
+        bulkSelectMode={bulkSelectMode}
+        selectedTaskIds={selectedTaskIds}
+        onBulkActions={() => setBulkSheetOpen(true)}
+        boardArchived={boardArchived}
+      />
+    </BoardKanbanUiContext.Provider>
+  );
+}
+
+export function BoardKanban(props: BoardKanbanProps) {
+  return <BoardKanbanShell {...props} />;
 }

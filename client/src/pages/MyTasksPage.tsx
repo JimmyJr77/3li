@@ -26,11 +26,19 @@ import {
   ListFilter,
   Loader2,
   RefreshCw,
-  Search,
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
@@ -46,6 +54,10 @@ import {
 } from "@/features/taskflow/api";
 import { BoardTable } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
+import {
+  TaskTicketArchiveContextMenu,
+  type TicketArchiveMenuState,
+} from "@/features/taskflow/TaskTicketArchiveContextMenu";
 import type { TaskFlowTask } from "@/features/taskflow/types";
 import {
   normalizeTrackerStatus,
@@ -119,11 +131,13 @@ function TrackerTicketCard({
   onOpen,
   colorByBoard,
   subBoardStrip,
+  onTicketContextMenu,
 }: {
   task: TaskFlowTask;
   onOpen: (t: TaskFlowTask) => void;
   colorByBoard?: boolean;
   subBoardStrip?: boolean;
+  onTicketContextMenu?: (e: MouseEvent<Element>, task: TaskFlowTask) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -148,6 +162,12 @@ function TrackerTicketCard({
         useBoardBorder && "border-2",
         isDragging && "z-10 opacity-50",
       )}
+      onContextMenu={(e) => {
+        if (!onTicketContextMenu) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onTicketContextMenu(e, task);
+      }}
     >
       <div className="flex min-w-0 flex-1 gap-1">
         <button
@@ -188,6 +208,7 @@ function TrackerColumn({
   onOpen,
   colorByBoard,
   subBoardStrip,
+  onTicketContextMenu,
 }: {
   status: TrackerStatus;
   taskIds: string[];
@@ -195,6 +216,7 @@ function TrackerColumn({
   onOpen: (t: TaskFlowTask) => void;
   colorByBoard?: boolean;
   subBoardStrip?: boolean;
+  onTicketContextMenu?: (e: MouseEvent<Element>, task: TaskFlowTask) => void;
 }) {
   const laneId = ttLaneId(status);
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
@@ -222,6 +244,7 @@ function TrackerColumn({
                 onOpen={onOpen}
                 colorByBoard={colorByBoard}
                 subBoardStrip={subBoardStrip}
+                onTicketContextMenu={onTicketContextMenu}
               />
             );
           })}
@@ -245,9 +268,12 @@ export function MyTasksPage() {
   const [sort, setSort] = useState("dueDate:asc");
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [labelSearch, setLabelSearch] = useState("");
+  const labelListAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [labelListPos, setLabelListPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [dueDatesOnly, setDueDatesOnly] = useState(false);
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [ticketArchiveMenu, setTicketArchiveMenu] = useState<TicketArchiveMenuState>(null);
   const [columnVisibility, setColumnVisibility] = useState<TicketTrackerColumnVisibility>(() =>
     loadColumnVisibility(),
   );
@@ -338,6 +364,34 @@ export function MyTasksPage() {
       .map((x) => x.r);
   }, [labelRows, labelSearch, selectedLabelIds]);
 
+  const syncLabelListPos = useCallback(() => {
+    if (!labelSearch.trim()) {
+      setLabelListPos(null);
+      return;
+    }
+    const el = labelListAnchorRef.current;
+    if (!el) {
+      setLabelListPos(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    setLabelListPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, [labelSearch]);
+
+  useLayoutEffect(() => {
+    syncLabelListPos();
+  }, [syncLabelListPos, labelSearchHits, selectedLabelIds]);
+
+  useEffect(() => {
+    if (!labelSearch.trim()) return;
+    window.addEventListener("scroll", syncLabelListPos, true);
+    window.addEventListener("resize", syncLabelListPos);
+    return () => {
+      window.removeEventListener("scroll", syncLabelListPos, true);
+      window.removeEventListener("resize", syncLabelListPos);
+    };
+  }, [labelSearch, syncLabelListPos]);
+
   const subBoardOptions = useMemo(() => {
     if (!labelsBoardQuery.data) return [];
     return labelsBoardQuery.data.lists.map((l) => ({ id: l.id, title: l.title }));
@@ -415,6 +469,18 @@ export function MyTasksPage() {
       queryClient.invalidateQueries({ queryKey: ["board"] });
     },
   });
+
+  const archiveTicketMutation = useMutation({
+    mutationFn: (task: TaskFlowTask) => patchTask(task.id, { archived: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+  });
+
+  const openTicketArchiveFromTracker = useCallback((e: MouseEvent<Element>, task: TaskFlowTask) => {
+    setTicketArchiveMenu({ clientX: e.clientX, clientY: e.clientY, task });
+  }, []);
 
   const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -656,15 +722,12 @@ export function MyTasksPage() {
       <div className="flex shrink-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4 lg:flex-row lg:flex-wrap lg:items-end">
         <div className="min-w-[200px] flex-1 space-y-1">
           <Label className="text-xs text-muted-foreground">Search</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className={cn("pl-8", filterFieldClass)}
-              placeholder="Title or description…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
+          <Input
+            className={filterFieldClass}
+            placeholder="Title or description…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
         <div className="w-full space-y-1 lg:min-w-[200px] lg:max-w-xs">
           <Label className="text-xs text-muted-foreground">Project Area</Label>
@@ -810,35 +873,14 @@ export function MyTasksPage() {
               })}
             </div>
           ) : null}
-          <Input
-            className={filterFieldClass}
-            placeholder="Search labels to add…"
-            value={labelSearch}
-            onChange={(e) => setLabelSearch(e.target.value)}
-          />
-          {labelSearch.trim() && labelSearchHits.length > 0 ? (
-            <ul className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-background text-sm shadow-sm">
-              {labelSearchHits.map((r) => (
-                <li key={`${r.scope}-${r.id}`} className="border-b border-border/60 last:border-0">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-muted"
-                    onClick={() => {
-                      setSelectedLabelIds((prev) => (prev.includes(r.id) ? prev : [...prev, r.id]));
-                      setLabelSearch("");
-                    }}
-                  >
-                    <span className="font-medium">{r.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {r.scope === "user" ? "Yours" : "Board"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : labelSearch.trim() ? (
-            <p className="mt-1 text-xs text-muted-foreground">No matching labels.</p>
-          ) : null}
+          <div ref={labelListAnchorRef} className="w-full">
+            <Input
+              className={filterFieldClass}
+              placeholder="Search labels to add…"
+              value={labelSearch}
+              onChange={(e) => setLabelSearch(e.target.value)}
+            />
+          </div>
         </div>
         <details className="w-full space-y-1 lg:w-52 [&_summary]:list-none [&_summary::-webkit-details-marker]:hidden">
           <summary className={cn(filterFieldClass, "flex cursor-pointer items-center justify-between")}>
@@ -942,6 +984,7 @@ export function MyTasksPage() {
                       onOpen={(t) => setSelectedTaskId(t.id)}
                       colorByBoard={colorByBoard}
                       subBoardStrip={subBoardStrip}
+                      onTicketContextMenu={openTicketArchiveFromTracker}
                     />
                   ))}
                 </div>
@@ -968,6 +1011,7 @@ export function MyTasksPage() {
                 tasks={tasks}
                 colorByBoard={colorByBoard}
                 subBoardStrip={subBoardStrip}
+                onTicketContextMenu={(e, t) => openTicketArchiveFromTracker(e, t)}
                 onRowClick={(t) => {
                   setSelectedTaskId(t.id);
                 }}
@@ -1043,6 +1087,13 @@ export function MyTasksPage() {
         </SheetContent>
       </Sheet>
 
+      <TaskTicketArchiveContextMenu
+        state={ticketArchiveMenu}
+        onClose={() => setTicketArchiveMenu(null)}
+        onArchive={(t) => archiveTicketMutation.mutate(t)}
+        archivePending={archiveTicketMutation.isPending}
+      />
+
       <TaskDetailSheet
         task={selectedTask}
         open={Boolean(selectedTaskId)}
@@ -1050,6 +1101,47 @@ export function MyTasksPage() {
           if (!open) setSelectedTaskId(null);
         }}
       />
+
+      {labelListPos && labelSearch.trim()
+        ? createPortal(
+            <div
+              role="listbox"
+              aria-label="Label suggestions"
+              className="fixed z-[10050] max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-border bg-background text-sm text-foreground shadow-lg"
+              style={{
+                top: labelListPos.top,
+                left: labelListPos.left,
+                width: Math.max(labelListPos.width, 220),
+              }}
+            >
+              {labelSearchHits.length > 0 ? (
+                <ul className="m-0 list-none p-0">
+                  {labelSearchHits.map((r) => (
+                    <li key={`${r.scope}-${r.id}`} className="border-b border-border/60 last:border-0">
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left hover:bg-muted"
+                        onClick={() => {
+                          setSelectedLabelIds((prev) => (prev.includes(r.id) ? prev : [...prev, r.id]));
+                          setLabelSearch("");
+                          setLabelListPos(null);
+                        }}
+                      >
+                        <span className="font-medium">{r.name}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {r.scope === "user" ? "Yours" : "Board"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-3 py-2 text-xs text-muted-foreground">No matching labels.</p>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
