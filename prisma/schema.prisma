@@ -43,6 +43,7 @@ model AppUser {
   workspaceUserPreferences WorkspaceUserPreference[]
   /// Ticket comments authored by this login (nullable on legacy rows).
   taskCommentsAuthored  Comment[]    @relation("TaskCommentAuthor")
+  pagePresenceRows      PagePresence[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 }
@@ -57,6 +58,21 @@ model AppSession {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Ephemeral “who is viewing this room” heartbeats for multi-user presence (serverless-friendly).
+model PagePresence {
+  id         String   @id @default(cuid())
+  userId     String
+  user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// e.g. `board:<boardId>` — server validates access per prefix.
+  roomKey    String
+  /// Client-generated id so one user can have multiple tabs in the same room.
+  tabId      String
+  lastSeenAt DateTime
+
+  @@unique([userId, roomKey, tabId])
+  @@index([roomKey, lastSeenAt])
 }
 
 // --- Brainstorm (existing product area) ---

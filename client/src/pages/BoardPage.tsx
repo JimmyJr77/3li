@@ -21,6 +21,9 @@ import type { BoardDto, TaskFlowTask } from "@/features/taskflow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PagePresenceAvatars } from "@/features/presence/PagePresenceAvatars";
+import { usePagePresence } from "@/features/presence/usePagePresence";
+import { usePresenceTabId } from "@/features/presence/usePresenceTabId";
 
 type View = "board" | "table";
 
@@ -68,6 +71,10 @@ export function BoardPage() {
   });
 
   const board = boardQuery.data;
+
+  const presenceRoomKey = boardId ? `board:${boardId}` : null;
+  const presenceTabId = usePresenceTabId(presenceRoomKey);
+  const { peers: presencePeers } = usePagePresence(presenceRoomKey, presenceTabId);
 
   const myTicketLabelsQuery = useQuery({
     queryKey: ["my-ticket-labels", board?.brandId],
@@ -415,6 +422,8 @@ export function BoardPage() {
           if (!open) setSelectedTaskId(null);
         }}
       />
+
+      <PagePresenceAvatars peers={presencePeers} />
     </div>
   );
 }

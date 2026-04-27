@@ -115,17 +115,29 @@ function pinnedDragId(subBoardId: string) {
   return `${PIN_PREFIX}${subBoardId}`;
 }
 
-/** Prefer pointer-rect hits for pin targets so tab→pin works above dense lane droppables (closestCorners alone often misses). */
+/**
+ * Sub-board tab drags: prefer hits on other tabs (carousel) so reorder works; only then pin targets.
+ * Otherwise the pointer can sit over both the tab strip and the pinned block (stacked layout) and
+ * pin would steal the drop from `reorderMutation`.
+ */
 function boardKanbanCollisionDetection(args: Parameters<CollisionDetection>[0]): ReturnType<CollisionDetection> {
   const activeIdStr = String(args.active.id);
   if (activeIdStr.startsWith(SB_PREFIX)) {
+    const sbContainers = args.droppableContainers.filter((c) => String(c.id).startsWith(SB_PREFIX));
     const pointerHits = pointerWithin(args);
+    const sbPointerHits = pointerHits.filter((c) => String(c.id).startsWith(SB_PREFIX));
+    if (sbPointerHits.length > 0 && sbContainers.length > 0) {
+      return closestCorners({ ...args, droppableContainers: sbContainers });
+    }
     const pinHits = pointerHits.filter(
       (c) => String(c.id) === PIN_DROP_ZONE_ID || String(c.id).startsWith(PIN_PREFIX),
     );
     if (pinHits.length > 0) {
       const zoneHit = pinHits.find((c) => String(c.id) === PIN_DROP_ZONE_ID);
       return zoneHit ? [zoneHit] : [pinHits[0]];
+    }
+    if (sbContainers.length > 0) {
+      return closestCorners({ ...args, droppableContainers: sbContainers });
     }
     return closestCorners(args);
   }
@@ -137,18 +149,6 @@ function boardKanbanCollisionDetection(args: Parameters<CollisionDetection>[0]):
     return closestCorners(args);
   }
   return closestCorners(args);
-}
-
-function pointerEndClient(event: DragEndEvent): { x: number; y: number } | null {
-  const ev = event.activatorEvent;
-  if (ev instanceof PointerEvent || ev instanceof MouseEvent) {
-    return { x: ev.clientX + event.delta.x, y: ev.clientY + event.delta.y };
-  }
-  return null;
-}
-
-function pointInClientRect(x: number, y: number, r: DOMRect) {
-  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
 function findLaneContainer(id: string, items: Record<string, string[]>): string | undefined {
@@ -934,20 +934,20 @@ function TrackerLane({
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col rounded-2xl border bg-muted/15 p-2.5">
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 basis-0 flex-col rounded-2xl border bg-muted/15 p-2.5 transition-colors",
+        isOver && "bg-primary/10 ring-2 ring-primary/25",
+      )}
+    >
       <LaneTrackerHeader
         label={label}
         laneId={laneId}
         onQuickAdd={onQuickAdd}
         placeholder={quickAddPlaceholder}
       />
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "flex min-h-[100px] flex-col gap-2 rounded-lg p-1 transition-colors",
-          isOver && "bg-primary/10 ring-2 ring-primary/25",
-        )}
-      >
+      <div className="flex min-h-[100px] flex-1 flex-col gap-2 rounded-lg p-1">
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           {taskIds.map((id) => {
             const task = taskMap.get(id);
@@ -2156,7 +2156,6 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
 
   const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
-  const pinnedSectionRef = useRef<HTMLElement | null>(null);
   const itemsRef = useRef(items);
   const listOrderRef = useRef(listOrder);
   itemsRef.current = items;
@@ -2447,22 +2446,10 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
       if (activeStr.startsWith(SB_PREFIX)) {
         setActiveId(null);
         const overId = over?.id != null ? String(over.id) : null;
-        const pinFromOver =
+        const droppedOnCarouselTab = overId != null && overId.startsWith(SB_PREFIX);
+        const droppedOnPinTarget =
           overId === PIN_DROP_ZONE_ID || (overId != null && overId.startsWith(PIN_PREFIX));
-        const pinFromCollisions = (event.collisions ?? []).some(
-          (c) => String(c.id) === PIN_DROP_ZONE_ID || String(c.id).startsWith(PIN_PREFIX),
-        );
-        const pinFromPointer = (() => {
-          const pt = pointerEndClient(event);
-          if (!pt) return false;
-          const section = pinnedSectionRef.current;
-          if (section) {
-            const r = section.getBoundingClientRect();
-            if (pointInClientRect(pt.x, pt.y, r)) return true;
-          }
-          return false;
-        })();
-        if (pinFromOver || pinFromCollisions || pinFromPointer) {
+        if (!droppedOnCarouselTab && droppedOnPinTarget) {
           const subBoardId = activeStr.slice(SB_PREFIX.length);
           pinSubBoard(subBoardId);
           return;
@@ -2608,10 +2595,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
           })}
         </div>
       </section>
-      <section
-        ref={pinnedSectionRef}
-        className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm"
-      >
+      <section className="w-full min-w-0 space-y-3 rounded-2xl border bg-card/70 p-3 shadow-sm">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Pinned sub-board views

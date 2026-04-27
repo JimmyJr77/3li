@@ -11,7 +11,6 @@ import type { BrainstormEdge, BrainstormFlowNode, TextFlowNode } from "@/feature
 import { isIdeaNode } from "@/features/brainstorm/types";
 import { normalizeExtentForContainerChildren } from "@/features/brainstorm/utils/nodeLayout";
 import { Button } from "@/components/ui/button";
-import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
 
 function normalizeEdgesFromApi(edges: BrainstormSessionResponse["edges"]): BrainstormEdge[] {
@@ -117,6 +116,8 @@ export function BrainstormWorkspace({
   /** Dedupes React Strict Mode double effect runs for the same fetched session snapshot. */
   const lastHydrateSigRef = useRef<string | null>(null);
   const lastPersistedRef = useRef<string | null>(null);
+  /** Serializes canvas PUTs so rapid edits never overlap; each job drains until local state matches the server. */
+  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const onSaveStatusChangeRef = useRef(onSaveStatusChange);
   onSaveStatusChangeRef.current = onSaveStatusChange;
 
@@ -125,6 +126,7 @@ export function BrainstormWorkspace({
     hydratedRef.current = false;
     lastHydrateSigRef.current = null;
     lastPersistedRef.current = null;
+    persistChainRef.current = Promise.resolve();
     onSaveStatusChangeRef.current?.("idle");
   }, [sessionId, workspaceId, resetCanvas]);
 
@@ -180,23 +182,42 @@ export function BrainstormWorkspace({
     }
 
     onSaveStatusChangeRef.current?.("pending");
-    const timer = window.setTimeout(() => {
-      onSaveStatusChangeRef.current?.("saving");
-      void (async () => {
-        try {
-          await saveBrainstormCanvas(sessionId, workspaceId, { nodes, edges });
-          lastPersistedRef.current = JSON.stringify({ nodes, edges });
+
+    persistChainRef.current = persistChainRef.current
+      .then(async () => {
+        let didSave = false;
+        while (true) {
+          const live = useBrainstormStore.getState();
+          const liveSnap = JSON.stringify({ nodes: live.nodes, edges: live.edges });
+          if (liveSnap === lastPersistedRef.current) break;
+
+          onSaveStatusChangeRef.current?.("saving");
+          try {
+            await saveBrainstormCanvas(sessionId, workspaceId, {
+              nodes: live.nodes,
+              edges: live.edges,
+            });
+            didSave = true;
+            lastPersistedRef.current = JSON.stringify({
+              nodes: useBrainstormStore.getState().nodes,
+              edges: useBrainstormStore.getState().edges,
+            });
+          } catch {
+            onSaveStatusChangeRef.current?.("error");
+            return;
+          }
+        }
+        if (didSave) {
           await queryClient.invalidateQueries({
             queryKey: ["brainstorm", "session", workspaceId, sessionId],
           });
           onSaveStatusChangeRef.current?.("saved");
           window.setTimeout(() => onSaveStatusChangeRef.current?.("idle"), 2200);
-        } catch {
-          onSaveStatusChangeRef.current?.("error");
         }
-      })();
-    }, AUTOSAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
+      })
+      .catch(() => {
+        onSaveStatusChangeRef.current?.("error");
+      });
   }, [nodes, edges, sessionId, workspaceId, queryClient]);
 
   useEffect(() => {

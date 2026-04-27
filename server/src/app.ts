@@ -15,6 +15,7 @@ import authRouter from "./routes/auth.js";
 import brainstormRouter from "./routes/brainstorm.js";
 import chatAppRouter from "./routes/chatApp.js";
 import notesAppRouter, { handleNotesAppPublicSlug } from "./routes/notesApp.js";
+import presenceRouter from "./routes/presence.js";
 import taskAppRouter from "./routes/taskApp.js";
 
 /** Add `https://host` plus `www.` / apex variant so CORS works for both custom-domain shapes. */
@@ -124,6 +125,7 @@ protectedApi.use("/brainstorm", brainstormRouter);
 protectedApi.use("/chat", chatAppRouter);
 protectedApi.use("/task-app", taskAppRouter);
 protectedApi.use("/notes-app", notesAppRouter);
+protectedApi.use("/presence", presenceRouter);
 protectedApi.use("/admin/users", adminUsersRouter);
 
 app.use("/api", protectedApi);
