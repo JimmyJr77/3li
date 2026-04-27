@@ -4,7 +4,8 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCorners,
   useDroppable,
   useSensor,
@@ -269,6 +270,9 @@ const filterFieldClass = "border-input bg-background h-9 w-full rounded-md borde
 /** Stable fallback so `boardLabels` is not a fresh `[]` every render (avoids label portal layout loops). */
 const EMPTY_BOARD_LABELS: LabelDto[] = [];
 
+/** Stable fallback so `tasks` is not a fresh `[]` every render (avoids tracker DnD / sync fighting React Query). */
+const EMPTY_TASKS: TaskFlowTask[] = [];
+
 export function MyTasksPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
@@ -518,7 +522,10 @@ export function MyTasksPage() {
     enabled: Boolean(workspaceId) && !wsLoading,
   });
 
-  const tasks = tasksQuery.data ?? [];
+  const tasks = tasksQuery.data ?? EMPTY_TASKS;
+  const tasksResetRef = useRef<TaskFlowTask[]>(EMPTY_TASKS);
+  tasksResetRef.current = tasks;
+  const trackerDragActiveRef = useRef(false);
   const loading = wsLoading || (Boolean(workspaceId) && tasksQuery.isLoading);
 
   const tasksPmContext = useMemo(
@@ -556,6 +563,7 @@ export function MyTasksPage() {
   itemsRef.current = items;
 
   useEffect(() => {
+    if (trackerDragActiveRef.current) return;
     const next = buildTrackerItems(tasks);
     itemsRef.current = next;
     setItems(next);
@@ -564,14 +572,28 @@ export function MyTasksPage() {
   const taskMap = useMemo(() => buildTaskMap(tasks), [tasks]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 6 },
     }),
   );
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
+    trackerDragActiveRef.current = true;
     setActiveId(String(e.active.id));
   }, []);
+
+  const resetTrackerDnDFromTasks = useCallback(() => {
+    const next = buildTrackerItems(tasksResetRef.current);
+    itemsRef.current = next;
+    setItems(next);
+  }, []);
+
+  const handleDragCancel = useCallback(() => {
+    trackerDragActiveRef.current = false;
+    setActiveId(null);
+    resetTrackerDnDFromTasks();
+  }, [resetTrackerDnDFromTasks]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { active, over } = event;
@@ -615,8 +637,12 @@ export function MyTasksPage() {
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
+      trackerDragActiveRef.current = false;
       setActiveId(null);
-      if (!over) return;
+      if (!over) {
+        resetTrackerDnDFromTasks();
+        return;
+      }
 
       const activeContainer = findTrackerContainer(String(active.id), itemsRef.current);
       const overContainer = findTrackerContainer(String(over.id), itemsRef.current);
@@ -646,7 +672,7 @@ export function MyTasksPage() {
         moveTrackerMutation.mutate({ taskId: String(active.id), trackerStatus: toStatus });
       }
     },
-    [moveTrackerMutation],
+    [moveTrackerMutation, resetTrackerDnDFromTasks],
   );
 
   const selectedTask = useMemo(
@@ -1045,8 +1071,9 @@ export function MyTasksPage() {
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
               >
-                <div className="flex min-h-0 w-full min-w-0 flex-1 items-stretch gap-2 overflow-x-auto pb-0">
+                <div className="flex min-h-0 w-full min-w-0 flex-1 touch-manipulation items-stretch gap-2 overflow-x-auto pb-0">
                   {visibleTrackerStatuses.map((st) => (
                     <TrackerColumn
                       key={st}
