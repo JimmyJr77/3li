@@ -52,6 +52,7 @@ import {
   patchTask,
   patchWorkspaceUserPreferences,
 } from "@/features/taskflow/api";
+import { applyTaskServerPatchToQueryCaches } from "@/features/taskflow/applyTaskServerPatchToQueryCaches";
 import { BoardTable } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
 import {
@@ -65,7 +66,7 @@ import {
   TRACKER_STATUSES,
   type TrackerStatus,
 } from "@/features/taskflow/trackerMeta";
-import type { UserTicketLabelDto } from "@/features/taskflow/types";
+import type { LabelDto, UserTicketLabelDto } from "@/features/taskflow/types";
 import {
   loadColumnVisibility,
   saveColumnVisibility,
@@ -146,6 +147,8 @@ function TrackerTicketCard({
   const useBoardBorder = Boolean(colorByBoard && boardAccent);
   const listAccent = task.list?.accentColor;
   const showListStrip = Boolean(subBoardStrip && listAccent);
+  const doneTitle =
+    task.completed || normalizeTrackerStatus(task.trackerStatus) === "DONE";
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -180,7 +183,14 @@ function TrackerTicketCard({
           <span className="text-xs">⋮⋮</span>
         </button>
         <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(task)}>
-          <p className="font-medium leading-snug">{task.title}</p>
+          <p
+            className={cn(
+              "font-medium leading-snug",
+              doneTitle && "text-muted-foreground line-through",
+            )}
+          >
+            {task.title}
+          </p>
           {task.list ? (
             <p className="mt-1 truncate text-[11px] text-muted-foreground">
               {task.list.board.name} · {task.list.title}
@@ -229,7 +239,7 @@ function TrackerColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-y-contain rounded-md p-1 transition-colors",
+          "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-md p-1 transition-colors",
           isOver && "bg-primary/10 ring-2 ring-primary/25",
         )}
       >
@@ -256,6 +266,9 @@ function TrackerColumn({
 
 const filterFieldClass = "border-input bg-background h-9 w-full rounded-md border px-2 text-sm";
 
+/** Stable fallback so `boardLabels` is not a fresh `[]` every render (avoids label portal layout loops). */
+const EMPTY_BOARD_LABELS: LabelDto[] = [];
+
 export function MyTasksPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
@@ -270,6 +283,12 @@ export function MyTasksPage() {
   const [labelSearch, setLabelSearch] = useState("");
   const labelListAnchorRef = useRef<HTMLDivElement | null>(null);
   const [labelListPos, setLabelListPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  const [moreFiltersMenuPos, setMoreFiltersMenuPos] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
+  const moreFiltersAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const moreFiltersMenuRef = useRef<HTMLDivElement | null>(null);
   const [dueDatesOnly, setDueDatesOnly] = useState(false);
   const [archivedOnly, setArchivedOnly] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -302,7 +321,10 @@ export function MyTasksPage() {
     queryFn: () => fetchBoard(defaultBoardId!),
     enabled: Boolean(defaultBoardId),
   });
-  const filterBoardLabels = boardQuery.data?.labels ?? [];
+  const filterBoardLabels = useMemo(
+    () => boardQuery.data?.labels ?? EMPTY_BOARD_LABELS,
+    [boardQuery.data?.labels],
+  );
 
   const filterLabelsBoardId = boardId || defaultBoardId;
   const labelsBoardQuery = useQuery({
@@ -310,7 +332,10 @@ export function MyTasksPage() {
     queryFn: () => fetchBoard(filterLabelsBoardId!),
     enabled: Boolean(filterLabelsBoardId),
   });
-  const boardLabels = labelsBoardQuery.data?.labels ?? filterBoardLabels;
+  const boardLabels = useMemo(
+    () => labelsBoardQuery.data?.labels ?? filterBoardLabels,
+    [labelsBoardQuery.data?.labels, filterBoardLabels],
+  );
 
   const brandId = activeWorkspace?.brandId ?? null;
   const brandTeamQuery = useQuery({
@@ -392,6 +417,46 @@ export function MyTasksPage() {
     };
   }, [labelSearch, syncLabelListPos]);
 
+  const syncMoreFiltersMenuPos = useCallback(() => {
+    if (!moreFiltersOpen) {
+      setMoreFiltersMenuPos(null);
+      return;
+    }
+    const el = moreFiltersAnchorRef.current;
+    if (!el) {
+      setMoreFiltersMenuPos(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    setMoreFiltersMenuPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, [moreFiltersOpen]);
+
+  useLayoutEffect(() => {
+    syncMoreFiltersMenuPos();
+  }, [syncMoreFiltersMenuPos]);
+
+  useEffect(() => {
+    if (!moreFiltersOpen) return;
+    window.addEventListener("scroll", syncMoreFiltersMenuPos, true);
+    window.addEventListener("resize", syncMoreFiltersMenuPos);
+    return () => {
+      window.removeEventListener("scroll", syncMoreFiltersMenuPos, true);
+      window.removeEventListener("resize", syncMoreFiltersMenuPos);
+    };
+  }, [moreFiltersOpen, syncMoreFiltersMenuPos]);
+
+  useEffect(() => {
+    if (!moreFiltersOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (moreFiltersAnchorRef.current?.contains(t)) return;
+      if (moreFiltersMenuRef.current?.contains(t)) return;
+      setMoreFiltersOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [moreFiltersOpen]);
+
   const subBoardOptions = useMemo(() => {
     if (!labelsBoardQuery.data) return [];
     return labelsBoardQuery.data.lists.map((l) => ({ id: l.id, title: l.title }));
@@ -464,7 +529,10 @@ export function MyTasksPage() {
   const moveTrackerMutation = useMutation({
     mutationFn: ({ taskId, trackerStatus }: { taskId: string; trackerStatus: TrackerStatus }) =>
       patchTask(taskId, { trackerStatus }),
-    onSuccess: () => {
+    onSuccess: (updatedTask) => {
+      applyTaskServerPatchToQueryCaches(queryClient, updatedTask);
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks", "flat"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
     },
@@ -719,7 +787,8 @@ export function MyTasksPage() {
       </p>
 
       {showFilters ? (
-      <div className="flex shrink-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4 lg:flex-row lg:flex-wrap lg:items-end">
+      <div className="flex shrink-0 flex-col gap-3 rounded-xl border bg-muted/15 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
         <div className="min-w-[200px] flex-1 space-y-1">
           <Label className="text-xs text-muted-foreground">Search</Label>
           <Input
@@ -847,32 +916,6 @@ export function MyTasksPage() {
         </div>
         <div className="w-full min-w-0 space-y-1 lg:min-w-[220px] lg:max-w-md">
           <Label className="text-xs text-muted-foreground">Labels</Label>
-          {selectedLabelIds.length > 0 ? (
-            <div className="mb-1 flex flex-wrap gap-1">
-              {selectedLabelIds.map((id) => {
-                const row = labelRows.find((r) => r.id === id);
-                return (
-                  <span
-                    key={id}
-                    className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs text-foreground"
-                  >
-                    <span className="truncate">{row?.name ?? id}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {row?.scope === "user" ? "Yours" : "Board"}
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label={`Remove ${row?.name ?? "label"}`}
-                      onClick={() => setSelectedLabelIds((prev) => prev.filter((x) => x !== id))}
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          ) : null}
           <div ref={labelListAnchorRef} className="w-full">
             <Input
               className={filterFieldClass}
@@ -882,25 +925,22 @@ export function MyTasksPage() {
             />
           </div>
         </div>
-        <details className="w-full space-y-1 lg:w-52 [&_summary]:list-none [&_summary::-webkit-details-marker]:hidden">
-          <summary className={cn(filterFieldClass, "flex cursor-pointer items-center justify-between")}>
-            <span className="text-sm">More filters</span>
+        <div className="relative z-10 w-full space-y-1 lg:w-52">
+          <Label className="text-xs text-muted-foreground">More filters</Label>
+          <button
+            ref={moreFiltersAnchorRef}
+            type="button"
+            className={cn(filterFieldClass, "flex w-full cursor-pointer items-center justify-between text-left")}
+            aria-expanded={moreFiltersOpen}
+            aria-haspopup="menu"
+            onClick={() => setMoreFiltersOpen((o) => !o)}
+          >
+            <span className="text-sm">Options</span>
             <span className="text-muted-foreground" aria-hidden>
-              ▾
+              {moreFiltersOpen ? "▴" : "▾"}
             </span>
-          </summary>
-          <div className="rounded-md border border-border bg-background p-3">
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 rounded border"
-                checked={dueDatesOnly}
-                onChange={(e) => setDueDatesOnly(e.target.checked)}
-              />
-              <span>Due dates only</span>
-            </label>
-          </div>
-        </details>
+          </button>
+        </div>
         <Button
           type="button"
           variant="ghost"
@@ -917,6 +957,8 @@ export function MyTasksPage() {
             setSelectedLabelIds([]);
             setLabelSearch("");
             setDueDatesOnly(false);
+            setMoreFiltersOpen(false);
+            setMoreFiltersMenuPos(null);
             setArchivedOnly(false);
           }}
         >
@@ -932,6 +974,36 @@ export function MyTasksPage() {
             />
             <span className="text-muted-foreground">Archived only</span>
           </label>
+        ) : null}
+        </div>
+        {selectedLabelIds.length > 0 ? (
+          <div
+            className="flex w-full flex-wrap justify-start gap-1 border-t border-border/50 pt-3"
+            aria-label="Selected labels"
+          >
+            {selectedLabelIds.map((id) => {
+              const row = labelRows.find((r) => r.id === id);
+              return (
+                <span
+                  key={id}
+                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs text-foreground"
+                >
+                  <span className="truncate">{row?.name ?? id}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {row?.scope === "user" ? "Yours" : "Board"}
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={`Remove ${row?.name ?? "label"}`}
+                    onClick={() => setSelectedLabelIds((prev) => prev.filter((x) => x !== id))}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
         ) : null}
       </div>
       ) : null}
@@ -991,7 +1063,16 @@ export function MyTasksPage() {
                 <DragOverlay dropAnimation={dropAnimation}>
                   {activeDragTask ? (
                     <div className="w-56 rounded-lg border bg-card px-2 py-2 text-sm shadow-lg">
-                      <p className="font-medium">{activeDragTask.title}</p>
+                      <p
+                        className={cn(
+                          "font-medium",
+                          (activeDragTask.completed ||
+                            normalizeTrackerStatus(activeDragTask.trackerStatus) === "DONE") &&
+                            "text-muted-foreground line-through",
+                        )}
+                      >
+                        {activeDragTask.title}
+                      </p>
                     </div>
                   ) : null}
                 </DragOverlay>
@@ -1138,6 +1219,33 @@ export function MyTasksPage() {
               ) : (
                 <p className="px-3 py-2 text-xs text-muted-foreground">No matching labels.</p>
               )}
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {moreFiltersOpen && moreFiltersMenuPos
+        ? createPortal(
+            <div
+              ref={moreFiltersMenuRef}
+              role="menu"
+              aria-label="More filters"
+              className="fixed z-[10051] rounded-md border border-border bg-background p-3 text-sm text-foreground shadow-lg"
+              style={{
+                top: moreFiltersMenuPos.top,
+                left: moreFiltersMenuPos.left,
+                width: Math.max(moreFiltersMenuPos.width, 220),
+              }}
+            >
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4 rounded border"
+                  checked={dueDatesOnly}
+                  onChange={(e) => setDueDatesOnly(e.target.checked)}
+                />
+                <span>Due dates only</span>
+              </label>
             </div>,
             document.body,
           )

@@ -37,6 +37,7 @@ import {
   sortByLabelSearchRelevance,
   type LabelSuggestionChip,
 } from "./labelUiUtils";
+import { applyTaskServerPatchToQueryCaches } from "./applyTaskServerPatchToQueryCaches";
 import { taskDescriptionStringToHTML, taskDescriptionsEqual } from "./taskDescriptionHtml";
 import type { BoardDto, ProjectSpaceSummaryDto, TaskFlowTask } from "./types";
 import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus, normalizeTrackerStatus } from "./trackerMeta";
@@ -377,7 +378,9 @@ export function TaskDetailSheet({
         priority: draft.priority,
         dueDate: draft.dueDate ? new Date(draft.dueDate).toISOString() : null,
       }),
-    onSuccess: invalidate,
+    onSuccess: (updated) => {
+      applyTaskServerPatchToQueryCaches(queryClient, updated);
+    },
   });
 
   const flushMainSave = useCallback(
@@ -400,7 +403,9 @@ export function TaskDetailSheet({
 
   const trackerStatusMutation = useMutation({
     mutationFn: (next: TrackerStatus) => patchTask(task!.id, { trackerStatus: next }),
-    onSuccess: invalidate,
+    onSuccess: (updated) => {
+      applyTaskServerPatchToQueryCaches(queryClient, updated);
+    },
   });
 
   const toggleBoardLabel = (labelId: string, has: boolean) => {
