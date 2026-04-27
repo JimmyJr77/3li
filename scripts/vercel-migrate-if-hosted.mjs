@@ -4,8 +4,10 @@
  * Skips when unset or when still pointing at localhost (common copy-paste from .env.example).
  *
  * Neon: Prisma Migrate must not use the **pooler** URL (`…-pooler…`); see `scripts/lib/prisma-migrate-database-url.mjs`.
+ * Retries on P1001 (can't reach database) — Neon suspend / cold start and transient network during Vercel builds.
  */
 import { spawnSync } from "node:child_process";
+import { setTimeout } from "node:timers/promises";
 import { prismaMigrateDatabaseUrl } from "./lib/prisma-migrate-database-url.mjs";
 
 const url = process.env.DATABASE_URL?.trim() ?? "";
@@ -39,6 +41,8 @@ const SAFE_AUTO_ROLLBACK_MIGRATIONS = new Set([
   "20260426180000_board_user_preferences",
 ]);
 
+const P1001_MAX_ATTEMPTS = 5;
+
 function parseP3009FailedMigrationName(output) {
   const m = output.match(/The `([^`]+)` migration/);
   return m?.[1] ?? null;
@@ -56,29 +60,54 @@ function migrateDeploy() {
   return { status: typeof r.status === "number" ? r.status : 1, out };
 }
 
-for (let i = 0; i < 6; i++) {
-  const { status, out } = migrateDeploy();
-  if (status === 0) process.exit(0);
-
-  if (out.includes("P3009")) {
-    const name = parseP3009FailedMigrationName(out);
-    if (name && SAFE_AUTO_ROLLBACK_MIGRATIONS.has(name)) {
+/** Neon / network: first connection after suspend often fails with P1001 during short Vercel build windows. */
+async function migrateDeployWithP1001Retries() {
+  let last = { status: 1, out: "" };
+  for (let attempt = 0; attempt < P1001_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const delayMs = Math.min(16_000, 2000 * 2 ** (attempt - 1));
       console.log(
-        `[vercel-build] P3009: clearing failed migration "${name}" so deploy can re-run (allowlisted recovery).`,
+        `[vercel-build] Prisma P1001 (database unreachable). Retry ${attempt + 1}/${P1001_MAX_ATTEMPTS} after ${delayMs}ms…`,
       );
-      const resolveRb = spawnSync(
-        "npx",
-        ["prisma", "migrate", "resolve", "--rolled-back", name],
-        { shell: true, env: migrateEnv, stdio: "inherit" },
-      );
-      if (resolveRb.status !== 0) {
-        process.exit(typeof resolveRb.status === "number" ? resolveRb.status : 1);
-      }
-      continue;
+      await setTimeout(delayMs);
     }
+    last = migrateDeploy();
+    if (last.status === 0) return last;
+    if (!last.out.includes("P1001")) return last;
   }
-
-  process.exit(status);
+  return last;
 }
 
-process.exit(1);
+async function main() {
+  for (let i = 0; i < 6; i++) {
+    const { status, out } = await migrateDeployWithP1001Retries();
+    if (status === 0) process.exit(0);
+
+    if (out.includes("P3009")) {
+      const name = parseP3009FailedMigrationName(out);
+      if (name && SAFE_AUTO_ROLLBACK_MIGRATIONS.has(name)) {
+        console.log(
+          `[vercel-build] P3009: clearing failed migration "${name}" so deploy can re-run (allowlisted recovery).`,
+        );
+        const resolveRb = spawnSync(
+          "npx",
+          ["prisma", "migrate", "resolve", "--rolled-back", name],
+          { shell: true, env: migrateEnv, stdio: "inherit" },
+        );
+        if (resolveRb.status !== 0) {
+          process.exit(typeof resolveRb.status === "number" ? resolveRb.status : 1);
+        }
+        continue;
+      }
+    }
+
+    process.exit(status);
+  }
+
+  process.exit(1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
