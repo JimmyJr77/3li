@@ -617,6 +617,14 @@ export async function postComment(taskId: string, body: string): Promise<{ id: s
   return data;
 }
 
+export async function patchTaskComment(
+  commentId: string,
+  body: string,
+): Promise<{ id: string; body: string; createdAt: string; author?: { id: string; label: string } | null }> {
+  const { data } = await api.patch(`/api/task-app/comments/${commentId}`, { body });
+  return data;
+}
+
 export async function postChecklistItem(taskId: string, title: string): Promise<{ id: string }> {
   const { data } = await api.post<{ id: string }>(`/api/task-app/tasks/${taskId}/checklist`, {
     title,

@@ -1,18 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Check, Loader2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Archive, ArchiveRestore, Check, Loader2, Pencil } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { fetchMe } from "@/features/auth/api";
+import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,6 +22,7 @@ import {
   fetchLabelSuggestions,
   fetchMyTicketLabels,
   patchTask,
+  patchTaskComment,
   postComment,
   postMyTicketLabel,
   removeTaskLabel,
@@ -39,47 +38,144 @@ import {
   type LabelSuggestionChip,
 } from "./labelUiUtils";
 import { taskDescriptionStringToHTML, taskDescriptionsEqual } from "./taskDescriptionHtml";
-import type { BoardDto, TaskFlowTask } from "./types";
+import type { BoardDto, ProjectSpaceSummaryDto, TaskFlowTask } from "./types";
 import { TRACKER_LABELS, TRACKER_STATUSES, type TrackerStatus, normalizeTrackerStatus } from "./trackerMeta";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <Label className="text-xs font-medium text-muted-foreground">{children}</Label>;
 }
 
-type TicketDetailTab = "main" | "comments" | "settings";
+type TicketDetailTab = "main" | "comments" | "other";
+
+type TicketMainFieldsDraft = {
+  title: string;
+  description: string;
+  priority: string;
+  dueDate: string;
+};
+
+function ticketMainFieldsDirty(task: TaskFlowTask, draft: TicketMainFieldsDraft): boolean {
+  const taskDue = task.dueDate ? task.dueDate.slice(0, 16) : "";
+  return (
+    draft.title !== task.title ||
+    !taskDescriptionsEqual(draft.description, task.description) ||
+    draft.priority !== task.priority ||
+    draft.dueDate !== taskDue
+  );
+}
 
 const COMMENT_BODY_PREVIEW_CHARS = 220;
 
-function CommentListItem({
-  body,
-  authorLabel,
-  createdAt,
+type TaskCommentRowModel = NonNullable<TaskFlowTask["comments"]>[number];
+
+function TaskCommentRow({
+  comment: c,
+  canEdit,
+  sheetLocked,
+  onUpdated,
 }: {
-  body: string;
-  authorLabel: string;
-  createdAt: string;
+  comment: TaskCommentRowModel;
+  canEdit: boolean;
+  sheetLocked: boolean;
+  onUpdated: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const long = body.length > COMMENT_BODY_PREVIEW_CHARS;
-  const text = !long || expanded ? body : `${body.slice(0, COMMENT_BODY_PREVIEW_CHARS)}…`;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(c.body);
+  useEffect(() => {
+    setDraft(c.body);
+  }, [c.body]);
+
+  const patchMutation = useMutation({
+    mutationFn: () => patchTaskComment(c.id, draft),
+    onSuccess: () => {
+      setEditing(false);
+      onUpdated();
+    },
+  });
+
+  const authorLabel = c.author?.label?.trim() || "Unknown";
+  const long = c.body.length > COMMENT_BODY_PREVIEW_CHARS;
+  const text = !long || expanded ? c.body : `${c.body.slice(0, COMMENT_BODY_PREVIEW_CHARS)}…`;
 
   return (
     <li className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-sm">
-      <p className="whitespace-pre-wrap break-words text-foreground">{text}</p>
-      {long ? (
-        <button
-          type="button"
-          className="mt-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      ) : null}
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{authorLabel}</span>
-        {" · "}
-        {new Date(createdAt).toLocaleString()}
-      </p>
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            className="border-input bg-background focus-visible:ring-ring min-h-[5rem] w-full rounded-md border px-2 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60"
+            value={draft}
+            disabled={sheetLocked || patchMutation.isPending}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label="Edit comment"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={sheetLocked || patchMutation.isPending || !draft.trim()}
+              onClick={() => patchMutation.mutate()}
+            >
+              {patchMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
+                  Saving
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={patchMutation.isPending}
+              onClick={() => {
+                setDraft(c.body);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          {patchMutation.isError ? (
+            <p className="text-xs text-destructive">Could not save comment.</p>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap break-words text-foreground">{text}</p>
+          {long ? (
+            <button
+              type="button"
+              className="mt-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          ) : null}
+        </>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{authorLabel}</span>
+          {" · "}
+          {new Date(c.createdAt).toLocaleString()}
+        </p>
+        {!editing && canEdit && !sheetLocked ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil className="size-3" aria-hidden />
+            Edit
+          </Button>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -130,6 +226,96 @@ export function TaskDetailSheet({
     queryFn: () => fetchBrandTeam(brandIdForMyLabels!),
     enabled: Boolean(open && task && brandIdForMyLabels),
   });
+  const { workspaces, activeWorkspace } = useActiveWorkspace();
+  const meQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: fetchMe,
+    enabled: Boolean(open && task),
+  });
+  const currentUserId = meQuery.data?.id ?? null;
+
+  const [sendSpaceId, setSendSpaceId] = useState("");
+  const [sendBoardId, setSendBoardId] = useState("");
+  const [sendSubBoardId, setSendSubBoardId] = useState("");
+
+  const taskWorkspaceId = task?.list?.board.workspaceId ?? board?.workspaceId ?? null;
+  const workspaceForTask = useMemo(() => {
+    if (!taskWorkspaceId) return activeWorkspace;
+    return workspaces.find((w) => w.id === taskWorkspaceId) ?? activeWorkspace;
+  }, [taskWorkspaceId, workspaces, activeWorkspace]);
+
+  const projectSpacesForTask = workspaceForTask?.projectSpaces ?? [];
+
+  const resolveSpaceIdForBoard = useCallback(
+    (bid: string | null | undefined, spaces: ProjectSpaceSummaryDto[]) => {
+      if (!spaces.length) return "";
+      if (!bid) return spaces[0]?.id ?? "";
+      for (const ps of spaces) {
+        if (ps.boards.some((b) => b.id === bid)) return ps.id;
+      }
+      return spaces[0]?.id ?? "";
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!task?.id || !open) return;
+    const bid = task.list?.board?.id ?? board?.id ?? "";
+    const sid = resolveSpaceIdForBoard(bid, projectSpacesForTask);
+    const sub = task.subBoardId ?? task.list?.id ?? "";
+    setSendSpaceId(sid);
+    setSendBoardId(bid);
+    setSendSubBoardId(sub);
+  }, [
+    task?.id,
+    task?.list?.board?.id,
+    task?.subBoardId,
+    task?.list?.id,
+    board?.id,
+    open,
+    projectSpacesForTask,
+    resolveSpaceIdForBoard,
+  ]);
+
+  const sendTargetBoardQuery = useQuery({
+    queryKey: ["board", sendBoardId],
+    queryFn: () => fetchBoard(sendBoardId!),
+    enabled: Boolean(open && task && sendBoardId && sendBoardId !== board?.id),
+  });
+  const sendTargetBoard = sendBoardId === board?.id ? board : sendTargetBoardQuery.data;
+  const listsForSendPicker = sendTargetBoard?.lists ?? [];
+
+  const boardsInSendSpace = useMemo(() => {
+    const ps = projectSpacesForTask.find((s) => s.id === sendSpaceId);
+    return ps?.boards ?? [];
+  }, [projectSpacesForTask, sendSpaceId]);
+
+  useEffect(() => {
+    if (!listsForSendPicker.length) return;
+    if (sendSubBoardId && !listsForSendPicker.some((l) => l.id === sendSubBoardId)) {
+      setSendSubBoardId("");
+    }
+  }, [sendBoardId, listsForSendPicker, sendSubBoardId]);
+
+  useEffect(() => {
+    const curBoard = task?.list?.board.id ?? board?.id ?? "";
+    if (sendBoardId !== curBoard) return;
+    const curSub = task?.subBoardId ?? task?.list?.id ?? "";
+    if (!curSub || !listsForSendPicker.some((l) => l.id === curSub)) return;
+    setSendSubBoardId((prev) => {
+      if (prev === curSub) return prev;
+      if (prev === "" || !listsForSendPicker.some((l) => l.id === prev)) return curSub;
+      return prev;
+    });
+  }, [
+    task?.list?.board.id,
+    board?.id,
+    sendBoardId,
+    task?.subBoardId,
+    task?.list?.id,
+    listsForSendPicker,
+  ]);
+
   const subBoardIdForPrefs = task?.subBoardId ?? task?.list?.id ?? null;
   const prefRowForTask = useMemo(
     () => subBoardPrefsQuery.data?.find((r) => r.subBoardId === subBoardIdForPrefs),
@@ -184,15 +370,25 @@ export function TaskDetailSheet({
   };
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (draft: TicketMainFieldsDraft) =>
       patchTask(task!.id, {
-        title,
-        description,
-        priority,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        title: draft.title,
+        description: draft.description,
+        priority: draft.priority,
+        dueDate: draft.dueDate ? new Date(draft.dueDate).toISOString() : null,
       }),
     onSuccess: invalidate,
   });
+
+  const flushMainSave = useCallback(
+    (draft?: TicketMainFieldsDraft) => {
+      if (!task || boardArchived) return;
+      const d = draft ?? { title, description, priority, dueDate };
+      if (!ticketMainFieldsDirty(task, d)) return;
+      saveMutation.mutate(d);
+    },
+    [task, boardArchived, title, description, priority, dueDate, saveMutation],
+  );
 
   const commentMutation = useMutation({
     mutationFn: () => postComment(task!.id, comment),
@@ -262,28 +458,71 @@ export function TaskDetailSheet({
     onSuccess: invalidate,
   });
 
+  const handleSendToDestination = useCallback(async () => {
+    if (!task) return;
+    const cur = task.subBoardId ?? task.list?.id;
+    if (!sendSubBoardId || sendSubBoardId === cur) return;
+    const spaceName =
+      projectSpacesForTask.find((ps) => ps.id === sendSpaceId)?.name?.trim() || "Project space";
+    const boardName =
+      boardsInSendSpace.find((b) => b.id === sendBoardId)?.name?.trim() ||
+      sendTargetBoard?.name?.trim() ||
+      "Project board";
+    const subName =
+      listsForSendPicker.find((l) => l.id === sendSubBoardId)?.title?.trim() || "Sub-board";
+    try {
+      await moveSubBoardMutation.mutateAsync(sendSubBoardId);
+      const num = task.brandTicketNumber;
+      const ticketLead = num != null ? `Ticket #${num}` : "Ticket";
+      toast.success(`${ticketLead} sent to ${spaceName}, ${boardName}, ${subName}`);
+    } catch {
+      toast.error("Could not move ticket. Try again.");
+    }
+  }, [
+    task,
+    sendSubBoardId,
+    sendSpaceId,
+    sendBoardId,
+    projectSpacesForTask,
+    boardsInSendSpace,
+    listsForSendPicker,
+    sendTargetBoard,
+    moveSubBoardMutation,
+  ]);
+
   const dirty = useMemo(() => {
     if (!task || boardArchived) return false;
-    const taskDue = task.dueDate ? task.dueDate.slice(0, 16) : "";
-    return (
-      title !== task.title ||
-      !taskDescriptionsEqual(description, task.description) ||
-      priority !== task.priority ||
-      dueDate !== taskDue
-    );
+    return ticketMainFieldsDirty(task, { title, description, priority, dueDate });
   }, [task, boardArchived, title, description, priority, dueDate]);
 
   useDebouncedAutosave({
     enabled: Boolean(task) && !boardArchived,
     dirty,
     isPending: saveMutation.isPending,
-    onFlush: () => saveMutation.mutate(),
+    onFlush: () => flushMainSave(),
     resetKey: [title, description, priority, dueDate],
   });
 
   useEffect(() => {
     if (dirty) saveMutation.reset();
   }, [dirty, saveMutation]);
+
+  const handleSaveAndClose = useCallback(async () => {
+    if (!task) return;
+    if (boardArchived) {
+      onOpenChange(false);
+      return;
+    }
+    const d: TicketMainFieldsDraft = { title, description, priority, dueDate };
+    if (ticketMainFieldsDirty(task, d)) {
+      try {
+        await saveMutation.mutateAsync(d);
+      } catch {
+        return;
+      }
+    }
+    onOpenChange(false);
+  }, [task, boardArchived, title, description, priority, dueDate, saveMutation, onOpenChange]);
 
   const labelSearchMatches = useMemo(() => {
     if (!task || !board) return [];
@@ -324,6 +563,27 @@ export function TaskDetailSheet({
 
   if (!task) return null;
 
+  const sheetFooter = (
+    <div className="shrink-0 border-t border-border bg-card/95 px-10 pt-3 pb-5 sm:px-12 sm:pb-6">
+      <div className="flex flex-wrap items-center justify-start gap-2">
+        {saveMutation.isPending ? (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+            Saving…
+          </span>
+        ) : null}
+        <Button
+          type="button"
+          variant={boardArchived ? "secondary" : "default"}
+          onClick={handleSaveAndClose}
+          disabled={saveMutation.isPending}
+        >
+          {boardArchived ? "Close" : "Save & close"}
+        </Button>
+      </div>
+    </div>
+  );
+
   if (!board) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -335,13 +595,14 @@ export function TaskDetailSheet({
           <RightAppSheetResizeHandle onMouseDown={startResize} />
           <div
             ref={ticketPanelScrollRef}
-            className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
           >
             <div className="flex items-center gap-2 p-6 pl-10 pr-10 text-sm text-muted-foreground sm:pl-12 sm:pr-12">
               <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
               Loading board context…
             </div>
           </div>
+          {sheetFooter}
         </SheetContent>
       </Sheet>
     );
@@ -392,10 +653,14 @@ export function TaskDetailSheet({
           className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
         >
           <SheetHeader className="border-b shrink-0 p-0 pb-4 pl-10 pr-16 pt-3 sm:pl-12 sm:pr-20">
-            <SheetTitle>Ticket</SheetTitle>
-            <SheetDescription>
-              Use the tabs below to switch between main ticket fields, comments, and ticket settings.
-            </SheetDescription>
+            <SheetTitle>
+              {task.brandTicketNumber != null ? `Ticket #${task.brandTicketNumber}` : "Ticket"}
+            </SheetTitle>
+            {task.list ? (
+              <p className="text-xs text-muted-foreground">
+                {task.list.board.name} · {task.list.title} · {trackerLabel}
+              </p>
+            ) : null}
           </SheetHeader>
 
           <div className="flex flex-col gap-5 py-4 pl-10 pr-10 pb-10 sm:gap-6 sm:pl-12 sm:pr-12 sm:pb-12">
@@ -410,7 +675,7 @@ export function TaskDetailSheet({
               [
                 ["main", "Main"],
                 ["comments", "Comments"],
-                ["settings", "Settings"],
+                ["other", "Other"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -435,23 +700,16 @@ export function TaskDetailSheet({
                 <RoutingSourceBadge source={task.routingSource} />
               </div>
             ) : null}
-            {task.list ? (
-              <p className="text-xs text-muted-foreground">
-                {task.list.board.name} · {task.list.title} · {trackerLabel}
-              </p>
-            ) : null}
 
             <div className="space-y-2">
-              <div className="flex items-baseline justify-between gap-3">
-                <FieldLabel>Title</FieldLabel>
-                <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-                  {task.brandTicketNumber != null ? `Ticket #${task.brandTicketNumber}` : "—"}
-                </span>
-              </div>
+              <FieldLabel>Title</FieldLabel>
               <Input
                 value={title}
                 disabled={sheetLocked}
                 onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => {
+                  if (!boardArchived) flushMainSave();
+                }}
               />
             </div>
 
@@ -459,6 +717,9 @@ export function TaskDetailSheet({
               value={description}
               onChange={setDescription}
               disabled={sheetLocked}
+              onBlur={() => {
+                if (!boardArchived) flushMainSave();
+              }}
             />
 
             {task ? (
@@ -544,10 +805,6 @@ export function TaskDetailSheet({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-muted-foreground">
-                    Only the brand owner and collaborators who accepted an invite or joined with the team key can be
-                    assigned.
-                  </p>
                   {assigneeMutation.isError ? (
                     <p className="text-xs text-destructive">Could not update assignee.</p>
                   ) : null}
@@ -565,7 +822,13 @@ export function TaskDetailSheet({
                 type="datetime-local"
                 value={dueDate}
                 disabled={sheetLocked}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDueDate(v);
+                  if (!boardArchived) {
+                    flushMainSave({ title, description, priority, dueDate: v });
+                  }
+                }}
               />
             </div>
 
@@ -599,7 +862,13 @@ export function TaskDetailSheet({
                 className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
                 value={priority}
                 disabled={sheetLocked}
-                onChange={(e) => setPriority(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPriority(v);
+                  if (!boardArchived) {
+                    flushMainSave({ title, description, priority: v, dueDate });
+                  }
+                }}
               >
                 {["none", "low", "medium", "high"].map((p) => (
                   <option key={p} value={p}>
@@ -617,7 +886,6 @@ export function TaskDetailSheet({
                     Saving…
                   </span>
                 ) : null}
-                {!saveMutation.isPending && dirty ? <span>Unsaved changes — will save automatically.</span> : null}
                 {!dirty && !saveMutation.isPending && saveMutation.isSuccess ? (
                   <span className="inline-flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                     <Check className="size-4 shrink-0" aria-hidden />
@@ -636,11 +904,12 @@ export function TaskDetailSheet({
             <div className="space-y-4">
               <ul className="max-h-64 space-y-2 overflow-y-auto text-sm">
                 {(task.comments ?? []).map((c) => (
-                  <CommentListItem
+                  <TaskCommentRow
                     key={c.id}
-                    body={c.body}
-                    authorLabel={c.author?.label?.trim() || "Unknown"}
-                    createdAt={c.createdAt}
+                    comment={c}
+                    canEdit={Boolean(c.author?.id && currentUserId && c.author.id === currentUserId)}
+                    sheetLocked={sheetLocked}
+                    onUpdated={invalidate}
                   />
                 ))}
               </ul>
@@ -665,7 +934,7 @@ export function TaskDetailSheet({
             </div>
           ) : null}
 
-          {detailTab === "settings" ? (
+          {detailTab === "other" ? (
             <div className="space-y-4">
               <div className="space-y-1">
                 <FieldLabel>Created by</FieldLabel>
@@ -677,7 +946,7 @@ export function TaskDetailSheet({
               </div>
               {boardIdForPrefs ? (
                 <div className="space-y-2">
-                  <FieldLabel>Complete checkbox on board card</FieldLabel>
+                  <FieldLabel>Checkbox visibility</FieldLabel>
                   <select
                     className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
                     value={
@@ -701,50 +970,142 @@ export function TaskDetailSheet({
                     <option value="show">Always show on board card</option>
                     <option value="hide">Always hide on board card</option>
                   </select>
-                  <p className="text-xs text-muted-foreground">
-                    Card face layout and the sub-board default for this checkbox are in board view → sub-board options
-                    (gear on the sub-board tab).
-                  </p>
                 </div>
               ) : null}
 
-              {board && board.lists.length > 1 && !sheetLocked ? (
-                (() => {
-                  const curSub = task.subBoardId ?? task.list?.id;
-                  if (!curSub) return null;
-                  return (
-                    <div className="space-y-2">
-                      <FieldLabel>Send to sub-board</FieldLabel>
-                      <p className="text-xs text-muted-foreground">
-                        Move this ticket to another sub-board on the same project board.
-                      </p>
+              {!sheetLocked &&
+              projectSpacesForTask.length > 0 &&
+              boardsInSendSpace.length > 0 &&
+              sendBoardId ? (
+                <Card size="sm" className="shadow-sm">
+                  <CardHeader className="border-b border-border/60 pb-3">
+                    <CardTitle className="text-sm font-semibold">Send to</CardTitle>
+                    <CardDescription>
+                      Choose a project space, board, and sub-board, then send to move this ticket.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 pt-2">
+                    <div className="space-y-1">
+                      <FieldLabel>Project space</FieldLabel>
                       <select
                         className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
-                        aria-label="Sub-board for this ticket"
-                        value={curSub}
+                        aria-label="Project space"
+                        value={sendSpaceId}
                         disabled={moveSubBoardMutation.isPending}
                         onChange={(e) => {
-                          const next = e.target.value;
-                          if (next && next !== curSub) moveSubBoardMutation.mutate(next);
+                          const sid = e.target.value;
+                          setSendSpaceId(sid);
+                          const boards = projectSpacesForTask.find((ps) => ps.id === sid)?.boards ?? [];
+                          const nextBid = boards[0]?.id ?? "";
+                          setSendBoardId(nextBid);
+                          setSendSubBoardId("");
                         }}
                       >
-                        {board.lists.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.title}
+                        {projectSpacesForTask.map((ps) => (
+                          <option key={ps.id} value={ps.id}>
+                            {ps.name}
                           </option>
                         ))}
                       </select>
-                      {moveSubBoardMutation.isError ? (
-                        <p className="text-xs text-destructive">Could not move ticket. Try again.</p>
-                      ) : null}
                     </div>
-                  );
-                })()
+                    <div className="space-y-1">
+                      <FieldLabel>Project board</FieldLabel>
+                      <select
+                        className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
+                        aria-label="Project board"
+                        value={sendBoardId}
+                        disabled={moveSubBoardMutation.isPending}
+                        onChange={(e) => {
+                          setSendBoardId(e.target.value);
+                          setSendSubBoardId("");
+                        }}
+                      >
+                        {boardsInSendSpace.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <FieldLabel>Project sub-board</FieldLabel>
+                      <select
+                        className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm disabled:opacity-60"
+                        aria-label="Project sub-board"
+                        value={sendSubBoardId}
+                        disabled={
+                          moveSubBoardMutation.isPending ||
+                          sendTargetBoardQuery.isFetching ||
+                          !listsForSendPicker.length
+                        }
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setSendSubBoardId(next);
+                        }}
+                      >
+                        {(() => {
+                          const curBoard = task.list?.board.id ?? board?.id ?? "";
+                          const needsPlaceholder =
+                            sendBoardId !== curBoard &&
+                            (!sendSubBoardId ||
+                              !listsForSendPicker.some((l) => l.id === sendSubBoardId));
+                          if (!listsForSendPicker.length) {
+                            return (
+                              <option value="">
+                                {sendTargetBoardQuery.isFetching ? "Loading…" : "No sub-boards"}
+                              </option>
+                            );
+                          }
+                          return (
+                            <>
+                              {needsPlaceholder ? (
+                                <option value="">
+                                  {sendTargetBoardQuery.isFetching ? "Loading…" : "Select sub-board"}
+                                </option>
+                              ) : null}
+                              {listsForSendPicker.map((l) => (
+                                <option key={l.id} value={l.id}>
+                                  {l.title}
+                                </option>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </select>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={
+                        moveSubBoardMutation.isPending ||
+                        sendTargetBoardQuery.isFetching ||
+                        !sendSubBoardId ||
+                        !listsForSendPicker.length ||
+                        sendSubBoardId === (task.subBoardId ?? task.list?.id)
+                      }
+                      onClick={() => void handleSendToDestination()}
+                    >
+                      {moveSubBoardMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
+                          Sending…
+                        </>
+                      ) : (
+                        "Send"
+                      )}
+                    </Button>
+                    {moveSubBoardMutation.isError ? (
+                      <p className="text-xs text-destructive sm:text-right">Could not move ticket. Try again.</p>
+                    ) : null}
+                  </CardFooter>
+                </Card>
               ) : null}
 
               {!sheetLocked ? (
                 <div className="space-y-2">
-                  <FieldLabel>Archive</FieldLabel>
+                  <FieldLabel>Archive task</FieldLabel>
                   {taskArchived ? (
                     <Button
                       type="button"
@@ -782,7 +1143,7 @@ export function TaskDetailSheet({
               ) : null}
 
               <div className="space-y-2">
-                <FieldLabel>Activity Tracker</FieldLabel>
+                <FieldLabel>Archive Tracker</FieldLabel>
                 <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-muted-foreground">
                   {(task.activities ?? []).map((a) => (
                     <li key={a.id}>
@@ -799,6 +1160,7 @@ export function TaskDetailSheet({
           ) : null}
           </div>
         </div>
+        {sheetFooter}
       </SheetContent>
     </Sheet>
   );

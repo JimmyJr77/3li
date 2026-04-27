@@ -664,13 +664,13 @@ function SortableSubBoardTab({
   };
 
   return (
-    <button
-      type="button"
+    <div
       ref={setNodeRef}
       style={style}
+      role="presentation"
       onClick={onActivate}
       className={cn(
-        "relative flex min-h-[44px] min-w-0 flex-1 basis-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-all",
+        "relative flex min-h-[44px] min-w-0 flex-1 basis-0 cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-all",
         isActive && "bg-background text-foreground shadow-sm ring-1 ring-primary/30",
         !isActive && "text-muted-foreground hover:bg-background/70 hover:text-foreground",
         isDragging && "z-20 opacity-95 shadow-lg",
@@ -700,7 +700,7 @@ function SortableSubBoardTab({
       >
         <Settings2 className="size-3.5" />
       </Button>
-    </button>
+    </div>
   );
 }
 

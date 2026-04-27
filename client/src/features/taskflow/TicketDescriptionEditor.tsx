@@ -19,6 +19,8 @@ type Props = {
   value: string;
   onChange: (html: string) => void;
   disabled?: boolean;
+  /** Fires when the editor loses focus (e.g. to flush autosave). */
+  onBlur?: () => void;
 };
 
 function FieldLabel({ children }: { children: ReactNode }) {
@@ -28,7 +30,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 /**
  * Rich description field (TipTap) — list behavior matches notes; use under `.notebooks-editor` for checkbox styling.
  */
-export function TicketDescriptionEditor({ id, value, onChange, disabled }: Props) {
+export function TicketDescriptionEditor({ id, value, onChange, disabled, onBlur }: Props) {
   const autoId = useId();
   const fieldId = id ?? autoId;
 
@@ -74,7 +76,15 @@ export function TicketDescriptionEditor({ id, value, onChange, disabled }: Props
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      onBlur={(e) => {
+        if (disabled || !onBlur) return;
+        const next = e.relatedTarget as Node | null;
+        if (next && e.currentTarget.contains(next)) return;
+        onBlur();
+      }}
+    >
       <div className="flex items-center justify-between gap-2">
         <FieldLabel>Description</FieldLabel>
         <div className="flex flex-wrap gap-0.5">

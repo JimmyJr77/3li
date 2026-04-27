@@ -64,6 +64,7 @@ export type TaskFlowTask = {
     id: string;
     body: string;
     createdAt: string;
+    /** Present for comments with a known author (used for edit permissions). */
     author?: { id: string; label: string } | null;
   }[];
   checklist?: { id: string; title: string; completed: boolean; position: number }[];

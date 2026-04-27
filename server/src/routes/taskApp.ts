@@ -3098,7 +3098,18 @@ router.patch("/tasks/:taskId", async (req, res) => {
 
     const existing = await prisma.task.findUnique({
       where: { id: taskId },
-      include: { subBoard: { select: { id: true, title: true, boardId: true } } },
+      include: {
+        subBoard: {
+          select: {
+            id: true,
+            title: true,
+            boardId: true,
+            board: {
+              select: { projectSpace: { select: { workspaceId: true } } },
+            },
+          },
+        },
+      },
     });
     if (!existing) {
       res.status(404).json({ error: "Task not found" });
@@ -3110,15 +3121,38 @@ router.patch("/tasks/:taskId", async (req, res) => {
     let nextTracker: TrackerStatus = existing.trackerStatus;
     let subDirty = false;
     let trackerDirty = false;
+    /** Board used for brand / assignee checks after optional sub-board move. */
+    let boardIdForBrand = existing.subBoard.boardId;
 
     if (requestedSub !== undefined && requestedSub !== existing.subBoardId) {
-      const sb = await prisma.boardList.findUnique({ where: { id: requestedSub } });
-      if (!sb || sb.boardId !== existing.subBoard.boardId) {
+      const sb = await prisma.boardList.findUnique({
+        where: { id: requestedSub },
+        select: {
+          id: true,
+          boardId: true,
+          board: {
+            select: { projectSpace: { select: { workspaceId: true } } },
+          },
+        },
+      });
+      if (!sb) {
         res.status(400).json({ error: "Invalid sub-board" });
+        return;
+      }
+      const fromWs = existing.subBoard.board.projectSpace.workspaceId;
+      const toWs = sb.board.projectSpace.workspaceId;
+      if (fromWs !== toWs) {
+        res.status(400).json({ error: "Invalid sub-board" });
+        return;
+      }
+      const okBoard = await assertBoardAccess(req.appUser!, sb.boardId);
+      if (!okBoard) {
+        res.status(403).json({ error: "Forbidden" });
         return;
       }
       nextSubBoardId = requestedSub;
       subDirty = true;
+      boardIdForBrand = sb.boardId;
     }
 
     if (body.trackerStatus !== undefined) {
@@ -3155,7 +3189,7 @@ router.patch("/tasks/:taskId", async (req, res) => {
           res.status(400).json({ error: "Unknown assignee" });
           return;
         }
-        const brandId = await getBrandIdForBoardId(existing.subBoard.boardId);
+        const brandId = await getBrandIdForBoardId(boardIdForBrand);
         if (!brandId || !(await assertUserIsBrandParticipant(brandId, raw))) {
           res.status(400).json({
             error: "Assignee must be a teammate who has joined this board’s brand (owner or accepted invite).",
@@ -3776,6 +3810,44 @@ router.post("/tasks/:taskId/comments", async (req, res) => {
     res.status(201).json({ ...commentRest, author: activityActorDto(author) });
   } catch {
     res.status(500).json({ error: "Failed to add comment" });
+  }
+});
+
+router.patch("/comments/:commentId", async (req, res) => {
+  try {
+    const commentId = req.params.commentId;
+    const body = req.body as { body?: string };
+    if (typeof body.body !== "string" || !body.body.trim()) {
+      res.status(400).json({ error: "body is required" });
+      return;
+    }
+    const existing = await prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { id: true, taskId: true, authorUserId: true },
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Comment not found" });
+      return;
+    }
+    const ok = await assertTaskAccess(req.appUser!, existing.taskId);
+    if (!ok) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    if (!existing.authorUserId || existing.authorUserId !== req.appUser!.id) {
+      res.status(403).json({ error: "You can only edit your own comments" });
+      return;
+    }
+    const updated = await prisma.comment.update({
+      where: { id: commentId },
+      data: { body: body.body.trim() },
+      include: { author: { select: activityActorSelect } },
+    });
+    await logActivity(existing.taskId, req.appUser!.id, "comment_edited", "");
+    const { author, ...commentRest } = updated;
+    res.json({ ...commentRest, author: activityActorDto(author) });
+  } catch {
+    res.status(500).json({ error: "Failed to update comment" });
   }
 });
 
