@@ -1669,7 +1669,19 @@ router.get("/tasks", async (req, res) => {
     if (priority && priority !== "all") {
       andFilters.push({ priority });
     }
-    if (completedRaw === "true") {
+    const doneFilterRaw =
+      typeof req.query.doneFilter === "string" ? req.query.doneFilter.trim().toLowerCase() : undefined;
+    if (doneFilterRaw === "yes" || doneFilterRaw === "true") {
+      andFilters.push({
+        OR: [{ completed: true }, { trackerStatus: "DONE" }],
+      });
+    } else if (doneFilterRaw === "no" || doneFilterRaw === "false") {
+      andFilters.push({
+        NOT: {
+          OR: [{ completed: true }, { trackerStatus: "DONE" }],
+        },
+      });
+    } else if (completedRaw === "true") {
       andFilters.push({ completed: true });
     } else if (completedRaw === "false") {
       andFilters.push({ completed: false });

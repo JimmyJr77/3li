@@ -43,6 +43,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
@@ -56,7 +57,7 @@ import {
   patchWorkspaceUserPreferences,
 } from "@/features/taskflow/api";
 import { applyTaskServerPatchToQueryCaches } from "@/features/taskflow/applyTaskServerPatchToQueryCaches";
-import { BoardTable } from "@/features/taskflow/BoardTable";
+import { BoardTable, type BoardTableTaskPatch } from "@/features/taskflow/BoardTable";
 import { TaskDetailSheet } from "@/features/taskflow/TaskDetailSheet";
 import {
   TaskTicketArchiveContextMenu,
@@ -284,6 +285,7 @@ export function MyTasksPage() {
   const [assigneeUserId, setAssigneeUserId] = useState("");
   const [trackerStatusFilter, setTrackerStatusFilter] = useState<"" | TrackerStatus>("");
   const [priority, setPriority] = useState("all");
+  const [doneFilter, setDoneFilter] = useState<"" | "yes" | "no">("");
   const [sort, setSort] = useState("dueDate:asc");
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [labelSearch, setLabelSearch] = useState("");
@@ -304,7 +306,7 @@ export function MyTasksPage() {
   );
   const [showFilters, setShowFilters] = useState(true);
   const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
-  const [view, setView] = useState<TicketTrackerView>("board");
+  const [view, setView] = useState<TicketTrackerView>("table");
   const trackerSettingsSheetSizing = useResizableRightAppSheetWidth({ open: trackerSettingsOpen });
 
   const { activeWorkspace, activeWorkspaceId, isLoading: wsLoading } = useActiveWorkspace();
@@ -499,6 +501,8 @@ export function MyTasksPage() {
       trackerStatus: trackerStatusFilter || undefined,
       priority: priority === "all" ? undefined : priority,
       sort,
+      ...(doneFilter === "yes" ? { doneFilter: "yes" as const } : {}),
+      ...(doneFilter === "no" ? { doneFilter: "no" as const } : {}),
       ...(dueDatesOnly ? { hasDueDate: "true" as const } : {}),
       ...(archivedFilterActive ? { archived: "true" as const } : {}),
     }),
@@ -512,6 +516,7 @@ export function MyTasksPage() {
       assigneeUserId,
       trackerStatusFilter,
       priority,
+      doneFilter,
       sort,
       dueDatesOnly,
       archivedFilterActive,
@@ -558,6 +563,18 @@ export function MyTasksPage() {
   const openTicketArchiveFromTracker = useCallback((e: MouseEvent<Element>, task: TaskFlowTask) => {
     setTicketArchiveMenu({ clientX: e.clientX, clientY: e.clientY, task });
   }, []);
+
+  const handleTicketTrackerTablePatch = useCallback(
+    async (taskId: string, patch: BoardTableTaskPatch) => {
+      try {
+        const updated = await patchTask(taskId, patch);
+        applyTaskServerPatchToQueryCaches(queryClient, updated);
+      } catch {
+        toast.error("Could not update the ticket.");
+      }
+    },
+    [queryClient],
+  );
 
   const [items, setItems] = useState<Record<string, string[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -934,6 +951,18 @@ export function MyTasksPage() {
             ))}
           </select>
         </div>
+        <div className="w-full space-y-1 lg:w-40">
+          <Label className="text-xs text-muted-foreground">Done</Label>
+          <select
+            className={filterFieldClass}
+            value={doneFilter}
+            onChange={(e) => setDoneFilter((e.target.value || "") as "" | "yes" | "no")}
+          >
+            <option value="">Any</option>
+            <option value="yes">Done</option>
+            <option value="no">Not done</option>
+          </select>
+        </div>
         <div className="w-full space-y-1 lg:w-44">
           <Label className="text-xs text-muted-foreground">Sort</Label>
           <select
@@ -987,6 +1016,7 @@ export function MyTasksPage() {
             setAssigneeUserId("");
             setTrackerStatusFilter("");
             setPriority("all");
+            setDoneFilter("");
             setSort("dueDate:asc");
             setSelectedLabelIds([]);
             setLabelSearch("");
@@ -1128,6 +1158,8 @@ export function MyTasksPage() {
                 tasks={tasks}
                 colorByBoard={colorByBoard}
                 subBoardStrip={subBoardStrip}
+                inlineEditTrackerPriorityDue
+                onTaskPatch={handleTicketTrackerTablePatch}
                 onTicketContextMenu={(e, t) => openTicketArchiveFromTracker(e, t)}
                 onRowClick={(t) => {
                   setSelectedTaskId(t.id);

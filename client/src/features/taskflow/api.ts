@@ -32,6 +32,8 @@ export type TaskListParams = {
   hasDueDate?: "true";
   priority?: string;
   completed?: "true" | "false";
+  /** Ticket Tracker: `yes` = completed or Done lane; `no` = neither. */
+  doneFilter?: "yes" | "no";
   sort?: string;
   chatThreadId?: string;
   /** Omit = active tasks only; `true` = archived only; `all` = both */
