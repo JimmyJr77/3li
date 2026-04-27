@@ -118,6 +118,8 @@ type LogBrandParams = {
   surfaceType: "brand_rep_review" | "brand_rep_center";
   userMessage: string;
   assistantText: string;
+  /** Full `User: … / Brand Rep: …` thread sent to the model; stored for dashboard history. */
+  transcript?: string | null;
   extras?: Record<string, unknown> | null;
 };
 
@@ -129,12 +131,14 @@ export async function logBrandRepTurn(p: LogBrandParams): Promise<{ agentSession
     p.userMessage,
     { surfaceType: p.surfaceType },
   );
+  const transcriptTrim = typeof p.transcript === "string" ? p.transcript.trim() : "";
   await appendEvents(sid, [
     {
       type: EVENT_USER_MESSAGE,
       payload: {
         text: truncateForEvent(p.userMessage),
         surfaceType: p.surfaceType,
+        ...(transcriptTrim ? { transcript: truncateForEvent(transcriptTrim) } : {}),
         ...(p.extras ?? {}),
       },
     },
@@ -150,6 +154,8 @@ type LogMailParams = {
   titleHint: string;
   summary: string;
   payload: Record<string, unknown>;
+  /** Inbound capture / instruction text so the session history is not only the model summary. */
+  userInputSummary?: string | null;
 };
 
 export async function logMailClerkTurn(p: LogMailParams): Promise<{ agentSessionId: string }> {
@@ -166,12 +172,14 @@ export async function logMailClerkTurn(p: LogMailParams): Promise<{ agentSession
     p.titleHint,
     null,
   );
+  const userIn = typeof p.userInputSummary === "string" ? p.userInputSummary.trim() : "";
   await appendEvents(sid, [
     {
       type: eventType,
       payload: {
         executiveSummary: truncateForEvent(p.summary, 2000),
         detail: p.payload,
+        ...(userIn ? { userInput: truncateForEvent(userIn, 8000) } : {}),
       },
     },
   ]);

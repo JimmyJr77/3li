@@ -313,7 +313,7 @@ export function BrandCenterPage() {
                 placeholder="The future you are building toward."
               />
             </Field>
-            <Field label="Values" hint="One per line.">
+            <Field label="Values" hint="One per line. Use Enter for a new value; spaces and line breaks are kept while you type.">
               <textarea
                   className={textareaClass}
                 rows={4}
@@ -321,10 +321,7 @@ export function BrandCenterPage() {
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                   update(
                     "values",
-                    e.target.value
-                      .split("\n")
-                      .map((s: string) => s.trim())
-                      .filter(Boolean),
+                    e.target.value.split(/\r?\n/),
                   )
                 }
                 placeholder={"One per line, e.g. Customer first"}

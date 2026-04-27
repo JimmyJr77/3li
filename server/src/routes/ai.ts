@@ -326,6 +326,7 @@ router.post("/agent", async (req, res) => {
               surfaceType: "brand_rep_center",
               userMessage: message,
               assistantText: turn.assistantMessage,
+              transcript,
               extras: {
                 consultSectionId,
                 mode,
@@ -388,6 +389,9 @@ router.post("/agent", async (req, res) => {
         let agentSessionIdMail: string | undefined;
         if (wsMail) {
           try {
+            const userInputDecompose = [capture.trim() && `Capture:\n${capture.trim()}`, instruction.trim() && `Instruction:\n${instruction.trim()}`]
+              .filter(Boolean)
+              .join("\n\n");
             const logged = await logMailClerkTurn({
               workspaceId: wsMail,
               agentSessionId: readAgentSessionId(body),
@@ -395,6 +399,7 @@ router.post("/agent", async (req, res) => {
               titleHint: capture || decomposition.executiveSummary,
               summary: decomposition.executiveSummary,
               payload: mailLogDetail("mail_clerk_decompose", decomposition, undefined),
+              userInputSummary: userInputDecompose || null,
             });
             agentSessionIdMail = logged.agentSessionId;
           } catch (logErr) {
@@ -478,6 +483,9 @@ router.post("/agent", async (req, res) => {
         let agentSessionIdRoute: string | undefined;
         if (wsRoute) {
           try {
+            const userInputRoute = [originalCapture.trim() && `Original capture:\n${originalCapture.trim()}`, instruction.trim() && `Instruction:\n${instruction.trim()}`]
+              .filter(Boolean)
+              .join("\n\n");
             const logged = await logMailClerkTurn({
               workspaceId: wsRoute,
               agentSessionId: readAgentSessionId(body),
@@ -485,6 +493,7 @@ router.post("/agent", async (req, res) => {
               titleHint: originalCapture || plan.executiveSummary,
               summary: plan.executiveSummary,
               payload: mailLogDetail("mail_clerk_route", undefined, plan),
+              userInputSummary: userInputRoute || null,
             });
             agentSessionIdRoute = logged.agentSessionId;
           } catch (logErr) {
@@ -550,6 +559,9 @@ router.post("/agent", async (req, res) => {
         let agentSessionIdPlan: string | undefined;
         if (wsPlan) {
           try {
+            const userInputPlan = [capture.trim() && `Capture:\n${capture.trim()}`, instruction.trim() && `Instruction:\n${instruction.trim()}`]
+              .filter(Boolean)
+              .join("\n\n");
             const logged = await logMailClerkTurn({
               workspaceId: wsPlan,
               agentSessionId: readAgentSessionId(body),
@@ -557,6 +569,7 @@ router.post("/agent", async (req, res) => {
               titleHint: capture || plan.executiveSummary,
               summary: plan.executiveSummary,
               payload: mailLogDetail("mail_clerk_plan", undefined, plan),
+              userInputSummary: userInputPlan || null,
             });
             agentSessionIdPlan = logged.agentSessionId;
           } catch (logErr) {

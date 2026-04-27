@@ -103,33 +103,129 @@ function useResizablePanelWidth(storageKey: string, defaultW: number) {
   return { widthPx: w, startResize };
 }
 
-function eventSummary(ev: AgentSessionEventDto): string {
-  const p = ev.payload && typeof ev.payload === "object" ? (ev.payload as Record<string, unknown>) : {};
-  if (ev.type === "user_message" && typeof p.text === "string") return p.text;
-  if (ev.type === "assistant_message" && typeof p.text === "string") return p.text;
-  if (ev.type === "brainstorm_ai_turn") {
-    const pr = typeof p.prompt === "string" ? p.prompt : "";
-    return pr.slice(0, 200);
+function payloadString(p: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) return v;
   }
-  if (ev.type.startsWith("mail_clerk")) {
-    const ex = typeof p.executiveSummary === "string" ? p.executiveSummary : "";
-    return ex.slice(0, 200);
-  }
-  return ev.type;
+  return "";
+}
+
+/** Human labels for internal Brand Rep / API placeholders. */
+function formatInternalUserLine(text: string): string {
+  const t = text.trim();
+  if (t === "__GENERATE_FIELD__") return "Generate suggested copy";
+  if (t === "__OPEN_FIELD__") return "Open next field";
+  return text;
 }
 
 function AgentEventsTimeline({ events }: { events: AgentSessionEventDto[] }) {
   return (
-    <div className="space-y-4 pr-2">
-      {events.map((ev) => (
-        <div key={ev.id} className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">{ev.type}</span>
-            <time dateTime={ev.createdAt}>{fmtShort(ev.createdAt)}</time>
+    <div className="space-y-3 pr-2">
+      {events.map((ev) => {
+        const p = ev.payload && typeof ev.payload === "object" ? (ev.payload as Record<string, unknown>) : {};
+        const time = <time dateTime={ev.createdAt}>{fmtShort(ev.createdAt)}</time>;
+
+        if (ev.type === "user_message") {
+          const transcript = typeof p.transcript === "string" ? p.transcript.trim() : "";
+          const line = formatInternalUserLine(payloadString(p, ["text", "message", "userMessage", "content"]));
+          const ctx = typeof p.contextSnippet === "string" ? p.contextSnippet.trim() : "";
+          return (
+            <div
+              key={ev.id}
+              className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm text-foreground/95 shadow-xs"
+            >
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground/90">You</span>
+                {time}
+              </div>
+              {transcript ? (
+                <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{transcript}</p>
+              ) : (
+                <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{line || "—"}</p>
+              )}
+              {ctx && !transcript ? (
+                <p className="mt-2 border-t border-border/50 pt-2 text-xs leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground/80">Context: </span>
+                  {ctx}
+                </p>
+              ) : null}
+            </div>
+          );
+        }
+
+        if (ev.type === "assistant_message") {
+          const body = payloadString(p, ["text", "message", "content"]);
+          return (
+            <div
+              key={ev.id}
+              className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2.5 text-sm text-foreground/95 shadow-xs"
+            >
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground/90">Assistant</span>
+                {time}
+              </div>
+              <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{body || "—"}</p>
+            </div>
+          );
+        }
+
+        if (ev.type === "brainstorm_ai_turn") {
+          const prompt = typeof p.prompt === "string" ? p.prompt : "";
+          const result = typeof p.result === "string" ? p.result : "";
+          const mode = typeof p.mode === "string" ? p.mode : "";
+          return (
+            <div key={ev.id} className="space-y-2 rounded-lg border border-border/60 bg-card/40 p-1 shadow-xs">
+              <div className="rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground/90">You</span>
+                  {time}
+                </div>
+                {mode ? <p className="mt-0.5 text-[11px] text-muted-foreground">Mode: {mode}</p> : null}
+                <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{prompt || "—"}</p>
+              </div>
+              <div className="rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-sm">
+                <span className="text-xs font-semibold text-foreground/90">Assistant</span>
+                <p className="mt-1.5 whitespace-pre-wrap leading-relaxed">{result || "—"}</p>
+              </div>
+            </div>
+          );
+        }
+
+        if (ev.type.startsWith("mail_clerk")) {
+          const userIn = typeof p.userInput === "string" ? p.userInput.trim() : "";
+          const summary = typeof p.executiveSummary === "string" ? p.executiveSummary : "";
+          return (
+            <div key={ev.id} className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground/80">{ev.type.replace(/^mail_clerk_/, "Mail: ")}</span>
+                {time}
+              </div>
+              {userIn ? (
+                <div className="rounded-md border border-primary/20 bg-primary/5 px-2.5 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Your input</p>
+                  <p className="mt-1 whitespace-pre-wrap text-foreground/90">{userIn}</p>
+                </div>
+              ) : null}
+              <p className="whitespace-pre-wrap text-foreground/90">
+                {summary || payloadString(p, ["text"]) || "—"}
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div key={ev.id} className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground/80">{ev.type}</span>
+              {time}
+            </div>
+            <p className="mt-1.5 whitespace-pre-wrap text-foreground/90">
+              {payloadString(p, ["text", "message", "executiveSummary", "result"]) || "—"}
+            </p>
           </div>
-          <p className="mt-1.5 whitespace-pre-wrap text-foreground/90">{eventSummary(ev)}</p>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
