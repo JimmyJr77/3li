@@ -917,7 +917,6 @@ function TrackerLane({
   listAccentColor?: string | null;
   boardArchived?: boolean;
 }) {
-  const ui = useBoardKanbanUi();
   const { setNodeRef, isOver } = useDroppable({ id: laneId });
 
   return (
@@ -949,7 +948,6 @@ function TrackerLane({
                 subBoardPref={subBoardPref}
                 listAccentColor={listAccentColor}
                 boardArchived={boardArchived}
-                onTicketContextMenu={ui.openTicketContextMenu}
               />
             );
           })}
@@ -1033,7 +1031,6 @@ function ReadOnlyTrackerGrid({
   prefBySubBoard,
   boardUserPref,
   boardArchived,
-  onTicketContextMenu,
 }: {
   board: BoardDto;
   activeSub: BoardListDto;
@@ -1045,7 +1042,6 @@ function ReadOnlyTrackerGrid({
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>;
   boardUserPref?: BoardUserPreferenceDto;
   boardArchived?: boolean;
-  onTicketContextMenu?: (e: MouseEvent, task: TaskFlowTask) => void;
 }) {
   const byLane = buildLaneItems(activeSub);
 
@@ -1067,7 +1063,6 @@ function ReadOnlyTrackerGrid({
             boardUserPref={boardUserPref}
             listAccentColor={activeSub.accentColor}
             boardArchived={boardArchived}
-            onTicketContextMenu={onTicketContextMenu}
           />
         ))}
       </div>
@@ -1088,7 +1083,6 @@ function ReadOnlyLaneInner({
   boardUserPref,
   listAccentColor,
   boardArchived,
-  onTicketContextMenu,
 }: {
   laneId: string;
   label: string;
@@ -1102,7 +1096,6 @@ function ReadOnlyLaneInner({
   boardUserPref?: BoardUserPreferenceDto;
   listAccentColor?: string | null;
   boardArchived?: boolean;
-  onTicketContextMenu?: (e: MouseEvent, task: TaskFlowTask) => void;
 }) {
   const laneSubBoardId = parseLaneKey(laneId)?.subBoardId ?? "";
   const subBoardPref = normalizedSubBoardPref(laneSubBoardId, prefBySubBoard[laneSubBoardId], boardUserPref);
@@ -1128,7 +1121,6 @@ function ReadOnlyLaneInner({
               subBoardPref={subBoardPref}
               listAccentColor={listAccentColor}
               boardArchived={boardArchived}
-              onTicketContextMenu={onTicketContextMenu}
             />
           );
         })}
