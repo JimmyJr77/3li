@@ -22,7 +22,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeProvider
         attribute="class"
         defaultTheme="vibrant"
-        enableSystem
         disableTransitionOnChange
         storageKey={THEME_STORAGE_KEY}
         themes={[...REGISTERED_THEMES]}

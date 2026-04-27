@@ -19,7 +19,7 @@ const publicLinks = [
 export function PublicLayout() {
   const location = useLocation();
   const isHome = location.pathname === "/";
-  const { theme, resolvedTheme } = useTheme();
+  const { theme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export function PublicLayout() {
   }, []);
 
   const semanticPublicShell = mounted && isWorkspaceColorTheme(theme);
-  const zincMarketingDark = !semanticPublicShell && marketingZincIsDark(theme, resolvedTheme);
+  const zincMarketingDark = !semanticPublicShell && marketingZincIsDark(theme);
 
   return (
     <div

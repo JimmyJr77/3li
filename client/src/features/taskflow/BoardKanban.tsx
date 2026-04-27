@@ -180,14 +180,28 @@ function mergeLaneItems(subBoards: BoardListDto[]): Record<string, string[]> {
   return out;
 }
 
+/**
+ * Sub-board `hiddenTrackerStatuses` is the full hidden set for that list once a row exists.
+ * With no row yet, lanes follow the project board default (`defaultHiddenTrackerStatuses`).
+ */
+function effectiveHiddenTrackerStatusesForSubBoardRow(
+  row: SubBoardPreferenceDto | undefined,
+  boardUserPref?: BoardUserPreferenceDto,
+): TrackerStatus[] {
+  if (row === undefined) {
+    return boardUserPref?.defaultHiddenTrackerStatuses ?? [];
+  }
+  return row.hiddenTrackerStatuses ?? [];
+}
+
 function visibleStatusesForSubBoard(
   subBoardId: string,
   prefBySubBoard: Record<string, SubBoardPreferenceDto | undefined>,
   boardUserPref?: BoardUserPreferenceDto,
 ): TrackerStatus[] {
-  const subHidden = prefBySubBoard[subBoardId]?.hiddenTrackerStatuses ?? [];
-  const boardHidden = boardUserPref?.defaultHiddenTrackerStatuses ?? [];
-  const hidden = new Set<TrackerStatus>([...boardHidden, ...subHidden]);
+  const hidden = new Set<TrackerStatus>(
+    effectiveHiddenTrackerStatusesForSubBoardRow(prefBySubBoard[subBoardId], boardUserPref),
+  );
   const visible = TRACKER_STATUSES.filter((s) => !hidden.has(s));
   return visible.length > 0 ? visible : ["BACKLOG"];
 }
@@ -241,7 +255,7 @@ function normalizedSubBoardPref(
     cardFaceLayout: resolvedLayout,
     cardFaceMeta: row?.cardFaceMeta ?? null,
     completeCheckboxVisibleByDefault: checkboxMerged,
-    hiddenTrackerStatuses: row?.hiddenTrackerStatuses ?? [],
+    hiddenTrackerStatuses: effectiveHiddenTrackerStatusesForSubBoardRow(row, boardUserPref),
     showSubBoardAccentStrip:
       (boardUserPref?.showSubBoardAccentStrip !== false) && (row?.showSubBoardAccentStrip !== false),
     updatedAt: row?.updatedAt ?? null,
@@ -1817,7 +1831,7 @@ function BoardKanbanFiltered({
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
     const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
-    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
+    setEditorHiddenDraft(effectiveHiddenTrackerStatusesForSubBoardRow(pref, boardUserPref));
     setEditorCardFaceDraft(norm.cardFaceLayout);
     setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
     setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);
@@ -2176,7 +2190,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     if (!editorSubBoardId) return;
     const pref = prefBySubBoard[editorSubBoardId];
     const norm = normalizedSubBoardPref(editorSubBoardId, pref, boardUserPref);
-    setEditorHiddenDraft(pref?.hiddenTrackerStatuses ?? []);
+    setEditorHiddenDraft(effectiveHiddenTrackerStatusesForSubBoardRow(pref, boardUserPref));
     setEditorCardFaceDraft(norm.cardFaceLayout);
     setEditorCheckboxDefaultDraft(norm.completeCheckboxVisibleByDefault !== false);
     setEditorCardFaceMetaDraft(norm.cardFaceMetaMerged);

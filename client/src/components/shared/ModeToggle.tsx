@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export function ModeToggle() {
-  const { setTheme, theme, resolvedTheme } = useTheme();
+  const { setTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -20,9 +20,9 @@ export function ModeToggle() {
     });
   }, []);
 
-  const showVibrant = mounted && theme === "vibrant";
+  const showVibrant = mounted && (theme === "vibrant" || theme === "vibrant-red");
   const showRainbow = mounted && theme === "rainbow-explosion";
-  const showDark = mounted && !showVibrant && !showRainbow && resolvedTheme === "dark";
+  const showDark = mounted && !showVibrant && !showRainbow && (theme === "dark" || theme === "dark-red");
 
   return (
     <DropdownMenu>
@@ -59,11 +59,13 @@ export function ModeToggle() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>Light</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>Dark</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("vibrant")}>Vibrant</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("light")}>Light (Blue)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("light-red")}>Light (Red)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark")}>Dark (Blue)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark-red")}>Dark (Red)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("vibrant")}>Vibrant (Blue)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("vibrant-red")}>Vibrant (Red)</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("rainbow-explosion")}>Rainbow Explosion</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>System</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

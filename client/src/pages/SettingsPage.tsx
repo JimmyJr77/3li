@@ -642,7 +642,10 @@ export function SettingsPage() {
                   <CardDescription>Same options as the theme control in the workspace chrome.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">Choose light, dark, vibrant, rainbow, or system.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Choose Light (Blue), Light (Red), Dark (Blue), Dark (Red), Vibrant (Blue), Vibrant (Red), or Rainbow
+                    Explosion.
+                  </p>
                   <div className="flex shrink-0 items-center gap-2">
                     <ModeToggle />
                     <span className="text-sm text-muted-foreground">Theme</span>

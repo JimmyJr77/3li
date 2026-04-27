@@ -3,8 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@custom-variant dark (&:is(.dark *, .public-red-dark *));
-@custom-variant vibrant (&:is(.vibrant *));
+@custom-variant dark (&:is(.dark *, .public-red-dark *, .dark-red *));
+@custom-variant vibrant (&:is(.vibrant *, .vibrant-red *));
 @custom-variant rainbow-explosion (&:is(.rainbow-explosion *));
 
 @theme inline {
@@ -86,6 +86,42 @@
     --sidebar-ring: oklch(0.52 0.16 262);
 }
 
+/* Light (Red) — same structure as :root light; blue family hues → red family (matched L/C). */
+.light-red {
+    --background: oklch(0.988 0.016 22);
+    --foreground: oklch(0.24 0.042 25);
+    --card: oklch(0.998 0.008 25);
+    --card-foreground: oklch(0.24 0.042 25);
+    --popover: oklch(0.998 0.01 22);
+    --popover-foreground: oklch(0.24 0.042 25);
+    --primary: oklch(0.42 0.19 25);
+    --primary-foreground: oklch(0.99 0.02 25);
+    --secondary: oklch(0.955 0.028 24);
+    --secondary-foreground: oklch(0.28 0.055 25);
+    --muted: oklch(0.958 0.022 25);
+    --muted-foreground: oklch(0.48 0.04 25);
+    --accent: oklch(0.94 0.04 18);
+    --accent-foreground: oklch(0.28 0.06 25);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.9 0.035 24);
+    --input: oklch(0.93 0.028 25);
+    --ring: oklch(0.52 0.16 28);
+    --chart-1: oklch(0.58 0.16 25);
+    --chart-2: oklch(0.55 0.12 38);
+    --chart-3: oklch(0.52 0.1 12);
+    --chart-4: oklch(0.65 0.12 78);
+    --chart-5: oklch(0.5 0.11 155);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.982 0.018 22);
+    --sidebar-foreground: oklch(0.24 0.042 25);
+    --sidebar-primary: oklch(0.42 0.19 25);
+    --sidebar-primary-foreground: oklch(0.99 0.02 25);
+    --sidebar-accent: oklch(0.95 0.035 25);
+    --sidebar-accent-foreground: oklch(0.28 0.055 25);
+    --sidebar-border: oklch(0.9 0.035 24);
+    --sidebar-ring: oklch(0.52 0.16 28);
+}
+
 .dark,
 html.public-red-dark {
     /* Dark + electric blue accents */
@@ -120,6 +156,41 @@ html.public-red-dark {
     --sidebar-accent-foreground: oklch(0.97 0.015 255);
     --sidebar-border: oklch(0.55 0.12 262 / 28%);
     --sidebar-ring: oklch(0.62 0.22 262);
+}
+
+/* Dark (Red) — same structure as .dark; blue family hues → red family (matched L/C). */
+.dark-red {
+    --background: oklch(0.145 0.02 25);
+    --foreground: oklch(0.97 0.015 25);
+    --card: oklch(0.2 0.025 22);
+    --card-foreground: oklch(0.97 0.015 25);
+    --popover: oklch(0.2 0.025 22);
+    --popover-foreground: oklch(0.97 0.015 25);
+    --primary: oklch(0.68 0.23 25);
+    --primary-foreground: oklch(0.14 0.04 25);
+    --secondary: oklch(0.28 0.04 22);
+    --secondary-foreground: oklch(0.97 0.015 25);
+    --muted: oklch(0.28 0.035 22);
+    --muted-foreground: oklch(0.72 0.04 28);
+    --accent: oklch(0.32 0.1 22);
+    --accent-foreground: oklch(0.97 0.02 25);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(0.55 0.12 28 / 28%);
+    --input: oklch(0.55 0.14 25 / 22%);
+    --ring: oklch(0.62 0.22 28);
+    --chart-1: oklch(0.68 0.2 25);
+    --chart-2: oklch(0.62 0.18 38);
+    --chart-3: oklch(0.58 0.16 12);
+    --chart-4: oklch(0.72 0.14 78);
+    --chart-5: oklch(0.58 0.14 155);
+    --sidebar: oklch(0.18 0.028 22);
+    --sidebar-foreground: oklch(0.97 0.015 25);
+    --sidebar-primary: oklch(0.68 0.23 25);
+    --sidebar-primary-foreground: oklch(0.14 0.04 25);
+    --sidebar-accent: oklch(0.3 0.08 22);
+    --sidebar-accent-foreground: oklch(0.97 0.015 25);
+    --sidebar-border: oklch(0.55 0.12 28 / 28%);
+    --sidebar-ring: oklch(0.62 0.22 28);
 }
 
 /*
@@ -160,6 +231,41 @@ html.public-red-dark {
     --sidebar-accent-foreground: oklch(0.26 0.1 268);
     --sidebar-border: oklch(0.83 0.09 265);
     --sidebar-ring: oklch(0.54 0.2 262);
+}
+
+/* Vibrant (Red) — same structure as .vibrant; cool hues → red family (matched L/C). */
+.vibrant-red {
+    --background: oklch(0.984 0.02 22);
+    --foreground: oklch(0.22 0.06 25);
+    --card: oklch(0.997 0.014 25);
+    --card-foreground: oklch(0.22 0.06 25);
+    --popover: oklch(0.998 0.012 22);
+    --popover-foreground: oklch(0.22 0.06 25);
+    --primary: oklch(0.45 0.24 25);
+    --primary-foreground: oklch(0.99 0.035 25);
+    --secondary: oklch(0.91 0.075 28);
+    --secondary-foreground: oklch(0.28 0.11 28);
+    --muted: oklch(0.932 0.048 25);
+    --muted-foreground: oklch(0.41 0.09 22);
+    --accent: oklch(0.89 0.11 25);
+    --accent-foreground: oklch(0.26 0.1 22);
+    --destructive: oklch(0.51 0.22 22);
+    --border: oklch(0.84 0.085 25);
+    --input: oklch(0.9 0.065 24);
+    --ring: oklch(0.54 0.21 28);
+    --chart-1: oklch(0.57 0.23 25);
+    --chart-2: oklch(0.62 0.19 38);
+    --chart-3: oklch(0.58 0.2 12);
+    --chart-4: oklch(0.74 0.15 78);
+    --chart-5: oklch(0.58 0.17 155);
+    --sidebar: oklch(0.952 0.05 22);
+    --sidebar-foreground: oklch(0.24 0.075 25);
+    --sidebar-primary: oklch(0.46 0.23 25);
+    --sidebar-primary-foreground: oklch(0.99 0.035 25);
+    --sidebar-accent: oklch(0.88 0.095 18);
+    --sidebar-accent-foreground: oklch(0.26 0.1 25);
+    --sidebar-border: oklch(0.83 0.09 22);
+    --sidebar-ring: oklch(0.54 0.2 28);
 }
 
 /*
@@ -222,6 +328,20 @@ html.public-red-dark {
       radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.65 0.16 285 / 0.18), transparent 60%),
       linear-gradient(168deg, oklch(0.988 0.02 268), oklch(0.975 0.028 258));
   }
+  html.vibrant-red {
+    color-scheme: light;
+  }
+  html.vibrant-red body {
+    background-color: transparent;
+    background-image:
+      radial-gradient(ellipse 130% 95% at 8% -22%, oklch(0.58 0.22 28 / 0.34), transparent 58%),
+      radial-gradient(ellipse 105% 72% at 100% 0%, oklch(0.62 0.2 38 / 0.3), transparent 54%),
+      radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.65 0.16 18 / 0.18), transparent 60%),
+      linear-gradient(168deg, oklch(0.988 0.02 25), oklch(0.975 0.028 22));
+  }
+  html.light-red {
+    color-scheme: light;
+  }
   html.rainbow-explosion {
     color-scheme: light;
   }
@@ -241,6 +361,9 @@ html.public-red-dark {
         oklch(0.95 0.09 195),
         oklch(0.93 0.08 268)
       );
+  }
+  html.dark-red {
+    color-scheme: dark;
   }
 }
 
