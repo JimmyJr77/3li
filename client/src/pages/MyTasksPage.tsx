@@ -1,12 +1,14 @@
 import {
   DndContext,
   DragOverlay,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
-  MouseSensor,
-  TouchSensor,
+  MeasuringStrategy,
+  PointerSensor,
   closestCorners,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -571,10 +573,16 @@ export function MyTasksPage() {
 
   const taskMap = useMemo(() => buildTaskMap(tasks), [tasks]);
 
+  /** Scrollable swim lanes often get stale rects with corners-only detection in prod browsers. */
+  const ticketTrackerCollision: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return closestCorners(args);
+  }, []);
+
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 6 },
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
     }),
   );
 
@@ -1067,13 +1075,14 @@ export function MyTasksPage() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <DndContext
                 sensors={sensors}
-                collisionDetection={closestCorners}
+                collisionDetection={ticketTrackerCollision}
+                measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}
               >
-                <div className="flex min-h-0 w-full min-w-0 flex-1 touch-manipulation items-stretch gap-2 overflow-x-auto pb-0">
+                <div className="flex min-h-0 w-full min-w-0 flex-1 items-stretch gap-2 overflow-x-auto pb-0">
                   {visibleTrackerStatuses.map((st) => (
                     <TrackerColumn
                       key={st}
