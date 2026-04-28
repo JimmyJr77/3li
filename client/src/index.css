@@ -233,39 +233,44 @@ html.public-red-dark {
     --sidebar-ring: oklch(0.54 0.2 262);
 }
 
-/* Vibrant (Red) — scarlet axis ~30°; avoids low-hue rose and orange-coral that read salmon/pink on light UI. */
+/* Vibrant (Red) — airy near-white field; #FF0000 rules; sidebar = white + red chrome, hover = red + white. */
 .vibrant-red {
-    --background: oklch(0.985 0.022 30);
-    --foreground: oklch(0.22 0.065 30);
-    --card: oklch(0.997 0.014 30);
-    --card-foreground: oklch(0.22 0.065 30);
-    --popover: oklch(0.998 0.013 30);
-    --popover-foreground: oklch(0.22 0.065 30);
-    --primary: oklch(0.44 0.26 30);
-    --primary-foreground: oklch(0.99 0.035 30);
-    --secondary: oklch(0.9 0.08 30);
-    --secondary-foreground: oklch(0.28 0.115 30);
-    --muted: oklch(0.94 0.05 30);
-    --muted-foreground: oklch(0.4 0.095 30);
-    --accent: oklch(0.86 0.1 30);
-    --accent-foreground: oklch(0.26 0.105 30);
+    --background: oklch(0.992 0.012 30);
+    --foreground: oklch(0.2 0.09 30);
+    --card: #ffffff;
+    --card-foreground: oklch(0.2 0.09 30);
+    --popover: #ffffff;
+    --popover-foreground: oklch(0.2 0.09 30);
+    --primary: #ff0000;
+    --primary-foreground: #ffffff;
+    --secondary: #ffffff;
+    --secondary-foreground: #ff0000;
+    --muted: oklch(0.97 0.025 30);
+    --muted-foreground: oklch(0.42 0.18 30);
+    --accent: oklch(0.96 0.06 30);
+    --accent-foreground: #ff0000;
     --destructive: oklch(0.51 0.22 22);
-    --border: oklch(0.84 0.09 30);
-    --input: oklch(0.9 0.07 30);
-    --ring: oklch(0.52 0.22 30);
-    --chart-1: oklch(0.57 0.24 30);
-    --chart-2: oklch(0.6 0.2 350);
-    --chart-3: oklch(0.55 0.21 27);
+    --border: #ff0000;
+    --input: #ffffff;
+    --ring: #ff0000;
+    --chart-1: #ff0000;
+    --chart-2: oklch(0.58 0.22 28);
+    --chart-3: oklch(0.52 0.2 15);
     --chart-4: oklch(0.74 0.15 78);
     --chart-5: oklch(0.58 0.17 155);
-    --sidebar: oklch(0.95 0.055 30);
-    --sidebar-foreground: oklch(0.24 0.08 30);
-    --sidebar-primary: oklch(0.45 0.25 30);
-    --sidebar-primary-foreground: oklch(0.99 0.035 30);
-    --sidebar-accent: oklch(0.87 0.1 30);
-    --sidebar-accent-foreground: oklch(0.26 0.105 30);
-    --sidebar-border: oklch(0.83 0.095 30);
-    --sidebar-ring: oklch(0.52 0.21 30);
+    --sidebar: #ffffff;
+    --sidebar-foreground: #ff0000;
+    --sidebar-primary: #ff0000;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #ff0000;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #ff0000;
+    --sidebar-ring: #ff0000;
+}
+
+/* Default type + icons in workspace sidebars (brand row, footer chrome) match scarlet chrome. */
+html.vibrant-red aside.bg-sidebar {
+    color: #ff0000;
 }
 
 /*
@@ -333,11 +338,7 @@ html.public-red-dark {
   }
   html.vibrant-red body {
     background-color: transparent;
-    background-image:
-      radial-gradient(ellipse 130% 95% at 8% -22%, oklch(0.56 0.24 30 / 0.36), transparent 58%),
-      radial-gradient(ellipse 105% 72% at 100% 0%, oklch(0.58 0.22 28 / 0.32), transparent 54%),
-      radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.6 0.2 32 / 0.2), transparent 60%),
-      linear-gradient(168deg, oklch(0.988 0.024 30), oklch(0.974 0.032 30));
+    background-image: linear-gradient(180deg, oklch(0.996 0.008 30), oklch(0.998 0.004 30));
   }
   html.light-red {
     color-scheme: light;
