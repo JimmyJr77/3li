@@ -98,6 +98,7 @@ import {
   useRoutedTaskGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
@@ -2259,6 +2260,40 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
     },
   });
 
+  const positionSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reorderSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleDebouncedPositionSave = useCallback(() => {
+    if (positionSaveTimerRef.current) clearTimeout(positionSaveTimerRef.current);
+    positionSaveTimerRef.current = window.setTimeout(() => {
+      positionSaveTimerRef.current = null;
+      moveMutation.mutate({ ...itemsRef.current });
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }, [moveMutation]);
+
+  const scheduleDebouncedReorderSave = useCallback(() => {
+    if (reorderSaveTimerRef.current) clearTimeout(reorderSaveTimerRef.current);
+    reorderSaveTimerRef.current = window.setTimeout(() => {
+      reorderSaveTimerRef.current = null;
+      reorderMutation.mutate([...listOrderRef.current]);
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }, [reorderMutation]);
+
+  useEffect(() => {
+    return () => {
+      if (positionSaveTimerRef.current) {
+        clearTimeout(positionSaveTimerRef.current);
+        positionSaveTimerRef.current = null;
+        moveMutation.mutate({ ...itemsRef.current });
+      }
+      if (reorderSaveTimerRef.current) {
+        clearTimeout(reorderSaveTimerRef.current);
+        reorderSaveTimerRef.current = null;
+        reorderMutation.mutate([...listOrderRef.current]);
+      }
+    };
+  }, [moveMutation, reorderMutation]);
+
   const createMutation = useMutation({
     mutationFn: ({ laneId, title }: { laneId: string; title: string }) => {
       const parsed = parseLaneKey(laneId);
@@ -2454,7 +2489,7 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
           pinSubBoard(subBoardId);
           return;
         }
-        queueMicrotask(() => reorderMutation.mutate([...listOrderRef.current]));
+        scheduleDebouncedReorderSave();
         return;
       }
       if (activeStr.startsWith(PIN_PREFIX)) {
@@ -2482,11 +2517,11 @@ function BoardKanbanDnd({ board, onOpenTask, onAddSubBoard, onArchiveBoard, boar
         }
 
         itemsRef.current = next;
-        queueMicrotask(() => moveMutation.mutate({ ...itemsRef.current }));
+        scheduleDebouncedPositionSave();
         return next;
       });
     },
-    [moveMutation, reorderMutation, resolveLaneTarget],
+    [moveMutation, reorderMutation, resolveLaneTarget, scheduleDebouncedPositionSave, scheduleDebouncedReorderSave],
   );
 
   const draggingSubBoardTab = Boolean(activeId?.startsWith(SB_PREFIX));

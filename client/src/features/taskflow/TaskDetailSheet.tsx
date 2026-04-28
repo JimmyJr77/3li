@@ -5,6 +5,9 @@ import { fetchMe } from "@/features/auth/api";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useDebouncedAutosave } from "@/hooks/useDebouncedAutosave";
 import { RightAppSheetResizeHandle, useResizableRightAppSheetWidth, rightAppSheetContentClassName } from "@/hooks/useResizableRightAppSheetWidth";
+import { PagePresenceAvatars } from "@/features/presence/PagePresenceAvatars";
+import { usePagePresence } from "@/features/presence/usePagePresence";
+import { usePresenceTabId } from "@/features/presence/usePresenceTabId";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { RoutingSourceBadge } from "@/components/shared/RoutingSourceBadge";
@@ -234,6 +237,10 @@ export function TaskDetailSheet({
     enabled: Boolean(open && task),
   });
   const currentUserId = meQuery.data?.id ?? null;
+
+  const presenceRoomKey = open && task?.id ? `task:${task.id}` : null;
+  const presenceTabId = usePresenceTabId(presenceRoomKey);
+  const { peers: taskPresencePeers } = usePagePresence(presenceRoomKey, presenceTabId);
 
   const [sendSpaceId, setSendSpaceId] = useState("");
   const [sendBoardId, setSendBoardId] = useState("");
@@ -658,14 +665,23 @@ export function TaskDetailSheet({
           className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain"
         >
           <SheetHeader className="border-b shrink-0 p-0 pb-4 pl-10 pr-16 pt-3 sm:pl-12 sm:pr-20">
-            <SheetTitle>
-              {task.brandTicketNumber != null ? `Ticket #${task.brandTicketNumber}` : "Ticket"}
-            </SheetTitle>
-            {task.list ? (
-              <p className="text-xs text-muted-foreground">
-                {task.list.board.name} · {task.list.title} · {trackerLabel}
-              </p>
-            ) : null}
+            <div className="flex flex-wrap items-start justify-between gap-3 pr-2">
+              <div className="min-w-0 flex-1 space-y-1">
+                <SheetTitle>
+                  {task.brandTicketNumber != null ? `Ticket #${task.brandTicketNumber}` : "Ticket"}
+                </SheetTitle>
+                {task.list ? (
+                  <p className="text-xs text-muted-foreground">
+                    {task.list.board.name} · {task.list.title} · {trackerLabel}
+                  </p>
+                ) : null}
+              </div>
+              <PagePresenceAvatars
+                peers={taskPresencePeers}
+                variant="inline"
+                className="shrink-0 pt-0.5 [&_span]:size-8 [&_span]:text-[10px]"
+              />
+            </div>
           </SheetHeader>
 
           <div className="flex flex-col gap-5 py-4 pl-10 pr-10 pb-10 sm:gap-6 sm:pl-12 sm:pr-12 sm:pb-12">

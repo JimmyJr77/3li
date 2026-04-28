@@ -11,6 +11,7 @@ import type { BrainstormEdge, BrainstormFlowNode, TextFlowNode } from "@/feature
 import { isIdeaNode } from "@/features/brainstorm/types";
 import { normalizeExtentForContainerChildren } from "@/features/brainstorm/utils/nodeLayout";
 import { Button } from "@/components/ui/button";
+import { AUTOSAVE_DEBOUNCE_MS } from "@/lib/autosave";
 import { cn } from "@/lib/utils";
 
 function normalizeEdgesFromApi(edges: BrainstormSessionResponse["edges"]): BrainstormEdge[] {
@@ -43,8 +44,6 @@ function mapSessionFromApi(data: BrainstormSessionResponse): {
     edges: normalizeEdgesFromApi(data.edges),
   };
 }
-
-const PERSIST_DEBOUNCE_MS = 600;
 
 /** Maps API session to canvas nodes/edges; optionally consumes one-shot note import (initial load only). */
 function buildHydratedCanvasPayload(
@@ -321,7 +320,7 @@ export function BrainstormWorkspace({
     persistDebounceRef.current = window.setTimeout(() => {
       persistDebounceRef.current = null;
       runPersistLoop();
-    }, PERSIST_DEBOUNCE_MS);
+    }, AUTOSAVE_DEBOUNCE_MS);
   }, [nodes, edges, sessionId, runPersistLoop, clearPersistDebounce]);
 
   useEffect(() => {

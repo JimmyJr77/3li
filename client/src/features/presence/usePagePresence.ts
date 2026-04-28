@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { postPresenceHeartbeat } from "./api";
 import type { PresencePeer } from "./types";
 
-const HEARTBEAT_MS = 10_000;
+const HEARTBEAT_MS = 3500;
 
 /**
  * Registers this tab in `roomKey` and returns other users in the same room (Postgres-backed, polled).
@@ -11,21 +11,30 @@ export function usePagePresence(roomKey: string | null | undefined, tabId: strin
   peers: PresencePeer[];
 } {
   const [peers, setPeers] = useState<PresencePeer[]>([]);
+  const lastOkPeersRef = useRef<PresencePeer[]>([]);
 
   useEffect(() => {
     if (!roomKey || !tabId) {
+      lastOkPeersRef.current = [];
       setPeers([]);
       return;
     }
+    setPeers([]);
+    lastOkPeersRef.current = [];
 
     let cancelled = false;
 
     const tick = async () => {
       try {
         const next = await postPresenceHeartbeat(roomKey, tabId);
-        if (!cancelled) setPeers(next);
+        if (!cancelled) {
+          lastOkPeersRef.current = next;
+          setPeers(next);
+        }
       } catch {
-        if (!cancelled) setPeers([]);
+        if (!cancelled) {
+          setPeers(lastOkPeersRef.current);
+        }
       }
     };
 

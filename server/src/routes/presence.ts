@@ -6,7 +6,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppUserPrincipal } from "../lib/auth/workspaceScope.js";
-import { assertBoardAccess, assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
+import { assertBoardAccess, assertTaskAccess, assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
 
 const router = Router();
@@ -35,6 +35,11 @@ async function authorizePresenceRoom(user: AppUserPrincipal, roomKey: string): P
     const wsId = row?.project.workspaceId;
     if (!wsId) return false;
     return assertWorkspaceAccess(user, wsId);
+  }
+  if (roomKey.startsWith("task:")) {
+    const taskId = roomKey.slice("task:".length).trim();
+    if (!taskId) return false;
+    return assertTaskAccess(user, taskId);
   }
   return false;
 }
