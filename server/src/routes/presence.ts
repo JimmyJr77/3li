@@ -6,7 +6,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppUserPrincipal } from "../lib/auth/workspaceScope.js";
-import { assertBoardAccess } from "../lib/auth/workspaceScope.js";
+import { assertBoardAccess, assertWorkspaceAccess } from "../lib/auth/workspaceScope.js";
 import { prisma } from "../lib/db.js";
 
 const router = Router();
@@ -24,6 +24,17 @@ async function authorizePresenceRoom(user: AppUserPrincipal, roomKey: string): P
     const boardId = roomKey.slice("board:".length).trim();
     if (!boardId) return false;
     return assertBoardAccess(user, boardId);
+  }
+  if (roomKey.startsWith("brainstorm:")) {
+    const sessionId = roomKey.slice("brainstorm:".length).trim();
+    if (!sessionId) return false;
+    const row = await prisma.brainstormSession.findFirst({
+      where: { id: sessionId },
+      select: { project: { select: { workspaceId: true } } },
+    });
+    const wsId = row?.project.workspaceId;
+    if (!wsId) return false;
+    return assertWorkspaceAccess(user, wsId);
   }
   return false;
 }

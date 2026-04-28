@@ -168,6 +168,11 @@ async function putCanvas(
         },
       });
     }
+
+    await tx.brainstormSession.update({
+      where: { id: sessionId },
+      data: { title: session.title },
+    });
   });
 
   return { ok: true as const };

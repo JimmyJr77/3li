@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { consumeBrainstormNoteImport, ideaNodeFromBrainstormNoteImport } from "@/features/brainstorm/brainstormNoteImport";
 import { BrainstormAgentsSheet } from "@/features/brainstorm/components/BrainstormAgentsSheet";
 import { BrainstormCanvasTools } from "@/features/brainstorm/components/BrainstormCanvasTools";
-import type { BrainstormSessionResponse } from "@/features/brainstorm/api";
+import type { BrainstormSessionResponse, BrainstormSessionsListResponse } from "@/features/brainstorm/api";
 import { fetchBrainstormSessionById, saveBrainstormCanvas } from "@/features/brainstorm/api";
 import type { BrainstormSaveStatus } from "@/features/brainstorm/saveStatus";
 import { normalizeBrainstormNode, useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
@@ -44,6 +44,40 @@ function mapSessionFromApi(data: BrainstormSessionResponse): {
   };
 }
 
+const PERSIST_DEBOUNCE_MS = 600;
+
+/** Maps API session to canvas nodes/edges; optionally consumes one-shot note import (initial load only). */
+function buildHydratedCanvasPayload(
+  data: BrainstormSessionResponse,
+  sessionId: string,
+  includeNoteImport: boolean,
+): { nodes: BrainstormFlowNode[]; edges: BrainstormEdge[] } {
+  if (data.session.id !== sessionId) {
+    return { nodes: [], edges: [] };
+  }
+  const mappedBase = mapSessionFromApi(data);
+  let mapped = mappedBase.nodes;
+  const rawEdges = mappedBase.edges;
+  if (includeNoteImport) {
+    const pending = consumeBrainstormNoteImport();
+    if (pending) {
+      mapped = [...mapped, ideaNodeFromBrainstormNoteImport(pending, mapped.filter(isIdeaNode).length)];
+    }
+  }
+  const selectedIds = new Set(
+    useBrainstormStore.getState().nodes.filter((n) => n.selected).map((n) => n.id),
+  );
+  if (selectedIds.size > 0) {
+    mapped = mapped.map((n) => ({
+      ...n,
+      selected: selectedIds.has(n.id),
+    }));
+  } else {
+    mapped = mapped.map((n) => ({ ...n, selected: false }));
+  }
+  return { nodes: mapped, edges: rawEdges };
+}
+
 type BrainstormWorkspaceProps = {
   workspaceId: string;
   sessionId: string;
@@ -51,6 +85,12 @@ type BrainstormWorkspaceProps = {
   /** Renders above the canvas, inside the idea-board column (aligned with canvas width). */
   header?: ReactNode;
   onSaveStatusChange?: (status: BrainstormSaveStatus) => void;
+  /** Increment to flush debounced autosave immediately (Save Board). */
+  saveBoardFlushNonce?: number;
+  /** When true, periodically refetch the session so another viewer’s saves can apply while the canvas is clean. */
+  remotePresenceActive?: boolean;
+  /** Fires when local canvas differs from the last successful save snapshot. */
+  onCanvasDirtyChange?: (dirty: boolean) => void;
 };
 
 export function BrainstormWorkspace({
@@ -59,15 +99,18 @@ export function BrainstormWorkspace({
   children,
   header,
   onSaveStatusChange,
+  saveBoardFlushNonce = 0,
+  remotePresenceActive = false,
+  onCanvasDirtyChange,
 }: BrainstormWorkspaceProps) {
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({
     queryKey: ["brainstorm", "session", workspaceId, sessionId],
     queryFn: () => fetchBrainstormSessionById(sessionId, workspaceId),
     enabled: Boolean(sessionId),
-    /** After save we invalidate; keep modest stale time so revisiting the board refetches from the server. */
     staleTime: 30_000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
+    refetchInterval: remotePresenceActive ? 12_000 : false,
   });
 
   const nodes = useBrainstormStore((s) => s.nodes);
@@ -120,6 +163,17 @@ export function BrainstormWorkspace({
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const onSaveStatusChangeRef = useRef(onSaveStatusChange);
   onSaveStatusChangeRef.current = onSaveStatusChange;
+  const onCanvasDirtyChangeRef = useRef(onCanvasDirtyChange);
+  onCanvasDirtyChangeRef.current = onCanvasDirtyChange;
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHandledFlushNonceRef = useRef(saveBoardFlushNonce);
+
+  const clearPersistDebounce = useCallback(() => {
+    if (persistDebounceRef.current !== null) {
+      clearTimeout(persistDebounceRef.current);
+      persistDebounceRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     resetCanvas([], []);
@@ -127,62 +181,14 @@ export function BrainstormWorkspace({
     lastHydrateSigRef.current = null;
     lastPersistedRef.current = null;
     persistChainRef.current = Promise.resolve();
+    clearPersistDebounce();
+    lastHandledFlushNonceRef.current = saveBoardFlushNonce;
     onSaveStatusChangeRef.current?.("idle");
-  }, [sessionId, workspaceId, resetCanvas]);
+    onCanvasDirtyChangeRef.current?.(false);
+  }, [sessionId, workspaceId, resetCanvas, clearPersistDebounce]);
 
-  useEffect(() => {
-    if (!sessionQuery.isSuccess || !sessionQuery.data) {
-      return;
-    }
-    if (sessionQuery.data.session.id !== sessionId) {
-      return;
-    }
-    const hydrateSig = `${sessionId}:${sessionQuery.dataUpdatedAt}`;
-    if (lastHydrateSigRef.current === hydrateSig) {
-      return;
-    }
-    lastHydrateSigRef.current = hydrateSig;
-
-    const mappedBase = mapSessionFromApi(sessionQuery.data);
-    let mapped = mappedBase.nodes;
-    const rawEdges = mappedBase.edges;
-    const pending = consumeBrainstormNoteImport();
-    if (pending) {
-      mapped = [...mapped, ideaNodeFromBrainstormNoteImport(pending, mapped.filter(isIdeaNode).length)];
-    }
-    const selectedIds = new Set(
-      useBrainstormStore.getState().nodes.filter((n) => n.selected).map((n) => n.id),
-    );
-    if (selectedIds.size > 0) {
-      mapped = mapped.map((n) => ({
-        ...n,
-        selected: selectedIds.has(n.id),
-      }));
-    } else {
-      mapped = mapped.map((n) => ({ ...n, selected: false }));
-    }
-    resetCanvas(mapped, rawEdges, { keepShapePickerOpen: true });
-    hydratedRef.current = true;
-    lastPersistedRef.current = null;
-  }, [sessionQuery.isSuccess, sessionQuery.data, sessionQuery.dataUpdatedAt, sessionId, resetCanvas]);
-
-  useEffect(() => {
-    if (!hydratedRef.current || !sessionId) {
-      return;
-    }
-    const snapshot = JSON.stringify({ nodes, edges });
-
-    if (lastPersistedRef.current === null) {
-      lastPersistedRef.current = snapshot;
-      onSaveStatusChangeRef.current?.("idle");
-      return;
-    }
-    if (lastPersistedRef.current === snapshot) {
-      return;
-    }
-
-    onSaveStatusChangeRef.current?.("pending");
-
+  const runPersistLoop = useCallback(() => {
+    if (!hydratedRef.current || !sessionId) return;
     persistChainRef.current = persistChainRef.current
       .then(async () => {
         let didSave = false;
@@ -208,17 +214,115 @@ export function BrainstormWorkspace({
           }
         }
         if (didSave) {
-          await queryClient.invalidateQueries({
-            queryKey: ["brainstorm", "session", workspaceId, sessionId],
-          });
+          queryClient.setQueryData<BrainstormSessionsListResponse | undefined>(
+            ["brainstorm", "sessions-list", workspaceId],
+            (old) => {
+              if (!old?.sessions) return old;
+              const count = useBrainstormStore.getState().nodes.length;
+              return {
+                ...old,
+                sessions: old.sessions.map((s) =>
+                  s.id === sessionId ? { ...s, nodeCount: count, updatedAt: new Date().toISOString() } : s,
+                ),
+              };
+            },
+          );
           onSaveStatusChangeRef.current?.("saved");
+          onCanvasDirtyChangeRef.current?.(false);
           window.setTimeout(() => onSaveStatusChangeRef.current?.("idle"), 2200);
         }
       })
       .catch(() => {
         onSaveStatusChangeRef.current?.("error");
       });
-  }, [nodes, edges, sessionId, workspaceId, queryClient]);
+  }, [sessionId, workspaceId, queryClient]);
+
+  useEffect(() => {
+    if (!sessionQuery.isSuccess || !sessionQuery.data) {
+      return;
+    }
+    if (sessionQuery.data.session.id !== sessionId) {
+      return;
+    }
+    const hydrateSig = `${sessionId}:${sessionQuery.dataUpdatedAt}`;
+    if (lastHydrateSigRef.current === hydrateSig) {
+      return;
+    }
+
+    const includeNoteImport = !hydratedRef.current;
+    const { nodes: mappedNodes, edges: mappedEdges } = buildHydratedCanvasPayload(
+      sessionQuery.data,
+      sessionId,
+      includeNoteImport,
+    );
+    const serverSnap = JSON.stringify({ nodes: mappedNodes, edges: mappedEdges });
+
+    if (!hydratedRef.current) {
+      lastHydrateSigRef.current = hydrateSig;
+      resetCanvas(mappedNodes, mappedEdges, { keepShapePickerOpen: true });
+      hydratedRef.current = true;
+      lastPersistedRef.current = null;
+      return;
+    }
+
+    lastHydrateSigRef.current = hydrateSig;
+
+    const liveSnap = JSON.stringify({
+      nodes: useBrainstormStore.getState().nodes,
+      edges: useBrainstormStore.getState().edges,
+    });
+    const persisted = lastPersistedRef.current;
+    if (persisted !== null && liveSnap !== persisted) {
+      return;
+    }
+    if (persisted !== null && serverSnap === persisted) {
+      return;
+    }
+
+    resetCanvas(mappedNodes, mappedEdges, { keepShapePickerOpen: true });
+    lastPersistedRef.current = JSON.stringify({
+      nodes: useBrainstormStore.getState().nodes,
+      edges: useBrainstormStore.getState().edges,
+    });
+  }, [sessionQuery.isSuccess, sessionQuery.data, sessionQuery.dataUpdatedAt, sessionId, resetCanvas]);
+
+  useEffect(() => {
+    return () => clearPersistDebounce();
+  }, [clearPersistDebounce]);
+
+  useEffect(() => {
+    if (saveBoardFlushNonce === lastHandledFlushNonceRef.current) {
+      return;
+    }
+    lastHandledFlushNonceRef.current = saveBoardFlushNonce;
+    clearPersistDebounce();
+    runPersistLoop();
+  }, [saveBoardFlushNonce, runPersistLoop, clearPersistDebounce]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || !sessionId) {
+      return;
+    }
+    const snapshot = JSON.stringify({ nodes, edges });
+
+    if (lastPersistedRef.current === null) {
+      lastPersistedRef.current = snapshot;
+      onSaveStatusChangeRef.current?.("idle");
+      onCanvasDirtyChangeRef.current?.(false);
+      return;
+    }
+    if (lastPersistedRef.current === snapshot) {
+      onCanvasDirtyChangeRef.current?.(false);
+      return;
+    }
+
+    onCanvasDirtyChangeRef.current?.(true);
+    clearPersistDebounce();
+    persistDebounceRef.current = window.setTimeout(() => {
+      persistDebounceRef.current = null;
+      runPersistLoop();
+    }, PERSIST_DEBOUNCE_MS);
+  }, [nodes, edges, sessionId, runPersistLoop, clearPersistDebounce]);
 
   useEffect(() => {
     if (!presentationMode) return;

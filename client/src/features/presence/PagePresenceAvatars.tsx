@@ -12,18 +12,22 @@ function peerBubbleColor(userId: string): string {
 type PagePresenceAvatarsProps = {
   peers: PresencePeer[];
   className?: string;
+  /** `fixed` = overlay bottom-right (e.g. task board). `inline` = flow in a toolbar row. */
+  variant?: "fixed" | "inline";
 };
 
 /**
  * Overlapping initials circles for “others on this page” (fixed bottom-right by default).
  */
-export function PagePresenceAvatars({ peers, className }: PagePresenceAvatarsProps) {
+export function PagePresenceAvatars({ peers, className, variant = "fixed" }: PagePresenceAvatarsProps) {
   if (peers.length === 0) return null;
 
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-4 right-4 z-[80] flex flex-row items-center justify-end",
+        variant === "fixed" &&
+          "pointer-events-none fixed bottom-4 right-4 z-[80] flex flex-row items-center justify-end",
+        variant === "inline" && "pointer-events-none flex flex-row items-center justify-end",
         className,
       )}
       aria-label={`${peers.length} other viewer${peers.length === 1 ? "" : "s"} on this page`}

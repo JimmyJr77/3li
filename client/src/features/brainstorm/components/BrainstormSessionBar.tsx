@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { BrainstormCanvasTools } from "@/features/brainstorm/components/BrainstormCanvasTools";
 import { useEffect, useState } from "react";
 import {
@@ -18,6 +18,8 @@ type BrainstormSessionBarProps = {
   activeSessionId: string;
   onSessionChange: (sessionId: string) => void;
   onCreatedSession: (sessionId: string) => void;
+  onSaveBoard?: () => void;
+  saveBoardDisabled?: boolean;
 };
 
 export function BrainstormSessionBar({
@@ -26,6 +28,8 @@ export function BrainstormSessionBar({
   activeSessionId,
   onSessionChange,
   onCreatedSession,
+  onSaveBoard,
+  saveBoardDisabled = true,
 }: BrainstormSessionBarProps) {
   const queryClient = useQueryClient();
   const presentationMode = useBrainstormStore((s) => s.presentationMode);
@@ -115,6 +119,19 @@ export function BrainstormSessionBar({
               placeholder="Name this studio board"
             />
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {onSaveBoard ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || saveBoardDisabled}
+                  className="gap-1"
+                  onClick={() => onSaveBoard()}
+                >
+                  <Save className="size-4" aria-hidden />
+                  Save board
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="sm"

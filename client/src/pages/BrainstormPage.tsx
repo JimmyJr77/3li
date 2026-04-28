@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { fetchBrainstormSessionsList } from "@/features/brainstorm/api";
@@ -13,6 +13,8 @@ import type { BrainstormSaveStatus } from "@/features/brainstorm/saveStatus";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { usePagePresence } from "@/features/presence/usePagePresence";
+import { usePresenceTabId } from "@/features/presence/usePresenceTabId";
 
 export function BrainstormPage() {
   const presentationMode = useBrainstormStore((s) => s.presentationMode);
@@ -20,6 +22,8 @@ export function BrainstormPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [saveStatus, setSaveStatus] = useState<BrainstormSaveStatus>("idle");
+  const [canvasDirty, setCanvasDirty] = useState(false);
+  const [saveBoardFlushNonce, setSaveBoardFlushNonce] = useState(0);
 
   const listQuery = useQuery({
     queryKey: ["brainstorm", "sessions-list", activeWorkspaceId ?? ""],
@@ -48,6 +52,20 @@ export function BrainstormPage() {
   const sessionParam = searchParams.get("session");
   const matchesParam = sessionParam && sessions.some((s) => s.id === sessionParam);
   const activeSessionId = matchesParam ? sessionParam : (sessions[0]?.id ?? "");
+
+  const presenceRoomKey =
+    activeWorkspaceId && activeSessionId ? `brainstorm:${activeSessionId}` : null;
+  const presenceTabId = usePresenceTabId(presenceRoomKey);
+  const { peers: presencePeers } = usePagePresence(presenceRoomKey, presenceTabId);
+  const remotePresenceActive = presencePeers.length > 0;
+  const onCanvasDirtyChange = useCallback((dirty: boolean) => {
+    setCanvasDirty(dirty);
+  }, []);
+
+  useLayoutEffect(() => {
+    setSaveBoardFlushNonce(0);
+    setCanvasDirty(false);
+  }, [activeSessionId, activeWorkspaceId]);
 
   useEffect(() => {
     if (!listQuery.isSuccess || !activeSessionId) {
@@ -81,7 +99,7 @@ export function BrainstormPage() {
   if (!activeWorkspaceId) {
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
-        <BrainstormToolbar saveStatus="idle" />
+        <BrainstormToolbar saveStatus="idle" presencePeers={[]} />
         <p className="text-sm text-muted-foreground">Select a brand workspace in the sidebar to open Brainstorm.</p>
       </div>
     );
@@ -90,7 +108,7 @@ export function BrainstormPage() {
   if (listLoading) {
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
-        <BrainstormToolbar saveStatus="idle" />
+        <BrainstormToolbar saveStatus="idle" presencePeers={[]} />
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           Loading studio boards…
@@ -112,7 +130,7 @@ export function BrainstormPage() {
 
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
-        <BrainstormToolbar saveStatus="idle" />
+        <BrainstormToolbar saveStatus="idle" presencePeers={[]} />
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm">
           <p className="font-medium text-destructive">Could not load studio boards.</p>
           <p className="mt-1 text-muted-foreground">
@@ -138,7 +156,7 @@ export function BrainstormPage() {
   if (!activeSessionId) {
     return (
       <div className="flex min-h-[calc(100vh-6rem)] flex-col gap-4">
-        <BrainstormToolbar saveStatus="idle" />
+        <BrainstormToolbar saveStatus="idle" presencePeers={[]} />
         <p className="text-sm text-muted-foreground">No studio boards available. Try refreshing the page.</p>
         <Button type="button" variant="outline" size="sm" onClick={() => listQuery.refetch()}>
           Refresh
@@ -154,12 +172,17 @@ export function BrainstormPage() {
         presentationMode && "min-h-0 gap-0",
       )}
     >
-      {!presentationMode ? <BrainstormToolbar saveStatus={saveStatus} /> : null}
+      {!presentationMode ? (
+        <BrainstormToolbar saveStatus={saveStatus} presencePeers={presencePeers} />
+      ) : null}
       <BrainstormWorkspace
         key={`${activeWorkspaceId}:${activeSessionId}`}
         workspaceId={activeWorkspaceId}
         sessionId={activeSessionId}
         onSaveStatusChange={setSaveStatus}
+        saveBoardFlushNonce={saveBoardFlushNonce}
+        remotePresenceActive={remotePresenceActive}
+        onCanvasDirtyChange={onCanvasDirtyChange}
         header={
           <BrainstormSessionBar
             workspaceId={activeWorkspaceId}
@@ -167,6 +190,8 @@ export function BrainstormPage() {
             activeSessionId={activeSessionId}
             onSessionChange={setSessionInUrl}
             onCreatedSession={setSessionInUrl}
+            onSaveBoard={() => setSaveBoardFlushNonce((n) => n + 1)}
+            saveBoardDisabled={!canvasDirty}
           />
         }
       >
