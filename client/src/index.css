@@ -158,39 +158,39 @@ html.public-red-dark {
     --sidebar-ring: oklch(0.62 0.22 262);
 }
 
-/* Dark (Red) — same structure as .dark; blue family hues → red family (matched L/C). */
+/* Dark (Red) — vivid scarlet axis (~27°); higher chroma than before to avoid muddy brown. */
 .dark-red {
-    --background: oklch(0.145 0.02 25);
-    --foreground: oklch(0.97 0.015 25);
-    --card: oklch(0.2 0.025 22);
-    --card-foreground: oklch(0.97 0.015 25);
-    --popover: oklch(0.2 0.025 22);
-    --popover-foreground: oklch(0.97 0.015 25);
-    --primary: oklch(0.68 0.23 25);
-    --primary-foreground: oklch(0.14 0.04 25);
-    --secondary: oklch(0.28 0.04 22);
-    --secondary-foreground: oklch(0.97 0.015 25);
-    --muted: oklch(0.28 0.035 22);
-    --muted-foreground: oklch(0.72 0.04 28);
-    --accent: oklch(0.32 0.1 22);
-    --accent-foreground: oklch(0.97 0.02 25);
+    --background: oklch(0.14 0.034 27);
+    --foreground: oklch(0.97 0.012 27);
+    --card: oklch(0.195 0.04 27);
+    --card-foreground: oklch(0.97 0.012 27);
+    --popover: oklch(0.195 0.04 27);
+    --popover-foreground: oklch(0.97 0.012 27);
+    --primary: oklch(0.72 0.27 27);
+    --primary-foreground: oklch(0.12 0.045 27);
+    --secondary: oklch(0.28 0.062 27);
+    --secondary-foreground: oklch(0.97 0.012 27);
+    --muted: oklch(0.28 0.056 27);
+    --muted-foreground: oklch(0.74 0.056 27);
+    --accent: oklch(0.36 0.14 27);
+    --accent-foreground: oklch(0.97 0.02 27);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(0.55 0.12 28 / 28%);
-    --input: oklch(0.55 0.14 25 / 22%);
-    --ring: oklch(0.62 0.22 28);
-    --chart-1: oklch(0.68 0.2 25);
-    --chart-2: oklch(0.62 0.18 38);
-    --chart-3: oklch(0.58 0.16 12);
+    --border: oklch(0.52 0.15 27 / 34%);
+    --input: oklch(0.52 0.17 27 / 28%);
+    --ring: oklch(0.66 0.24 27);
+    --chart-1: oklch(0.7 0.23 27);
+    --chart-2: oklch(0.62 0.2 350);
+    --chart-3: oklch(0.58 0.19 15);
     --chart-4: oklch(0.72 0.14 78);
     --chart-5: oklch(0.58 0.14 155);
-    --sidebar: oklch(0.18 0.028 22);
-    --sidebar-foreground: oklch(0.97 0.015 25);
-    --sidebar-primary: oklch(0.68 0.23 25);
-    --sidebar-primary-foreground: oklch(0.14 0.04 25);
-    --sidebar-accent: oklch(0.3 0.08 22);
-    --sidebar-accent-foreground: oklch(0.97 0.015 25);
-    --sidebar-border: oklch(0.55 0.12 28 / 28%);
-    --sidebar-ring: oklch(0.62 0.22 28);
+    --sidebar: oklch(0.172 0.04 27);
+    --sidebar-foreground: oklch(0.97 0.012 27);
+    --sidebar-primary: oklch(0.72 0.27 27);
+    --sidebar-primary-foreground: oklch(0.12 0.045 27);
+    --sidebar-accent: oklch(0.32 0.12 27);
+    --sidebar-accent-foreground: oklch(0.97 0.012 27);
+    --sidebar-border: oklch(0.52 0.15 27 / 34%);
+    --sidebar-ring: oklch(0.66 0.24 27);
 }
 
 /*
@@ -233,39 +233,39 @@ html.public-red-dark {
     --sidebar-ring: oklch(0.54 0.2 262);
 }
 
-/* Vibrant (Red) — same structure as .vibrant; cool hues → red family (matched L/C). */
+/* Vibrant (Red) — scarlet axis ~30°; avoids low-hue rose and orange-coral that read salmon/pink on light UI. */
 .vibrant-red {
-    --background: oklch(0.984 0.02 22);
-    --foreground: oklch(0.22 0.06 25);
-    --card: oklch(0.997 0.014 25);
-    --card-foreground: oklch(0.22 0.06 25);
-    --popover: oklch(0.998 0.012 22);
-    --popover-foreground: oklch(0.22 0.06 25);
-    --primary: oklch(0.45 0.24 25);
-    --primary-foreground: oklch(0.99 0.035 25);
-    --secondary: oklch(0.91 0.075 28);
-    --secondary-foreground: oklch(0.28 0.11 28);
-    --muted: oklch(0.932 0.048 25);
-    --muted-foreground: oklch(0.41 0.09 22);
-    --accent: oklch(0.89 0.11 25);
-    --accent-foreground: oklch(0.26 0.1 22);
+    --background: oklch(0.985 0.022 30);
+    --foreground: oklch(0.22 0.065 30);
+    --card: oklch(0.997 0.014 30);
+    --card-foreground: oklch(0.22 0.065 30);
+    --popover: oklch(0.998 0.013 30);
+    --popover-foreground: oklch(0.22 0.065 30);
+    --primary: oklch(0.44 0.26 30);
+    --primary-foreground: oklch(0.99 0.035 30);
+    --secondary: oklch(0.9 0.08 30);
+    --secondary-foreground: oklch(0.28 0.115 30);
+    --muted: oklch(0.94 0.05 30);
+    --muted-foreground: oklch(0.4 0.095 30);
+    --accent: oklch(0.86 0.1 30);
+    --accent-foreground: oklch(0.26 0.105 30);
     --destructive: oklch(0.51 0.22 22);
-    --border: oklch(0.84 0.085 25);
-    --input: oklch(0.9 0.065 24);
-    --ring: oklch(0.54 0.21 28);
-    --chart-1: oklch(0.57 0.23 25);
-    --chart-2: oklch(0.62 0.19 38);
-    --chart-3: oklch(0.58 0.2 12);
+    --border: oklch(0.84 0.09 30);
+    --input: oklch(0.9 0.07 30);
+    --ring: oklch(0.52 0.22 30);
+    --chart-1: oklch(0.57 0.24 30);
+    --chart-2: oklch(0.6 0.2 350);
+    --chart-3: oklch(0.55 0.21 27);
     --chart-4: oklch(0.74 0.15 78);
     --chart-5: oklch(0.58 0.17 155);
-    --sidebar: oklch(0.952 0.05 22);
-    --sidebar-foreground: oklch(0.24 0.075 25);
-    --sidebar-primary: oklch(0.46 0.23 25);
-    --sidebar-primary-foreground: oklch(0.99 0.035 25);
-    --sidebar-accent: oklch(0.88 0.095 18);
-    --sidebar-accent-foreground: oklch(0.26 0.1 25);
-    --sidebar-border: oklch(0.83 0.09 22);
-    --sidebar-ring: oklch(0.54 0.2 28);
+    --sidebar: oklch(0.95 0.055 30);
+    --sidebar-foreground: oklch(0.24 0.08 30);
+    --sidebar-primary: oklch(0.45 0.25 30);
+    --sidebar-primary-foreground: oklch(0.99 0.035 30);
+    --sidebar-accent: oklch(0.87 0.1 30);
+    --sidebar-accent-foreground: oklch(0.26 0.105 30);
+    --sidebar-border: oklch(0.83 0.095 30);
+    --sidebar-ring: oklch(0.52 0.21 30);
 }
 
 /*
@@ -334,10 +334,10 @@ html.public-red-dark {
   html.vibrant-red body {
     background-color: transparent;
     background-image:
-      radial-gradient(ellipse 130% 95% at 8% -22%, oklch(0.58 0.22 28 / 0.34), transparent 58%),
-      radial-gradient(ellipse 105% 72% at 100% 0%, oklch(0.62 0.2 38 / 0.3), transparent 54%),
-      radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.65 0.16 18 / 0.18), transparent 60%),
-      linear-gradient(168deg, oklch(0.988 0.02 25), oklch(0.975 0.028 22));
+      radial-gradient(ellipse 130% 95% at 8% -22%, oklch(0.56 0.24 30 / 0.36), transparent 58%),
+      radial-gradient(ellipse 105% 72% at 100% 0%, oklch(0.58 0.22 28 / 0.32), transparent 54%),
+      radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.6 0.2 32 / 0.2), transparent 60%),
+      linear-gradient(168deg, oklch(0.988 0.024 30), oklch(0.974 0.032 30));
   }
   html.light-red {
     color-scheme: light;
