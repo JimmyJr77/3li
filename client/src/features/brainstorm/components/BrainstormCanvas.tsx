@@ -19,6 +19,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { BrainstormCanvasContextMenu } from "@/features/brainstorm/components/BrainstormCanvasContextMenu";
+import {
+  BrainstormNodeContextMenuRequestContext,
+} from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { BrainstormCanvasInspector } from "@/features/brainstorm/components/BrainstormCanvasInspector";
 import { BrainstormShapePicker } from "@/features/brainstorm/components/BrainstormShapePicker";
 import { HierarchyNode } from "@/features/brainstorm/components/HierarchyNode";
@@ -116,8 +119,10 @@ function BrainstormCanvasInner() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const onNodeContextMenu = useCallback(
-    (e: ReactMouseEvent | globalThis.MouseEvent, node: BrainstormFlowNode) => {
+  const requestNodeContextMenu = useCallback(
+    (e: ReactMouseEvent<Element> | globalThis.MouseEvent, nodeId: string) => {
+      const node = useBrainstormStore.getState().nodes.find((n) => n.id === nodeId);
+      if (!node) return;
       e.preventDefault();
       const selected = useBrainstormStore.getState().nodes.filter((n) => n.selected);
       const keepMulti = node.selected && selected.length > 1;
@@ -129,16 +134,21 @@ function BrainstormCanvasInner() {
     [selectSingleNode],
   );
 
+  const onNodeContextMenu = useCallback(
+    (e: ReactMouseEvent, node: BrainstormFlowNode) => {
+      requestNodeContextMenu(e, node.id);
+    },
+    [requestNodeContextMenu],
+  );
+
   const onDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
   const onNodeDragStop = useCallback(
-    (_e: ReactMouseEvent, dragged: BrainstormFlowNode | BrainstormFlowNode[]) => {
-      const list = Array.isArray(dragged) ? dragged : [dragged];
-      const ids = list.map((n) => n.id).filter(Boolean);
-      if (ids.length > 0) reparentAfterNodeDrag(ids);
+    (_e: ReactMouseEvent, _dragged: BrainstormFlowNode | BrainstormFlowNode[]) => {
+      reparentAfterNodeDrag();
     },
     [reparentAfterNodeDrag],
   );
@@ -168,10 +178,13 @@ function BrainstormCanvasInner() {
     [addImageNode],
   );
 
+  // React Flow defaults multi-select to Meta/Ctrl+click only; include Shift so Shift+click matches Shift+marquee.
   return (
     <div className="relative h-full w-full min-h-0 bg-white dark:bg-background">
+    <BrainstormNodeContextMenuRequestContext.Provider value={requestNodeContextMenu}>
     <ReactFlow<BrainstormFlowNode, BrainstormEdge>
       className="h-full w-full bg-white dark:bg-background [&_.react-flow__node]:overflow-visible"
+      multiSelectionKeyCode={["Shift", "Meta", "Control"]}
       nodes={nodes}
       edges={styledEdges}
       onInit={(instance) => {
@@ -225,6 +238,7 @@ function BrainstormCanvasInner() {
       y={contextMenu?.y ?? 0}
       onClose={() => setContextMenu(null)}
     />
+    </BrainstormNodeContextMenuRequestContext.Provider>
     </div>
   );
 }

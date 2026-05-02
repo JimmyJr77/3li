@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Maximize2, Plus, Save, Trash2 } from "lucide-react";
 import { BrainstormCanvasTools } from "@/features/brainstorm/components/BrainstormCanvasTools";
 import { useEffect, useState } from "react";
 import {
@@ -35,6 +35,7 @@ export function BrainstormSessionBar({
 }: BrainstormSessionBarProps) {
   const queryClient = useQueryClient();
   const presentationMode = useBrainstormStore((s) => s.presentationMode);
+  const togglePresentationMode = useBrainstormStore((s) => s.togglePresentationMode);
   const active = sessions.find((s) => s.id === activeSessionId);
   const [titleDraft, setTitleDraft] = useState(active?.title ?? "");
 
@@ -134,6 +135,18 @@ export function BrainstormSessionBar({
                   Save board
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                className="gap-1 shrink-0 self-end sm:self-auto"
+                title={presentationMode ? "Leave full screen board view" : "Expand the studio board to full screen"}
+                onClick={() => togglePresentationMode()}
+              >
+                <Maximize2 className="size-4" aria-hidden />
+                {presentationMode ? "Exit full screen" : "Full screen"}
+              </Button>
               <Button
                 type="button"
                 className={cn("gap-1 shrink-0 self-end sm:self-auto", workspaceCtaMatchSidebarActiveDark)}

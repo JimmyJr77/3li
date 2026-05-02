@@ -300,7 +300,8 @@ type BrainstormState = {
   deleteSelectedNodes: () => void;
   duplicateSelectedNode: () => void;
   reorderSelectedZIndex: (op: ZReorderOp) => void;
-  reparentAfterNodeDrag: (draggedNodeIds: string[]) => void;
+  /** Re-evaluates container grouping for every non-container node (e.g. after any drag so moving a frame picks up enclosed artifacts). */
+  reparentAfterNodeDrag: () => void;
 };
 
 function nextPresentationFlags(
@@ -403,10 +404,11 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     if (next) set({ nodes: next });
   },
 
-  reparentAfterNodeDrag: (draggedNodeIds) => {
-    if (draggedNodeIds.length === 0) return;
+  reparentAfterNodeDrag: () => {
     const pre = normalizeExtentForContainerChildren(get().nodes);
-    const next = reparentFloatingNodesAfterDrag(pre, draggedNodeIds);
+    const ids = pre.filter((n) => n.type !== "container").map((n) => n.id);
+    if (ids.length === 0) return;
+    const next = reparentFloatingNodesAfterDrag(pre, ids);
     set({ nodes: next });
   },
 

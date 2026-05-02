@@ -1,6 +1,7 @@
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { useLayoutEffect, useRef } from "react";
 import type { ContainerFlowNode } from "@/features/brainstorm/types";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
@@ -9,6 +10,7 @@ import { cn } from "@/lib/utils";
 export function ContainerNode({ id, data, selected }: NodeProps<ContainerFlowNode>) {
   const rootRef = useRef<HTMLDivElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
 
   useLayoutEffect(() => {
     updateNodeInternals(id);
@@ -43,6 +45,7 @@ export function ContainerNode({ id, data, selected }: NodeProps<ContainerFlowNod
       />
       <div
         ref={rootRef}
+        onContextMenuCapture={onRootContextMenuCapture}
         className={cn(
           "flex h-full w-full min-h-0 min-w-0 flex-col overflow-visible rounded-lg",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",

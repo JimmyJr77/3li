@@ -1,17 +1,20 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import type { HierarchyFlowNode } from "@/features/brainstorm/types";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
-export function HierarchyNode({ data, selected }: NodeProps<HierarchyFlowNode>) {
+export function HierarchyNode({ id, data, selected }: NodeProps<HierarchyFlowNode>) {
   const cap = nodeCaptionPropsFromData(data);
   const outsideVisible =
     (data.outsideCaptionText ?? "").trim() || (data.label ?? "").trim() || "Branch";
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
 
   return (
     <div
+      onContextMenuCapture={onRootContextMenuCapture}
       className={cn(
         "flex min-w-[140px] flex-col gap-2",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",

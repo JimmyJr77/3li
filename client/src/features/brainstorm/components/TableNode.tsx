@@ -2,6 +2,7 @@ import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps }
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
 import type { TableFlowNode } from "@/features/brainstorm/types";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
@@ -225,6 +226,8 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
     return () => ro.disconnect();
   }, [id, updateNodeInternals]);
 
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
+
   const colTemplate = colWidths.map((w) => `${w}fr`).join(" ");
   const rowTemplate = rowHeights.map((h) => `${h}fr`).join(" ");
 
@@ -253,6 +256,7 @@ export function TableNode({ id, data, selected }: NodeProps<TableFlowNode>) {
       />
       <div
         ref={rootRef}
+        onContextMenuCapture={onRootContextMenuCapture}
         className={cn(
           "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",

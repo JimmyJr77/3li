@@ -6,6 +6,7 @@ import {
 } from "@/features/brainstorm/components/BasicShapeSvgBackground";
 import type { ShapeFlowNode, ShapeVariant, StencilLibrary } from "@/features/brainstorm/types";
 import { findWireframePreset } from "@/features/brainstorm/wireframePresets";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
@@ -69,6 +70,8 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
     return () => ro.disconnect();
   }, [id, updateNodeInternals]);
 
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
+
   const chromeBox = (
     <div
       className={cn(
@@ -99,6 +102,7 @@ export function ShapeNode({ id, data, selected }: NodeProps<ShapeFlowNode>) {
       />
       <div
         ref={rootRef}
+        onContextMenuCapture={onRootContextMenuCapture}
         className={cn(
           "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",

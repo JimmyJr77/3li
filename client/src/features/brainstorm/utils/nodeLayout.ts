@@ -361,12 +361,18 @@ export function nodeFlowRect(
   return { x, y, w, h };
 }
 
-function rectContainsPoint(
-  r: { x: number; y: number; w: number; h: number },
-  px: number,
-  py: number,
+/** True when `outer`'s axis-aligned bounds fully enclose `inner` (allows sub-pixel tolerance). */
+function rectFullyContainsRect(
+  outer: { x: number; y: number; w: number; h: number },
+  inner: { x: number; y: number; w: number; h: number },
 ): boolean {
-  return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  const eps = 1e-3;
+  return (
+    inner.x >= outer.x - eps &&
+    inner.y >= outer.y - eps &&
+    inner.x + inner.w <= outer.x + outer.w + eps &&
+    inner.y + inner.h <= outer.y + outer.h + eps
+  );
 }
 
 /** True if `queryId` is `rootId` or a descendant of `rootId` in the parent tree. */
@@ -381,19 +387,21 @@ export function isInSubtree(nodes: BrainstormFlowNode[], rootId: string, queryId
   return false;
 }
 
-/** Deepest container whose bounds contain the given absolute flow point (excluding invalid targets). */
-export function findDeepestContainerAtAbsPoint(
+/**
+ * Deepest container whose bounds fully contain the node's bounds in flow space.
+ * Used so artifacts are only grouped when they lie entirely inside a frame (then they move with the container).
+ */
+export function findDeepestContainerFullyContainingNodeRect(
   nodes: BrainstormFlowNode[],
-  absX: number,
-  absY: number,
-  draggedNodeId: string,
+  nodeId: string,
 ): BrainstormFlowNode | null {
+  const inner = nodeFlowRect(nodes, nodeId);
   const candidates = nodes.filter(
     (n) =>
       n.type === "container" &&
-      n.id !== draggedNodeId &&
-      !isInSubtree(nodes, draggedNodeId, n.id) &&
-      rectContainsPoint(nodeFlowRect(nodes, n.id), absX, absY),
+      n.id !== nodeId &&
+      !isInSubtree(nodes, nodeId, n.id) &&
+      rectFullyContainsRect(nodeFlowRect(nodes, n.id), inner),
   );
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => ancestorDepth(nodes, b.id) - ancestorDepth(nodes, a.id));
@@ -444,7 +452,10 @@ export function normalizeExtentForContainerChildren(nodes: BrainstormFlowNode[])
   });
 }
 
-/** After a drag, snap non-container nodes into/out of containers by overlap. */
+/**
+ * After a drag, snap non-container nodes into/out of containers using full bounding-box containment
+ * (deepest enclosing container wins).
+ */
 export function reparentFloatingNodesAfterDrag(
   nodes: BrainstormFlowNode[],
   draggedIds: string[],
@@ -454,10 +465,7 @@ export function reparentFloatingNodesAfterDrag(
   for (const id of ordered) {
     const node = next.find((x) => x.id === id);
     if (!node || node.type === "container") continue;
-    const r = nodeFlowRect(next, id);
-    const cx = r.x + r.w / 2;
-    const cy = r.y + r.h / 2;
-    const target = findDeepestContainerAtAbsPoint(next, cx, cy, id);
+    const target = findDeepestContainerFullyContainingNodeRect(next, id);
     const targetId = target?.id;
     const curParent = node.parentId;
     const curParentNode = curParent ? next.find((x) => x.id === curParent) : undefined;

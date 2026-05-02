@@ -6,6 +6,7 @@ import {
   clearRoutedGlow,
   useRoutedBrainstormGlow,
 } from "@/features/rapidRouter/routedHighlightStore";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { nodeChromeTextColorStyle, nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
 
@@ -18,10 +19,12 @@ export function IdeaNode({ id, data, selected }: NodeProps<IdeaFlowNode>) {
     activeWorkspaceId ?? undefined,
     sessionId || undefined,
   );
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
 
   return (
     <div
       data-slot="card"
+      onContextMenuCapture={onRootContextMenuCapture}
       onPointerDownCapture={() => {
         if (activeWorkspaceId && sessionId) {
           clearRoutedGlow("brainstorm", id, activeWorkspaceId, sessionId);

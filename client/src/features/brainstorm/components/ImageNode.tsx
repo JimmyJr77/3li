@@ -1,6 +1,7 @@
 import { Handle, NodeResizer, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { useLayoutEffect, useRef } from "react";
 import type { ImageFlowNode } from "@/features/brainstorm/types";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeCaptionPropsFromData } from "@/features/brainstorm/types";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
@@ -32,6 +33,8 @@ export function ImageNode({ id, data, selected }: NodeProps<ImageFlowNode>) {
     return () => ro.disconnect();
   }, [id, updateNodeInternals]);
 
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
+
   const media = (
     <div className="relative flex min-h-[48px] flex-1 items-center justify-center bg-background/40 p-1">
       {data.src ? (
@@ -58,6 +61,7 @@ export function ImageNode({ id, data, selected }: NodeProps<ImageFlowNode>) {
       />
       <div
         ref={rootRef}
+        onContextMenuCapture={onRootContextMenuCapture}
         className={cn(
           "flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",

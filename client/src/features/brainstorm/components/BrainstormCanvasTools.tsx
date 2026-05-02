@@ -1,4 +1,4 @@
-import { BoxSelect, ImagePlus, Lightbulb, Maximize2, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
+import { BoxSelect, ImagePlus, Lightbulb, Shapes, Table2, TextCursor, Workflow } from "lucide-react";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,8 +18,6 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
   const addImageNode = useBrainstormStore((s) => s.addImageNode);
   const addHierarchyNode = useBrainstormStore((s) => s.addHierarchyNode);
   const addTextFromToolbar = useBrainstormStore((s) => s.addTextFromToolbar);
-  const togglePresentationMode = useBrainstormStore((s) => s.togglePresentationMode);
-  const presentationMode = useBrainstormStore((s) => s.presentationMode);
   const agentsPanelVisible = useBrainstormStore((s) => s.agentsPanelVisible);
   const setAgentsPanelVisible = useBrainstormStore((s) => s.setAgentsPanelVisible);
 
@@ -70,7 +68,7 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
           size="sm"
           variant="outline"
           className={btn}
-          title="Resizable frame on the bottom layer. Drag items onto it to group them; they move with the frame."
+          title="Resizable frame on the bottom layer. When an artifact lies fully inside the frame, it groups to the container and moves with it; drag partly outside to ungroup."
           onClick={() => addContainerNode()}
         >
           <BoxSelect className="size-4" />
@@ -107,10 +105,6 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
         <Button type="button" size="sm" variant="outline" className={btn} onClick={() => addTextFromToolbar()}>
           <TextCursor className="size-4" />
           Text
-        </Button>
-        <Button type="button" size="sm" variant="outline" className={btn} onClick={() => togglePresentationMode()}>
-          <Maximize2 className="size-4" />
-          {presentationMode ? "Exit full screen" : "Full screen"}
         </Button>
       </div>
       {presentation ? (

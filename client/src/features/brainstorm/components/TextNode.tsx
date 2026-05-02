@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { nodeCaptionPropsFromData, type TextFlowNode } from "@/features/brainstorm/types";
+import { useBrainstormNodeRootContextMenu } from "@/features/brainstorm/components/brainstormNodeContextMenu";
 import { NodeCaptionWrapper } from "@/features/brainstorm/components/NodeCaptionWrapper";
 import { nodeChromeToStyle } from "@/features/brainstorm/utils/nodeChrome";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,8 @@ export function TextNode({ id, data, selected, width, height }: NodeProps<TextFl
     return () => ro.disconnect();
   }, [id, updateNodeInternals]);
 
+  const onRootContextMenuCapture = useBrainstormNodeRootContextMenu(id);
+
   const artifact = (
     <div
       className="relative box-border min-h-[3.5rem] w-full min-w-0 flex-1 rounded-md border border-text-block-border bg-card shadow-sm"
@@ -68,6 +71,7 @@ export function TextNode({ id, data, selected, width, height }: NodeProps<TextFl
       />
       <div
         ref={rootRef}
+        onContextMenuCapture={onRootContextMenuCapture}
         className={cn(
           "flex min-h-[72px] min-w-[176px] flex-col",
           selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
