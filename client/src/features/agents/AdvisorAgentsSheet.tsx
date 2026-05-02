@@ -43,7 +43,7 @@ export function AdvisorAgentsSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5">
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" data-agent-entry-trigger="">
           <Users className="size-4" aria-hidden />
           Advisor Agents
         </Button>

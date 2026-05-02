@@ -836,7 +836,7 @@ export function BrandRepAgentSheet({
       <Sheet open={open} onOpenChange={setOpen} modal={false}>
       {consultKitPortal}
       <SheetTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5">
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" data-agent-entry-trigger="">
           <Goal className="size-4" aria-hidden />
           Brand Rep Agent
         </Button>

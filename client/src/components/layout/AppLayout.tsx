@@ -38,7 +38,7 @@ function AppLayoutInner() {
   }, [desktopSidebarOpen, pinned]);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-background">
       <aside className="border-b bg-sidebar md:hidden">
         <div className="flex h-14 items-center justify-between gap-2 px-4">
           <WorkspaceBrandSwitcher className="text-sm" showDropdown />
@@ -89,11 +89,11 @@ function AppLayoutInner() {
 
         <div
           className={cn(
-            "flex min-h-0 min-w-0 flex-1 flex-col",
+            "flex min-h-0 min-w-0 flex-1 flex-col bg-background",
             pinned && "md:pl-56",
           )}
         >
-          <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6 lg:p-8">
+          <div className="flex min-h-0 flex-1 flex-col bg-transparent p-4 sm:p-6 lg:p-8">
             <div className="min-h-0 flex-1">
               <Outlet />
             </div>

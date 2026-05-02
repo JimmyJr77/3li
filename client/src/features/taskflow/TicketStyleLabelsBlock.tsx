@@ -96,7 +96,7 @@ export function TicketStyleLabelsBlock({
           )}
         </div>
 
-        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/25 p-3">
+        <div className="space-y-2 rounded-lg border border-border/60 bg-white p-3 dark:bg-card">
           {labelSuggestLoading ? (
             <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
@@ -140,7 +140,7 @@ export function TicketStyleLabelsBlock({
           />
 
           {labelSearch.trim() ? (
-            <div className="space-y-2 rounded-md border border-border/40 bg-background/60 px-2 py-1.5">
+            <div className="space-y-2 rounded-md border border-border/40 bg-white px-2 py-1.5 dark:bg-card">
               {labelSearchMatches.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {labelSearchMatches.map((m) => {

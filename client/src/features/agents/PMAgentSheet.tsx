@@ -89,7 +89,7 @@ export function PMAgentSheet({ workspaceId, contextText, surfaceLabel }: PMAgent
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5">
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" data-agent-entry-trigger="">
           <ClipboardList className="size-4" aria-hidden />
           PM Agent
         </Button>

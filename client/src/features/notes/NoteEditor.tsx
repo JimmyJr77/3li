@@ -21,13 +21,16 @@ const MAX_NOTEBOOK_IMAGE_BYTES = 8 * 1024 * 1024;
 /** Non-image files are embedded as `data:` links; smaller cap than images. */
 const MAX_NOTEBOOK_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
-const editorSurfaceClass =
+/** Shared prose surface for TipTap and static HTML previews (e.g. Fast Task carousel). */
+export const NOTE_EDITOR_SURFACE_CLASS =
   "max-w-none text-sm leading-relaxed text-foreground focus:outline-none [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 " +
   "[&_h1]:my-3 [&_h1]:scroll-mt-4 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:my-2.5 [&_h2]:scroll-mt-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:my-2 [&_h3]:scroll-mt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:my-2 [&_h4]:scroll-mt-4 [&_h4]:text-base [&_h4]:font-semibold [&_h5]:my-2 [&_h5]:scroll-mt-4 [&_h5]:text-sm [&_h5]:font-semibold [&_h5]:uppercase [&_h5]:tracking-wide [&_h6]:my-2 [&_h6]:scroll-mt-4 [&_h6]:text-xs [&_h6]:font-semibold [&_h6]:uppercase [&_h6]:tracking-wide [&_h6]:text-muted-foreground " +
   "[&_ul:not([data-type=taskList]):not(.atlas-note-task-list)]:list-disc [&_ul:not([data-type=taskList]):not(.atlas-note-task-list)]:ps-6 " +
   "[&_ol]:list-decimal [&_ol]:ps-6 " +
   "[&_a]:break-words [&_img.atlas-note-image]:my-2 [&_img.atlas-note-image]:max-w-full [&_img.atlas-note-image]:h-auto [&_img.atlas-note-image]:rounded-md [&_img.atlas-note-image]:border [&_img.atlas-note-image]:border-border " +
   "[&_table]:my-3 [&_table]:w-full [&_table]:table-fixed [&_table]:border-collapse [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5 [&_th]:bg-muted/50 [&_th]:text-left";
+
+const editorSurfaceClass = NOTE_EDITOR_SURFACE_CLASS;
 
 function listFilesFromDataTransfer(dt: DataTransfer | null): File[] {
   if (!dt) return [];
@@ -148,11 +151,14 @@ export function NoteEditor({
   note,
   onSaved,
   persistNote,
+  whiteWorkSurface = false,
 }: {
   note: AtlasNoteDto;
   onSaved?: () => void;
   /** When set (e.g. browser-only mode), saves without calling the HTTP API */
   persistNote?: (noteId: string, body: Pick<PatchNoteBody, "contentJson" | "previewText">) => Promise<void>;
+  /** Fast Task: white body/scroll under the prose; typography and toolbar strip stay theme defaults. */
+  whiteWorkSurface?: boolean;
 }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSerialized = useRef<string>("");
@@ -332,7 +338,10 @@ export function NoteEditor({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         data-note-editor-card
-        className="flex min-h-[min(42vh,480px)] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+        className={cn(
+          "flex min-h-[min(42vh,480px)] flex-1 flex-col overflow-hidden rounded-lg border border-border shadow-sm",
+          whiteWorkSurface ? "bg-white dark:bg-card" : "bg-card",
+        )}
       >
         <div ref={bodyChromeRef} className="flex min-h-0 flex-1 flex-col outline-none">
           <div className="note-editor-toolbar-strip shrink-0 border-b border-border bg-muted/30">
@@ -361,6 +370,7 @@ export function NoteEditor({
               className={cn(
                 "notebooks-editor note-editor-scroll min-h-0 flex-1 overflow-y-auto px-3 py-2",
                 !bodyWorkSurfaceActive && "cursor-text",
+                whiteWorkSurface && "bg-white dark:bg-card",
               )}
               onPointerDownCapture={(e) => {
                 if (bodyWorkSurfaceActive || e.button !== 0) return;

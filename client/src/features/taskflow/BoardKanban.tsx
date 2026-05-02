@@ -1425,7 +1425,7 @@ function PlainSubBoardStrip({
       >
         <ChevronLeft className="size-4" />
       </Button>
-      <div className="flex min-h-[44px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 px-2 py-1.5">
+      <div className="flex min-h-[44px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 vibrant:bg-[var(--vibrant-board-subboard-strip-surface)] px-2 py-1.5">
         {orderedLists.map((list) => (
           <div
             key={list.id}
@@ -1528,7 +1528,7 @@ function SubBoardCarouselStrip({
         <ChevronLeft className="size-4" />
       </Button>
       <SortableContext items={listOrder.map(sbDragId)} strategy={horizontalListSortingStrategy}>
-        <div className="flex min-h-[52px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 px-2 py-1.5">
+        <div className="flex min-h-[52px] w-full min-w-0 flex-1 items-stretch gap-2 rounded-xl bg-muted/30 vibrant:bg-[var(--vibrant-board-subboard-strip-surface)] px-2 py-1.5">
           {orderedLists.map((list) => (
             <SortableSubBoardTab
               key={list.id}

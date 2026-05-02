@@ -40,12 +40,18 @@ export function NoteLabelsSection({
   brandId,
   defaultLabelBoardId,
   offline,
+  onAfterInvalidateNotes,
+  hideAutotag = false,
 }: {
   note: AtlasNoteDto;
   brandId: string | null;
   defaultLabelBoardId: string | null;
   /** Browser-only local store — labels need the hosted workspace + task APIs. */
   offline?: boolean;
+  /** Optional hook after label mutations (e.g. refresh Fast Task folder list). */
+  onAfterInvalidateNotes?: () => void;
+  /** Hides Mail Clerk Autotag UI (e.g. Fast Task streamlined boards). */
+  hideAutotag?: boolean;
 }) {
   const qc = useQueryClient();
   const [labelSearch, setLabelSearch] = useState("");
@@ -55,6 +61,7 @@ export function NoteLabelsSection({
   const [applyAutotagBusy, setApplyAutotagBusy] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset Mail Clerk preview when note changes
     setAutotagSuggestions(null);
     setAutotagThemes(null);
     setAutotagSelected(new Set());
@@ -81,6 +88,7 @@ export function NoteLabelsSection({
 
   const invalidateNotes = () => {
     void qc.invalidateQueries({ queryKey: ["notes-app"] });
+    onAfterInvalidateNotes?.();
   };
 
   const invalidateSuggestions = () => {
@@ -242,10 +250,9 @@ export function NoteLabelsSection({
   };
 
   const busy =
-    mailClerkAutotag.isPending ||
     createMyLabelMutation.isPending ||
     boardQuery.isFetching ||
-    applyAutotagBusy;
+    (!hideAutotag && (mailClerkAutotag.isPending || applyAutotagBusy));
 
   const autotagApplyCount = autotagSuggestions
     ? autotagSuggestions.filter((s, i) => autotagSelected.has(autotagSuggestionKey(s, i))).length
@@ -267,26 +274,28 @@ export function NoteLabelsSection({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 shrink-0 gap-1 text-xs"
-          disabled={busy || !brandIdForMyLabels}
-          title="Mail Clerk: suggest labels from your note and workspace activity. Pick which ones to add."
-          onClick={() => mailClerkAutotag.mutate()}
-        >
-          {mailClerkAutotag.isPending ? (
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          ) : (
-            <Sparkles className="size-3.5" aria-hidden />
-          )}
-          Autotag
-        </Button>
-      </div>
+      {!hideAutotag ? (
+        <>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 gap-1 text-xs"
+              disabled={busy || !brandIdForMyLabels}
+              title="Mail Clerk: suggest labels from your note and workspace activity. Pick which ones to add."
+              onClick={() => mailClerkAutotag.mutate()}
+            >
+              {mailClerkAutotag.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Sparkles className="size-3.5" aria-hidden />
+              )}
+              Autotag
+            </Button>
+          </div>
 
-      {autotagSuggestions ? (
+          {autotagSuggestions ? (
         <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium text-foreground">Suggested from your note</p>
@@ -380,6 +389,8 @@ export function NoteLabelsSection({
             </>
           )}
         </div>
+          ) : null}
+        </>
       ) : null}
 
       {defaultLabelBoardId && boardQuery.isLoading ? (
@@ -406,7 +417,8 @@ export function NoteLabelsSection({
           toggleUserLabel={toggleUserLabel}
           onPickSearchMatch={(m, onNote) => {
             if (onNote) {
-              m.scope === "user" ? toggleUserLabel(m.id, true) : toggleBoardLabel(m.id, true);
+              if (m.scope === "user") toggleUserLabel(m.id, true);
+              else toggleBoardLabel(m.id, true);
             } else {
               const p =
                 m.scope === "user"

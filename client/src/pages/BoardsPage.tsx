@@ -1575,6 +1575,7 @@ export function BoardsPage() {
             return (
               <Card
                 key={ps.id}
+                data-primary-project-space={ps.isDefault ? "" : undefined}
                 draggable={!projectSpaceDragDisabled}
                 onDragStart={(e) => {
                   if (projectSpaceDragDisabled) {

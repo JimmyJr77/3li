@@ -533,7 +533,7 @@ export function AtlasNotesApp() {
 
         <section
           data-atlas-note-editor-column
-          className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-background p-4 md:border-t-0 md:border-l"
+          className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-card p-4 md:border-t-0 md:border-l"
         >
           {selected ? (
             <>

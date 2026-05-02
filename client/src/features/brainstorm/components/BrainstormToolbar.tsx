@@ -59,6 +59,8 @@ export function BrainstormToolbar({ saveStatus = "idle", presencePeers = [] }: B
           variant={agentsPanelVisible ? "secondary" : "outline"}
           size="sm"
           className="shrink-0 gap-1.5"
+          data-agent-entry-trigger=""
+          {...(!agentsPanelVisible ? { "data-agent-entry-closed": "" } : {})}
           onClick={() => setAgentsPanelVisible(!agentsPanelVisible)}
           aria-pressed={agentsPanelVisible}
         >

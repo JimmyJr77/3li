@@ -1144,7 +1144,10 @@ export function RapidRouterPage() {
         </div>
       </section>
 
-      <section className="w-full min-w-0 space-y-0 overflow-hidden rounded-xl border border-border bg-muted/10 p-4 sm:p-6">
+      <section
+        data-rapid-router-routing-card
+        className="w-full min-w-0 space-y-0 overflow-hidden rounded-xl border border-border p-4 sm:p-6"
+      >
         {activeWorkspaceId ? (
           <div className="border-b border-border/80 pb-1">
             <button

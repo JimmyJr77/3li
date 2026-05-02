@@ -3,6 +3,7 @@ import {
   Bell,
   BookOpen,
   CalendarDays,
+  GalleryHorizontal,
   Goal,
   Home,
   LayoutGrid,
@@ -29,6 +30,7 @@ export const workspaceNavSections: readonly {
   },
   {
     items: [
+      { to: "/app/fast-task", label: "Fast Task", icon: GalleryHorizontal },
       { to: "/app/rapid-router", label: "Rapid Router", icon: RapidRouterIcon },
       { to: "/app/notes", label: "Notebooks", icon: StickyNote },
       { to: "/app/brainstorm", label: "Brainstorm Studio", icon: Lightbulb },

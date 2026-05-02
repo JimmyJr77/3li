@@ -6,6 +6,7 @@ import { DefaultBoardRedirect } from "@/pages/DefaultBoardRedirect";
 import { BrainstormPage } from "@/pages/BrainstormPage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import { ChatPage } from "@/pages/ChatPage";
+import { FastTaskPage } from "@/pages/FastTaskPage";
 import { ContactPage } from "@/pages/ContactPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { HomePage } from "@/pages/HomePage";
@@ -91,6 +92,7 @@ const router = createBrowserRouter([
         ),
       },
       { path: "brainstorm", element: <BrainstormPage /> },
+      { path: "fast-task", element: <FastTaskPage /> },
       { path: "notes", element: <NotesPage /> },
       { path: "chat", element: <ChatPage /> },
       { path: "settings", element: <SettingsPage /> },

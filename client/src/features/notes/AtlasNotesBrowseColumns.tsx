@@ -286,7 +286,7 @@ function BrowseNoteListRowStatic({
       data-notes-row-accent={rowAccent != null ? "" : undefined}
       className={cn(
         "flex items-center gap-0.5 rounded-md",
-        active && !note.rowAccentColor && "bg-muted font-medium",
+        active && !note.rowAccentColor && "bg-muted/50 font-medium",
         active && "font-medium",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(234,179,8,0.45)]",
@@ -353,7 +353,7 @@ function SortableNoteRow({
       style={{ ...dndStyle, ...rowTint }}
       className={cn(
         "flex w-full items-center gap-0.5 rounded-md",
-        active && !note.rowAccentColor && "bg-muted font-medium",
+        active && !note.rowAccentColor && "bg-muted/50 font-medium",
         active && "font-medium",
         isDragging && "opacity-60",
         routedGlow &&
