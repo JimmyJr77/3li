@@ -15,7 +15,7 @@ import {
   User,
   Users,
 } from "lucide-react";
-import { ModeToggle } from "@/components/shared/ModeToggle";
+import { ThemeAppearanceSettings } from "@/components/settings/ThemeAppearanceSettings";
 import { AdminUserAccountsSettingsSection } from "@/components/settings/AdminUserAccountsSettingsSection";
 import { AgentContextSettingsCard } from "@/components/settings/AgentContextSettingsCard";
 import { BrandsSettingsCardParts } from "@/components/settings/BrandProjectSettingsSection";
@@ -638,18 +638,17 @@ export function SettingsPage() {
             {category === "appearance" && (
               <>
                 <CardHeader>
-                  <CardTitle className="text-base">Color mode</CardTitle>
-                  <CardDescription>Same options as the theme control in the workspace chrome.</CardDescription>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Palette className="size-4 opacity-70" aria-hidden />
+                    Appearance
+                  </CardTitle>
+                  <CardDescription>
+                    Theme mode and primary color work together: pick Light, Vibrant, or Dark, then choose any accent
+                    (including ice glass).
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-muted-foreground">
-                    Choose Light (Blue), Light (Red), Dark (Blue), Dark (Red), Vibrant (Blue), Vibrant (Red), or Rainbow
-                    Explosion.
-                  </p>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <ModeToggle />
-                    <span className="text-sm text-muted-foreground">Theme</span>
-                  </div>
+                <CardContent className="pt-0">
+                  <ThemeAppearanceSettings />
                 </CardContent>
               </>
             )}

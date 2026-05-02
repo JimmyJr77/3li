@@ -3,6 +3,7 @@ import { ArchiveRestore, Kanban, LayoutGrid, Loader2, Search } from "lucide-reac
 import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
+import { workspaceCtaMatchSidebarActiveDark } from "@/components/layout/workspaceCtaChrome";
 import { PMAgentSheet, buildBoardContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { BoardKanban } from "@/features/taskflow/BoardKanban";
 import { BoardTable } from "@/features/taskflow/BoardTable";
@@ -24,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { PagePresenceAvatars } from "@/features/presence/PagePresenceAvatars";
 import { usePagePresence } from "@/features/presence/usePagePresence";
 import { usePresenceTabId } from "@/features/presence/usePresenceTabId";
+import { cn } from "@/lib/utils";
 
 type View = "board" | "table";
 
@@ -202,12 +204,17 @@ export function BoardPage() {
             </h1>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <div className="flex rounded-lg border p-0.5">
+            <div className="flex rounded-lg border border-border bg-white p-0.5 dark:border-border dark:bg-muted/40">
               <Button
                 type="button"
-                variant={view === "board" ? "secondary" : "ghost"}
+                variant={view === "board" ? "default" : "ghost"}
                 size="sm"
-                className="gap-1"
+                className={cn(
+                  "gap-1 rounded-md shadow-none",
+                  view !== "board" &&
+                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground dark:hover:bg-muted/50",
+                  view === "board" && workspaceCtaMatchSidebarActiveDark,
+                )}
                 onClick={() => setView("board")}
               >
                 <Kanban className="size-4" />
@@ -215,9 +222,14 @@ export function BoardPage() {
               </Button>
               <Button
                 type="button"
-                variant={view === "table" ? "secondary" : "ghost"}
+                variant={view === "table" ? "default" : "ghost"}
                 size="sm"
-                className="gap-1"
+                className={cn(
+                  "gap-1 rounded-md shadow-none",
+                  view !== "table" &&
+                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground dark:hover:bg-muted/50",
+                  view === "table" && workspaceCtaMatchSidebarActiveDark,
+                )}
                 onClick={() => setView("table")}
               >
                 <LayoutGrid className="size-4" />
@@ -226,9 +238,9 @@ export function BoardPage() {
             </div>
             <Button
               type="button"
-              variant={filtersOpen ? "secondary" : "outline"}
+              variant={filtersOpen ? "default" : "outline"}
               size="sm"
-              className="gap-1"
+              className={cn("gap-1", filtersOpen && workspaceCtaMatchSidebarActiveDark)}
               onClick={() => setFiltersOpen((v) => !v)}
             >
               <Search className="size-4" />

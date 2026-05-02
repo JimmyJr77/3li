@@ -293,7 +293,12 @@ export function NoteEditor({
       const root = bodyChromeRef.current;
       const rt = event.relatedTarget as Node | null;
       if (root && rt && root.contains(rt)) return;
-      setBodyWorkSurfaceActive(false);
+      /* relatedTarget is often null when focus moves to a button; confirm after focus settles */
+      queueMicrotask(() => {
+        const ae = document.activeElement;
+        if (root && ae instanceof Node && root.contains(ae)) return;
+        setBodyWorkSurfaceActive(false);
+      });
     };
     editor.on("focus", onFocus);
     editor.on("blur", onBlur);
@@ -325,35 +330,36 @@ export function NoteEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-[min(42vh,480px)] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+      <div
+        data-note-editor-card
+        className="flex min-h-[min(42vh,480px)] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+      >
         <div ref={bodyChromeRef} className="flex min-h-0 flex-1 flex-col outline-none">
-          {bodyWorkSurfaceActive ? (
-            <div className="shrink-0 border-b border-border bg-muted/30">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="*/*"
-                className="sr-only"
-                tabIndex={-1}
-                aria-hidden
-                onChange={(e) => {
-                  const input = e.currentTarget;
-                  const { files } = input;
-                  input.value = "";
-                  const ed = editorRef.current;
-                  if (!files?.length || !ed) return;
-                  void insertNotebookFiles(ed, null, Array.from(files));
-                }}
-              />
-              <NoteEditorToolbar editor={editor} fileInputRef={fileInputRef} />
-            </div>
-          ) : null}
+          <div className="note-editor-toolbar-strip shrink-0 border-b border-border bg-muted/30">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="*/*"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden
+              onChange={(e) => {
+                const input = e.currentTarget;
+                const { files } = input;
+                input.value = "";
+                const ed = editorRef.current;
+                if (!files?.length || !ed) return;
+                void insertNotebookFiles(ed, null, Array.from(files));
+              }}
+            />
+            <NoteEditorToolbar editor={editor} fileInputRef={fileInputRef} />
+          </div>
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div
               className={cn(
-                "notebooks-editor min-h-0 flex-1 overflow-y-auto px-3 py-2",
+                "notebooks-editor note-editor-scroll min-h-0 flex-1 overflow-y-auto px-3 py-2",
                 !bodyWorkSurfaceActive && "cursor-text",
               )}
               onPointerDownCapture={(e) => {

@@ -6,6 +6,7 @@ import {
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useHtmlColorSchemeDark } from "@/lib/useHtmlColorSchemeDark";
 import {
   Background,
   Controls,
@@ -42,7 +43,13 @@ const nodeTypes: NodeTypes = {
   container: ContainerNode,
 };
 
+/** MiniMap artifact fills — follow the active theme primary (accent palette + light/vibrant/dark). */
+function minimapNodeColor(_node: BrainstormFlowNode): string {
+  return "var(--primary)";
+}
+
 function BrainstormCanvasInner() {
+  const colorSchemeDark = useHtmlColorSchemeDark();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const rfRef = useRef<ReactFlowInstance<BrainstormFlowNode, BrainstormEdge> | null>(null);
   const nodes = useBrainstormStore((s) => s.nodes);
@@ -162,9 +169,9 @@ function BrainstormCanvasInner() {
   );
 
   return (
-    <div className="relative h-full w-full min-h-0">
+    <div className="relative h-full w-full min-h-0 bg-white dark:bg-background">
     <ReactFlow<BrainstormFlowNode, BrainstormEdge>
-      className="h-full w-full bg-background [&_.react-flow__node]:overflow-visible"
+      className="h-full w-full bg-white dark:bg-background [&_.react-flow__node]:overflow-visible"
       nodes={nodes}
       edges={styledEdges}
       onInit={(instance) => {
@@ -189,9 +196,22 @@ function BrainstormCanvasInner() {
       proOptions={{ hideAttribution: true }}
       isValidConnection={isValidConnection}
     >
-      <Background gap={16} size={1} />
+      <Background gap={16} size={1} color={colorSchemeDark ? "rgba(255,255,255,0.14)" : undefined} />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable className="!bg-muted" />
+      <MiniMap
+        pannable
+        zoomable
+        ariaLabel="Studio board overview — shaded area is off-screen; outlined rectangle is the current view"
+        className="rounded-md border-2 border-slate-400/75 shadow-md dark:border-border"
+        bgColor="var(--muted)"
+        maskColor={colorSchemeDark ? "rgba(0,0,0,0.55)" : "rgba(15, 23, 42, 0.58)"}
+        maskStrokeColor="var(--primary)"
+        maskStrokeWidth={2.5}
+        nodeColor={minimapNodeColor}
+        nodeStrokeColor="var(--primary-foreground)"
+        nodeStrokeWidth={1.5}
+        nodeBorderRadius={4}
+      />
       <Panel position="top-right" className="m-2">
         <BrainstormCanvasInspector />
       </Panel>
@@ -211,7 +231,7 @@ function BrainstormCanvasInner() {
 
 export function BrainstormCanvas() {
   return (
-    <div className="h-full min-h-[min(480px,calc(100vh-13rem))] w-full min-w-0">
+    <div className="h-full min-h-[min(480px,calc(100vh-13rem))] w-full min-w-0 bg-white dark:bg-background">
       <ReactFlowProvider>
         <BrainstormCanvasInner />
       </ReactFlowProvider>

@@ -35,7 +35,14 @@ export function BrainstormCanvasTools({ layout }: { layout?: "default" | "presen
         Canvas tools
       </p>
       <div className={cn("flex gap-2", presentation ? "flex-col" : "flex-wrap")}>
-        <Button type="button" size="sm" variant="secondary" className={btn} onClick={() => addIdeaNode()}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className={btn}
+          title="Add a quick idea card to the board."
+          onClick={() => addIdeaNode()}
+        >
           <Lightbulb className="size-4" />
           Add idea
         </Button>

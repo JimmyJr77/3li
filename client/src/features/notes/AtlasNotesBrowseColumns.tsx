@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { BrowseItemOverflowMenu } from "./BrowseItemOverflowMenu";
-import { browseRowAccentSurface } from "./notebookRowAccent";
+import { browseRowAccentRowStyle, normalizeRowAccentHex } from "./notebookRowAccent";
 import {
   clearRoutedGlow,
   useRoutedNoteGlow,
@@ -67,7 +67,7 @@ function CollapsibleRail({
           onOpenChange(true);
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="flex min-h-[min(68vh,560px)] w-10 shrink-0 cursor-pointer flex-col items-center justify-center border-r border-border bg-muted/40 py-4 hover:bg-muted/70"
+        className="flex min-h-[min(68vh,560px)] w-10 shrink-0 cursor-pointer flex-col items-center justify-center border-r border-border bg-muted/40 py-4 hover:bg-muted/70 vibrant:bg-background/85 vibrant:hover:bg-background"
         aria-expanded={false}
         aria-label={`Expand ${label}`}
       >
@@ -82,8 +82,9 @@ function CollapsibleRail({
   }
   return (
     <div
+      data-notes-browse-rail=""
       className={cn(
-        "relative z-10 flex min-h-0 shrink-0 flex-col self-stretch border-r border-border bg-muted/30",
+        "relative z-10 flex min-h-0 shrink-0 flex-col self-stretch border-r border-border bg-background",
         widthPx === undefined ? widthClass : "min-w-0",
       )}
       style={
@@ -92,13 +93,13 @@ function CollapsibleRail({
           : undefined
       }
     >
-      <div className="relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-muted/30 px-2 py-1.5">
+      <div className="notes-browse-rail-header relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-background px-2 py-1.5">
         <span className="truncate text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
         <div className="flex shrink-0 items-center gap-0.5">
           {headerRight}
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="icon-xs"
             title="Hide this panel"
             className="size-8 shrink-0"
@@ -111,11 +112,13 @@ function CollapsibleRail({
             aria-expanded
             aria-label={`Collapse ${label}`}
           >
-            <ChevronLeft className="size-4" />
+            <ChevronLeft className="size-4 text-foreground" />
           </Button>
         </div>
       </div>
-      <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">{children}</div>
+      <div className="notes-browse-rail-body relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
+        {children}
+      </div>
     </div>
   );
 }
@@ -138,7 +141,7 @@ function StackBrowsePanel({
     return (
       <button
         type="button"
-        className="flex w-full shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2.5 text-left hover:bg-muted/70"
+        className="flex w-full shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2.5 text-left hover:bg-muted/70 vibrant:bg-background/90 vibrant:hover:bg-background"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -149,19 +152,19 @@ function StackBrowsePanel({
         aria-label={`Expand ${label}`}
       >
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <ChevronDown className="size-4 shrink-0 text-foreground" aria-hidden />
       </button>
     );
   }
   return (
-    <div className="flex min-h-0 w-full min-w-0 shrink-0 flex-col border-b border-border bg-muted/30">
-      <div className="relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-muted/30 px-2 py-1.5">
+    <div data-notes-browse-rail="" className="flex min-h-0 w-full min-w-0 shrink-0 flex-col border-b border-border bg-background">
+      <div className="notes-browse-rail-header relative z-20 flex shrink-0 items-center justify-between gap-1 border-b border-border bg-background px-2 py-1.5">
         <span className="truncate text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
         <div className="flex shrink-0 items-center gap-0.5">
           {headerRight}
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="icon-xs"
             title="Collapse this section"
             className="size-8 shrink-0"
@@ -174,11 +177,13 @@ function StackBrowsePanel({
             aria-expanded
             aria-label={`Collapse ${label}`}
           >
-            <ChevronDown className="size-4 rotate-180" aria-hidden />
+            <ChevronDown className="size-4 rotate-180 text-foreground" aria-hidden />
           </Button>
         </div>
       </div>
-      <div className="relative z-0 max-h-[min(70dvh,560px)] min-h-[10rem] shrink-0 overflow-y-auto p-2">{children}</div>
+      <div className="notes-browse-rail-body relative z-0 max-h-[min(70dvh,560px)] min-h-[10rem] shrink-0 overflow-y-auto p-2">
+        {children}
+      </div>
     </div>
   );
 }
@@ -205,15 +210,18 @@ function SortableFolderRow({
     disabled: dragDisabled,
   });
   const style = { transform: CSS.Transform.toString(transform), transition };
-  const rowTint = browseRowAccentSurface(folder.rowAccentColor ?? null);
+  const rowTint = browseRowAccentRowStyle(folder.rowAccentColor ?? null, active);
+  const rowAccent = normalizeRowAccentHex(folder.rowAccentColor ?? null);
 
   return (
     <div
       ref={setNodeRef}
+      data-notes-row-accent={rowAccent != null ? "" : undefined}
       style={{ ...style, ...rowTint }}
       className={cn(
         "flex items-center gap-0.5 rounded-md",
-        active && "bg-muted font-medium",
+        active && !folder.rowAccentColor && "bg-muted font-medium",
+        active && "font-medium",
         isDragging && "opacity-60",
       )}
     >
@@ -270,12 +278,16 @@ function BrowseNoteListRowStatic({
   onDeleteNote: (noteId: string) => void | Promise<void>;
 }) {
   const nt = note.title || "Untitled";
-  const rowTint = browseRowAccentSurface(note.rowAccentColor ?? null);
+  const rowTint = browseRowAccentRowStyle(note.rowAccentColor ?? null, active);
+  const rowAccent = normalizeRowAccentHex(note.rowAccentColor ?? null);
   const glow = useRoutedNoteGlow(note.id, routingWorkspaceId ?? undefined);
   return (
     <div
+      data-notes-row-accent={rowAccent != null ? "" : undefined}
       className={cn(
         "flex items-center gap-0.5 rounded-md",
+        active && !note.rowAccentColor && "bg-muted font-medium",
+        active && "font-medium",
         glow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(234,179,8,0.45)]",
       )}
@@ -290,10 +302,7 @@ function BrowseNoteListRowStatic({
           if (routingWorkspaceId) clearRoutedGlow("note", note.id, routingWorkspaceId);
           setSelectedId(note.id);
         }}
-        className={cn(
-          "min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
-          active && "bg-muted font-medium",
-        )}
+        className="min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-muted/80"
       >
         {nt}
       </button>
@@ -332,17 +341,20 @@ function SortableNoteRow({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: note.id });
   const dndStyle = { transform: CSS.Transform.toString(transform), transition };
-  const rowTint = browseRowAccentSurface(note.rowAccentColor ?? null);
+  const rowTint = browseRowAccentRowStyle(note.rowAccentColor ?? null, active);
+  const rowAccent = normalizeRowAccentHex(note.rowAccentColor ?? null);
   const title = note.title || "Untitled";
   const routedGlow = useRoutedNoteGlow(note.id, routingWorkspaceId ?? undefined);
 
   return (
     <div
       ref={setNodeRef}
+      data-notes-row-accent={rowAccent != null ? "" : undefined}
       style={{ ...dndStyle, ...rowTint }}
       className={cn(
         "flex w-full items-center gap-0.5 rounded-md",
-        active && "bg-muted font-medium",
+        active && !note.rowAccentColor && "bg-muted font-medium",
+        active && "font-medium",
         isDragging && "opacity-60",
         routedGlow &&
           "ring-2 ring-yellow-400/75 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(234,179,8,0.45)]",

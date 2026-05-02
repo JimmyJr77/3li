@@ -531,7 +531,10 @@ export function AtlasNotesApp() {
 
         {browseDesktop ? <NotesColumnResizeHandle onDelta={onResizeNotesVsEditor} /> : null}
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-background p-4 md:border-t-0 md:border-l">
+        <section
+          data-atlas-note-editor-column
+          className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-border bg-background p-4 md:border-t-0 md:border-l"
+        >
           {selected ? (
             <>
               <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border pb-3">
@@ -567,23 +570,19 @@ export function AtlasNotesApp() {
                 />
               </div>
 
-              <div className="mt-4 shrink-0 border-t border-border pt-4">
+              <div data-atlas-note-sidedeck className="mt-4 shrink-0 space-y-4 border-t border-border pt-4">
                 <NoteLabelsSection
                   note={selected}
                   brandId={localMode ? null : bootstrapData?.workspace.brandId ?? null}
                   defaultLabelBoardId={localMode ? null : bootstrapData?.defaultLabelBoardId ?? null}
                   offline={localMode}
                 />
-              </div>
-              <div className="mt-4 shrink-0 border-t border-border pt-4">
                 <NoteLinksPanel
                   noteId={selected.id}
                   onOpenNote={(id) => setSelectedId(id)}
                   forwardLinksOverride={forwardOverride}
                   backLinksOverride={backOverride}
                 />
-              </div>
-              <div className="mt-4 shrink-0 border-t border-border pt-4">
                 <div className="rounded-lg border border-border bg-muted/15 p-4">
                   <NotePublishingBar
                     key={selected.id}
@@ -627,6 +626,7 @@ function AtlasNoteTitleInput({
   const [draft, setDraft] = useState(note.title);
   return (
     <Input
+      data-atlas-note-title
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {

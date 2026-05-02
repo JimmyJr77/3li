@@ -25,6 +25,7 @@ import {
   reorderBoardLists,
   reorderProjectSpaces,
 } from "@/features/taskflow/api";
+import { workspaceCtaMatchSidebarActiveDark } from "@/components/layout/workspaceCtaChrome";
 import { brandMentionLabel } from "@/components/layout/WorkspaceBrandSwitcher";
 import { PMAgentSheet } from "@/features/agents/PMAgentSheet";
 import { WorkspaceAllBoardsDefaultsSheet } from "@/features/taskflow/WorkspaceAllBoardsDefaultsSheet";
@@ -668,15 +669,16 @@ export function BoardsPage() {
                 setTemplateDialogOpen(true);
               }
             }}
-            className="w-full min-w-0 sm:max-w-xs"
+            className="h-9 w-full min-w-0 sm:max-w-xs border-primary/28 bg-white text-foreground shadow-sm disabled:bg-muted/50 dark:border-input dark:bg-input/30 dark:shadow-none dark:disabled:bg-input/80"
             aria-label="New custom template title"
             disabled={!activeWorkspace}
           />
           <Button
             type="button"
-            className="gap-1 shrink-0 self-end sm:self-auto"
+            variant="default"
+            className={cn("gap-1 shrink-0 self-end sm:self-auto", workspaceCtaMatchSidebarActiveDark)}
             disabled={
-              createTemplateMutation.isPending || updateTemplateMutation.isPending || !templateName.trim() || !activeWorkspace
+              createTemplateMutation.isPending || updateTemplateMutation.isPending || !activeWorkspace
             }
             onClick={() => {
               if (!templateName.trim() || !activeWorkspace) return;
@@ -688,7 +690,11 @@ export function BoardsPage() {
               setTemplateDialogOpen(true);
             }}
           >
-            <Plus className="size-4" />
+            {createTemplateMutation.isPending || updateTemplateMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
             New custom template
           </Button>
         </div>
@@ -1492,21 +1498,24 @@ export function BoardsPage() {
                 createProjectSpaceMutation.mutate(newProjectSpaceName.trim());
               }
             }}
-            className="w-full min-w-0 sm:max-w-xs"
+            className="h-9 w-full min-w-0 sm:max-w-xs border-primary/28 bg-white text-foreground shadow-sm disabled:bg-muted/50 dark:border-input dark:bg-input/30 dark:shadow-none dark:disabled:bg-input/80"
             aria-label="New project space name"
             disabled={!activeWorkspace}
           />
           <Button
             type="button"
-            className="gap-1 shrink-0 self-end sm:self-auto"
+            variant="default"
+            className={cn("gap-1 shrink-0 self-end sm:self-auto", workspaceCtaMatchSidebarActiveDark)}
             onClick={() =>
               newProjectSpaceName.trim() && createProjectSpaceMutation.mutate(newProjectSpaceName.trim())
             }
-            disabled={
-              createProjectSpaceMutation.isPending || !newProjectSpaceName.trim() || !activeWorkspace
-            }
+            disabled={createProjectSpaceMutation.isPending || !activeWorkspace}
           >
-            <Plus className="size-4" />
+            {createProjectSpaceMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
             Add project space
           </Button>
         </div>
@@ -1758,6 +1767,7 @@ export function BoardsPage() {
                   </div>
                   <ul className="mt-3 space-y-2">
                     {ps.boards.map((b) => {
+                      const boardAccent = b.accentColor?.trim();
                       const boardDragDisabled =
                         archiveBoardMutation.isPending ||
                         restoreBoardMutation.isPending ||
@@ -1812,11 +1822,19 @@ export function BoardsPage() {
                               }
                             }}
                             className={cn(
-                              "workspace-board-chip boards-draggable-card flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              "workspace-board-chip boards-draggable-card relative flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-muted/30 py-1.5 pr-2.5 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              boardAccent ? "pl-3" : "pl-2.5",
                               !boardDragDisabled && "cursor-pointer active:cursor-grabbing",
                               isBoardDragging && "boards-draggable-card--dragging",
                             )}
                           >
+                            {boardAccent ? (
+                              <span
+                                aria-hidden
+                                className="pointer-events-none absolute inset-y-0 left-0 w-[3px] rounded-l-md"
+                                style={{ backgroundColor: boardAccent }}
+                              />
+                            ) : null}
                             <Kanban className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                             <span className="min-w-0 truncate font-medium">{b.name}</span>
                           </div>

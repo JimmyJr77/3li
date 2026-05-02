@@ -44,6 +44,7 @@ import {
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { workspaceCtaMatchSidebarActiveDark } from "@/components/layout/workspaceCtaChrome";
 import { PMAgentSheet, buildTasksContextSnapshot } from "@/features/agents/PMAgentSheet";
 import { useActiveWorkspace } from "@/context/ActiveWorkspaceContext";
 import { useArchivesVisibility } from "@/context/ArchivesVisibilityContext";
@@ -268,7 +269,8 @@ function TrackerColumn({
   );
 }
 
-const filterFieldClass = "border-input bg-background h-9 w-full rounded-md border px-2 text-sm";
+const filterFieldClass =
+  "h-9 w-full rounded-md border border-input bg-white px-2 text-sm text-foreground outline-none dark:border-input dark:bg-input/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /** Stable fallback so `boardLabels` is not a fresh `[]` every render (avoids label portal layout loops). */
 const EMPTY_BOARD_LABELS: LabelDto[] = [];
@@ -765,12 +767,17 @@ export function MyTasksPage() {
         </div>
         {workspaceId ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex rounded-lg border p-0.5">
+            <div className="flex rounded-lg border border-border bg-white p-0.5 dark:border-border dark:bg-muted/40">
               <Button
                 type="button"
-                variant={view === "board" ? "secondary" : "ghost"}
+                variant={view === "board" ? "default" : "ghost"}
                 size="sm"
-                className="gap-1"
+                className={cn(
+                  "gap-1 rounded-md shadow-none",
+                  view !== "board" &&
+                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground dark:hover:bg-muted/50",
+                  view === "board" && workspaceCtaMatchSidebarActiveDark,
+                )}
                 onClick={() => setView("board")}
               >
                 <Kanban className="size-4" />
@@ -778,9 +785,14 @@ export function MyTasksPage() {
               </Button>
               <Button
                 type="button"
-                variant={view === "table" ? "secondary" : "ghost"}
+                variant={view === "table" ? "default" : "ghost"}
                 size="sm"
-                className="gap-1"
+                className={cn(
+                  "gap-1 rounded-md shadow-none",
+                  view !== "table" &&
+                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground dark:hover:bg-muted/50",
+                  view === "table" && workspaceCtaMatchSidebarActiveDark,
+                )}
                 onClick={() => setView("table")}
               >
                 <LayoutGrid className="size-4" />
@@ -789,9 +801,9 @@ export function MyTasksPage() {
             </div>
             <Button
               type="button"
-              variant="outline"
+              variant={showFilters ? "default" : "outline"}
               size="sm"
-              className="gap-1.5"
+              className={cn("gap-1.5", showFilters && workspaceCtaMatchSidebarActiveDark)}
               aria-expanded={showFilters}
               onClick={() => setShowFilters((v) => !v)}
             >
@@ -1159,6 +1171,7 @@ export function MyTasksPage() {
                 colorByBoard={colorByBoard}
                 subBoardStrip={subBoardStrip}
                 inlineEditTrackerPriorityDue
+                whiteCardLightOrVibrant
                 onTaskPatch={handleTicketTrackerTablePatch}
                 onTicketContextMenu={(e, t) => openTicketArchiveFromTracker(e, t)}
                 onRowClick={(t) => {

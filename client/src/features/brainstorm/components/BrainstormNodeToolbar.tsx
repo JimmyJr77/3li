@@ -200,7 +200,7 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
     <div className="space-y-3">
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Text on artifact</p>
       <textarea
-        className="nodrag nopan min-h-[3.5rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+        className="nodrag nopan min-h-[3.5rem] w-full resize-y rounded-md border border-primary/28 bg-white px-2 py-1.5 text-xs text-foreground shadow-sm dark:bg-white"
         value={captionText}
         placeholder="Optional text overlaid inside the frame"
         onChange={(e) => applyInsideCaption(e.target.value)}
@@ -244,11 +244,8 @@ function StudioTextSection({ node }: { node: BrainstormFlowNode }) {
 
       <div className="border-t border-border pt-2">
         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Outside label</p>
-        <p className="mb-1.5 text-[10px] leading-snug text-muted-foreground">
-          Optional; sits outside the frame with an offset and does not resize the artifact.
-        </p>
         <textarea
-          className="nodrag nopan min-h-[3.5rem] w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+          className="nodrag nopan mt-1.5 min-h-[3.5rem] w-full resize-y rounded-md border border-primary/28 bg-white px-2 py-1.5 text-xs text-foreground shadow-sm dark:bg-white"
           value={outsideCaptionText}
           placeholder="Optional label outside the frame"
           onChange={(e) => applyOutsideCaption(e.target.value)}

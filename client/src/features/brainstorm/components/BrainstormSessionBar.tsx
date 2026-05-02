@@ -9,8 +9,10 @@ import {
   type BrainstormSessionSummary,
 } from "@/features/brainstorm/api";
 import { useBrainstormStore } from "@/features/brainstorm/stores/brainstormStore";
+import { workspaceCtaMatchSidebarActiveDark } from "@/components/layout/workspaceCtaChrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type BrainstormSessionBarProps = {
   workspaceId: string;
@@ -90,7 +92,7 @@ export function BrainstormSessionBar({
             id="brainstorm-session"
             value={activeSessionId}
             onChange={(e) => onSessionChange(e.target.value)}
-            className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            className="h-9 w-full rounded-md border border-primary/28 bg-white px-2 text-sm text-foreground shadow-sm outline-none dark:border-input dark:bg-input/30 dark:shadow-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             {sessions.map((s) => (
               <option key={s.id} value={s.id}>
@@ -115,7 +117,7 @@ export function BrainstormSessionBar({
                 }
               }}
               disabled={!active || patchMutation.isPending}
-              className="h-9 min-w-[12rem] flex-1"
+              className="h-9 min-w-[12rem] flex-1 border-primary/28 bg-white text-foreground shadow-sm disabled:bg-muted/50 dark:border-input dark:bg-input/30 dark:shadow-none dark:disabled:bg-input/80"
               placeholder="Name this studio board"
             />
             <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -134,10 +136,8 @@ export function BrainstormSessionBar({
               ) : null}
               <Button
                 type="button"
-                size="sm"
-                variant="secondary"
+                className={cn("gap-1 shrink-0 self-end sm:self-auto", workspaceCtaMatchSidebarActiveDark)}
                 disabled={busy}
-                className="gap-1"
                 onClick={() => createMutation.mutate()}
               >
                 {createMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}

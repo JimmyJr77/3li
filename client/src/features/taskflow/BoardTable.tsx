@@ -260,6 +260,8 @@ export function BoardTable({
   onTicketContextMenu,
   inlineEditTrackerPriorityDue = false,
   onTaskPatch,
+  /** Ticket Tracker: white card in light / vibrant; header row styling unchanged. Dark themes unchanged. */
+  whiteCardLightOrVibrant = false,
 }: {
   tasks: TaskFlowTask[];
   onRowClick: (task: TaskFlowTask) => void;
@@ -269,6 +271,7 @@ export function BoardTable({
   onTicketContextMenu?: (e: MouseEvent<HTMLTableRowElement>, task: TaskFlowTask) => void;
   inlineEditTrackerPriorityDue?: boolean;
   onTaskPatch?: (taskId: string, patch: BoardTableTaskPatch) => Promise<void>;
+  whiteCardLightOrVibrant?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -562,7 +565,12 @@ export function BoardTable({
       : rawColPct.map((p, i) => (i === rawColPct.length - 1 ? p + pctDrift : p));
 
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-xl border">
+    <div
+      className={cn(
+        "w-full min-w-0 overflow-hidden rounded-xl border",
+        whiteCardLightOrVibrant && "bg-white dark:bg-transparent",
+      )}
+    >
       <table className="w-full min-w-0 table-fixed border-collapse text-left text-sm">
         <colgroup>
           {leafCols.map((c, i) => (

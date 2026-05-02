@@ -51,7 +51,7 @@ export function TextNode({ id, data, selected, width, height }: NodeProps<TextFl
 
   const artifact = (
     <div
-      className="relative box-border min-h-[3.5rem] w-full min-w-0 flex-1 rounded-md border-2 border-border bg-card shadow-sm"
+      className="relative box-border min-h-[3.5rem] w-full min-w-0 flex-1 rounded-md border border-text-block-border bg-card shadow-sm"
       style={nodeChromeToStyle(data)}
       aria-hidden
     />

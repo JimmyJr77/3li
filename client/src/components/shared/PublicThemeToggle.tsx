@@ -1,4 +1,4 @@
-import { Moon, Rainbow, Sparkles, Sun } from "lucide-react";
+import { Check, Moon, Rainbow, Sparkles, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { startTransition, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ThemeAccentDropdownSection } from "@/components/shared/ThemeAccentDropdownSection";
 import { cn } from "@/lib/utils";
 
 /** Site (red zinc) + same app color themes as the workspace chrome. */
 export function PublicThemeToggle() {
   const { setTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     startTransition(() => {
@@ -23,18 +25,17 @@ export function PublicThemeToggle() {
     });
   }, []);
 
-  const showVibrant = mounted && (theme === "vibrant" || theme === "vibrant-red");
+  const showVibrant = mounted && theme === "vibrant";
   const showRainbow = mounted && theme === "rainbow-explosion";
-  const showWorkspaceDark =
-    mounted && !showVibrant && !showRainbow && (theme === "dark" || theme === "dark-red");
-  const showWorkspaceLight = mounted && (theme === "light" || theme === "light-red");
+  const showWorkspaceDark = mounted && !showVibrant && !showRainbow && theme === "dark";
+  const showWorkspaceLight = mounted && theme === "light";
   const showRedDark = mounted && theme === "public-red-dark";
   const showRedLight = mounted && theme === "public-red-light";
 
   const FallbackIcon = !mounted ? Moon : Sun;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Choose site or app color theme">
           <span className="relative block size-4">
@@ -83,19 +84,62 @@ export function PublicThemeToggle() {
           </span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[12rem]">
+      <DropdownMenuContent align="end" className="min-w-[13.5rem]">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Site (red marketing)</DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => setTheme("public-red-light")}>Red Light</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("public-red-dark")}>Red Dark</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("public-red-light")}>
+          <span className="min-w-0 flex-1 truncate">Red Light</span>
+          <Check
+            className={cn(
+              "size-3.5 shrink-0 opacity-0",
+              mounted && theme === "public-red-light" && "opacity-80",
+            )}
+            aria-hidden
+          />
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("public-red-dark")}>
+          <span className="min-w-0 flex-1 truncate">Red Dark</span>
+          <Check
+            className={cn(
+              "size-3.5 shrink-0 opacity-0",
+              mounted && theme === "public-red-dark" && "opacity-80",
+            )}
+            aria-hidden
+          />
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">App themes</DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => setTheme("light")}>Light (Blue)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("light-red")}>Light (Red)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>Dark (Blue)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark-red")}>Dark (Red)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("vibrant")}>Vibrant (Blue)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("vibrant-red")}>Vibrant (Red)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("rainbow-explosion")}>Rainbow Explosion</DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("light")}>
+          <span className="min-w-0 flex-1 truncate">Light theme</span>
+          <Check
+            className={cn("size-3.5 shrink-0 opacity-0", mounted && theme === "light" && "opacity-80")}
+            aria-hidden
+          />
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("vibrant")}>
+          <span className="min-w-0 flex-1 truncate">Vibrant theme</span>
+          <Check
+            className={cn("size-3.5 shrink-0 opacity-0", mounted && theme === "vibrant" && "opacity-80")}
+            aria-hidden
+          />
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("dark")}>
+          <span className="min-w-0 flex-1 truncate">Dark theme</span>
+          <Check
+            className={cn("size-3.5 shrink-0 opacity-0", mounted && theme === "dark" && "opacity-80")}
+            aria-hidden
+          />
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2 pl-2" onClick={() => setTheme("rainbow-explosion")}>
+          <span className="min-w-0 flex-1 truncate">Rainbow Explosion</span>
+          <Check
+            className={cn(
+              "size-3.5 shrink-0 opacity-0",
+              mounted && theme === "rainbow-explosion" && "opacity-80",
+            )}
+            aria-hidden
+          />
+        </DropdownMenuItem>
+        <ThemeAccentDropdownSection menuOpen={menuOpen} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

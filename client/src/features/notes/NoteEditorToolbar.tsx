@@ -28,12 +28,12 @@ import {
   Minus,
   Paperclip,
   Pencil,
-  Quote,
   Redo2,
   Strikethrough,
   Table2,
   Undo2,
 } from "lucide-react";
+import { useEditorState } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -165,16 +165,14 @@ function renderItem(
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1 px-2 text-xs font-normal shadow-sm"
-              aria-label={`Text size and headings: ${currentTextStyleShortLabel(editor)}`}
+              size="icon-sm"
+              variant="ghost"
+              className="size-8 shadow-sm"
+              aria-label={`Text size and headings. Current: ${currentTextStyleShortLabel(editor)}.`}
               title="Body text and heading levels"
               onMouseDown={(e) => e.preventDefault()}
             >
-              <ALargeSmall className="size-3.5 shrink-0" aria-hidden />
-              <span className="max-w-[4.5rem] truncate tabular-nums">{currentTextStyleShortLabel(editor)}</span>
-              <ChevronDown className="size-3.5 shrink-0 opacity-70" aria-hidden />
+              <ALargeSmall className="size-3.5" aria-hidden />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[11rem]">
@@ -240,10 +238,9 @@ function renderItem(
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              className="h-8 gap-1 px-2 text-xs shadow-sm"
+              variant="ghost"
+              className="h-8 gap-1 px-2 text-xs font-normal shadow-sm"
               aria-label="Edit table: rows, columns, delete"
-              disabled={!editor.isActive("table")}
               onMouseDown={(e) => e.preventDefault()}
             >
               <Table2 className="size-3.5" />
@@ -365,16 +362,6 @@ function renderItem(
           <Strikethrough className="size-3.5" />
         </ToolbarIconBtn>
       );
-    case "blockquote":
-      return (
-        <ToolbarIconBtn
-          title="Quote"
-          pressed={editor.isActive("blockquote")}
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        >
-          <Quote className="size-3.5" />
-        </ToolbarIconBtn>
-      );
     case "code":
       return (
         <ToolbarIconBtn
@@ -454,6 +441,16 @@ export function NoteEditorToolbar({
     [order, isNoteToolbarItemVisible],
   );
 
+  const isTableActive = useEditorState({
+    editor,
+    selector: ({ editor: ed }) => ed.isActive("table"),
+  });
+
+  const visibleToolbarIds = useMemo(
+    () => visibleOrder.filter((id) => id !== "tableEdit" || isTableActive),
+    [visibleOrder, isTableActive],
+  );
+
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <div
@@ -464,22 +461,22 @@ export function NoteEditorToolbar({
       >
         <Button
           type="button"
-          size="sm"
-          variant={reorderMode ? "secondary" : "outline"}
-          className="h-8 shrink-0 gap-1.5 px-2 text-xs shadow-sm"
+          size="icon-sm"
+          variant="ghost"
+          className={cn("size-8 shadow-sm", reorderMode && "bg-muted text-foreground")}
           title={
             reorderMode
               ? "Done reordering — toolbar actions work again"
               : "Reorder toolbar — drag controls to rearrange"
           }
+          aria-label={reorderMode ? "Done reordering toolbar" : "Reorder toolbar"}
           aria-pressed={reorderMode}
           onClick={() => setReorderMode((v) => !v)}
         >
-          <Pencil className="size-3.5 shrink-0" aria-hidden />
-          {reorderMode ? "Done" : "Edit"}
+          <Pencil className="size-3.5" aria-hidden />
         </Button>
-        <SortableContext items={visibleOrder} strategy={horizontalListSortingStrategy}>
-          {visibleOrder.map((id) => (
+        <SortableContext items={visibleToolbarIds} strategy={horizontalListSortingStrategy}>
+          {visibleToolbarIds.map((id) => (
             <SortableToolbarItem key={id} id={id} reorderMode={reorderMode}>
               {renderItem(id, editor, fileInputRef)}
             </SortableToolbarItem>

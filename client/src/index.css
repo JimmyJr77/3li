@@ -3,8 +3,8 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-@custom-variant dark (&:is(.dark *, .public-red-dark *, .dark-red *));
-@custom-variant vibrant (&:is(.vibrant *, .vibrant-red *));
+@custom-variant dark (&:is(.dark *, .public-red-dark *));
+@custom-variant vibrant (&:is(.vibrant *));
 @custom-variant rainbow-explosion (&:is(.rainbow-explosion *));
 
 @theme inline {
@@ -86,42 +86,6 @@
     --sidebar-ring: oklch(0.52 0.16 262);
 }
 
-/* Light (Red) — same structure as :root light; blue family hues → red family (matched L/C). */
-.light-red {
-    --background: oklch(0.988 0.016 22);
-    --foreground: oklch(0.24 0.042 25);
-    --card: oklch(0.998 0.008 25);
-    --card-foreground: oklch(0.24 0.042 25);
-    --popover: oklch(0.998 0.01 22);
-    --popover-foreground: oklch(0.24 0.042 25);
-    --primary: oklch(0.42 0.19 25);
-    --primary-foreground: oklch(0.99 0.02 25);
-    --secondary: oklch(0.955 0.028 24);
-    --secondary-foreground: oklch(0.28 0.055 25);
-    --muted: oklch(0.958 0.022 25);
-    --muted-foreground: oklch(0.48 0.04 25);
-    --accent: oklch(0.94 0.04 18);
-    --accent-foreground: oklch(0.28 0.06 25);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.9 0.035 24);
-    --input: oklch(0.93 0.028 25);
-    --ring: oklch(0.52 0.16 28);
-    --chart-1: oklch(0.58 0.16 25);
-    --chart-2: oklch(0.55 0.12 38);
-    --chart-3: oklch(0.52 0.1 12);
-    --chart-4: oklch(0.65 0.12 78);
-    --chart-5: oklch(0.5 0.11 155);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.982 0.018 22);
-    --sidebar-foreground: oklch(0.24 0.042 25);
-    --sidebar-primary: oklch(0.42 0.19 25);
-    --sidebar-primary-foreground: oklch(0.99 0.02 25);
-    --sidebar-accent: oklch(0.95 0.035 25);
-    --sidebar-accent-foreground: oklch(0.28 0.055 25);
-    --sidebar-border: oklch(0.9 0.035 24);
-    --sidebar-ring: oklch(0.52 0.16 28);
-}
-
 .dark,
 html.public-red-dark {
     /* Dark + electric blue accents */
@@ -158,41 +122,6 @@ html.public-red-dark {
     --sidebar-ring: oklch(0.62 0.22 262);
 }
 
-/* Dark (Red) — vivid scarlet axis (~27°); higher chroma than before to avoid muddy brown. */
-.dark-red {
-    --background: oklch(0.14 0.034 27);
-    --foreground: oklch(0.97 0.012 27);
-    --card: oklch(0.195 0.04 27);
-    --card-foreground: oklch(0.97 0.012 27);
-    --popover: oklch(0.195 0.04 27);
-    --popover-foreground: oklch(0.97 0.012 27);
-    --primary: oklch(0.72 0.27 27);
-    --primary-foreground: oklch(0.12 0.045 27);
-    --secondary: oklch(0.28 0.062 27);
-    --secondary-foreground: oklch(0.97 0.012 27);
-    --muted: oklch(0.28 0.056 27);
-    --muted-foreground: oklch(0.74 0.056 27);
-    --accent: oklch(0.36 0.14 27);
-    --accent-foreground: oklch(0.97 0.02 27);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(0.52 0.15 27 / 34%);
-    --input: oklch(0.52 0.17 27 / 28%);
-    --ring: oklch(0.66 0.24 27);
-    --chart-1: oklch(0.7 0.23 27);
-    --chart-2: oklch(0.62 0.2 350);
-    --chart-3: oklch(0.58 0.19 15);
-    --chart-4: oklch(0.72 0.14 78);
-    --chart-5: oklch(0.58 0.14 155);
-    --sidebar: oklch(0.172 0.04 27);
-    --sidebar-foreground: oklch(0.97 0.012 27);
-    --sidebar-primary: oklch(0.72 0.27 27);
-    --sidebar-primary-foreground: oklch(0.12 0.045 27);
-    --sidebar-accent: oklch(0.32 0.12 27);
-    --sidebar-accent-foreground: oklch(0.97 0.012 27);
-    --sidebar-border: oklch(0.52 0.15 27 / 34%);
-    --sidebar-ring: oklch(0.66 0.24 27);
-}
-
 /*
   Vibrant theme — electric blue base (oklch ~258–268°) with extra chroma “pop”.
 
@@ -223,54 +152,82 @@ html.public-red-dark {
     --chart-3: oklch(0.58 0.2 305);
     --chart-4: oklch(0.74 0.15 78);
     --chart-5: oklch(0.58 0.17 155);
-    --sidebar: oklch(0.952 0.05 262);
-    --sidebar-foreground: oklch(0.24 0.075 268);
-    --sidebar-primary: oklch(0.46 0.23 262);
-    --sidebar-primary-foreground: oklch(0.99 0.035 262);
-    --sidebar-accent: oklch(0.88 0.095 248);
-    --sidebar-accent-foreground: oklch(0.26 0.1 268);
-    --sidebar-border: oklch(0.83 0.09 265);
-    --sidebar-ring: oklch(0.54 0.2 262);
-}
-
-/* Vibrant (Red) — airy near-white field; #FF0000 rules; sidebar = white + red chrome, hover = red + white. */
-.vibrant-red {
-    --background: oklch(0.992 0.012 30);
-    --foreground: oklch(0.2 0.09 30);
-    --card: #ffffff;
-    --card-foreground: oklch(0.2 0.09 30);
-    --popover: #ffffff;
-    --popover-foreground: oklch(0.2 0.09 30);
-    --primary: #ff0000;
-    --primary-foreground: #ffffff;
-    --secondary: #ffffff;
-    --secondary-foreground: #ff0000;
-    --muted: oklch(0.97 0.025 30);
-    --muted-foreground: oklch(0.42 0.18 30);
-    --accent: oklch(0.96 0.06 30);
-    --accent-foreground: #ff0000;
-    --destructive: oklch(0.51 0.22 22);
-    --border: #ff0000;
-    --input: #ffffff;
-    --ring: #ff0000;
-    --chart-1: #ff0000;
-    --chart-2: oklch(0.58 0.22 28);
-    --chart-3: oklch(0.52 0.2 15);
-    --chart-4: oklch(0.74 0.15 78);
-    --chart-5: oklch(0.58 0.17 155);
+    /* Sidebar / left nav popout: white shell, saturated blue type + chrome */
     --sidebar: #ffffff;
-    --sidebar-foreground: #ff0000;
-    --sidebar-primary: #ff0000;
+    --sidebar-foreground: #0052ff;
+    --sidebar-primary: #0052ff;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #ff0000;
+    --sidebar-accent: #0052ff;
     --sidebar-accent-foreground: #ffffff;
-    --sidebar-border: #ff0000;
-    --sidebar-ring: #ff0000;
+    --sidebar-border: #0052ff;
+    --sidebar-ring: #0052ff;
 }
 
-/* Default type + icons in workspace sidebars (brand row, footer chrome) match scarlet chrome. */
-html.vibrant-red aside.bg-sidebar {
-    color: #ff0000;
+@import "./styles/accent-palettes.css";
+
+/* Default type + icons in workspace sidebars (brand row, footer chrome) match theme chrome. */
+html.vibrant aside.bg-sidebar {
+    color: var(--sidebar-foreground);
+}
+
+/* Notebooks browse (Vibrant): column shell + headers use page field; list wells stay white */
+html.vibrant [data-notes-browse-rail] {
+    background-color: var(--background) !important;
+}
+html.vibrant .notes-browse-rail-header {
+    background-color: var(--background) !important;
+}
+html.vibrant [data-notes-browse-rail] > .notes-browse-rail-body {
+    background-color: #ffffff !important;
+}
+
+/* Color-coded notebook/note rows: child controls use ~50% accent on hover (not theme muted / vibrant blue-red). */
+[data-notes-row-accent] > button:hover,
+[data-notes-row-accent] > [data-slot="button"]:hover,
+[data-notes-row-accent] > [data-slot="button"][aria-expanded="true"] {
+    background-color: color-mix(in srgb, var(--browse-row-accent) 50%, transparent) !important;
+}
+
+/* Vibrant: text fields use the same 1px `border-input` as the default Input; note title stays borderless */
+html.vibrant .notes-browse-rail-body input[data-slot="input"],
+html.vibrant [data-atlas-note-editor-column] input[data-slot="input"]:not([data-atlas-note-title]),
+html.vibrant [data-atlas-note-sidedeck] input[data-slot="input"] {
+    border-width: 1px !important;
+    border-style: solid !important;
+    border-color: var(--input) !important;
+    box-shadow: none !important;
+}
+html.vibrant [data-atlas-note-editor-column] input[data-atlas-note-title] {
+    border-width: 0 !important;
+    border-style: none !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Note editor column: white writing surface + rimmed fields; toolbar strip slightly tinted */
+html.vibrant [data-atlas-note-editor-column] [data-note-editor-card] {
+    background-color: #ffffff !important;
+}
+html.vibrant [data-atlas-note-editor-column] .note-editor-scroll,
+html.vibrant [data-atlas-note-editor-column] .note-editor-scroll .ProseMirror {
+    background-color: #ffffff !important;
+}
+html.vibrant [data-atlas-note-editor-column] .note-editor-toolbar-strip {
+    background-color: color-mix(in oklch, var(--muted) 92%, var(--primary)) !important;
+}
+/* Labels / links / publish stack — white cards; ghost & outline buttons read on white */
+html.vibrant [data-atlas-note-sidedeck] .rounded-lg.border {
+    background-color: #ffffff !important;
+    border-color: var(--border) !important;
+}
+html.vibrant [data-atlas-note-sidedeck] .rounded-md.border {
+    border-color: color-mix(in oklch, var(--border) 88%, transparent) !important;
+}
+html.vibrant [data-atlas-note-sidedeck] button[data-slot="button"][data-variant="ghost"],
+html.vibrant [data-atlas-note-sidedeck] button[data-slot="button"][data-variant="outline"] {
+    background-color: var(--muted) !important;
+    color: var(--foreground) !important;
+    border-color: var(--border) !important;
 }
 
 /*
@@ -322,6 +279,12 @@ html.vibrant-red aside.bg-sidebar {
     @apply font-sans;
     scroll-behavior: smooth;
     }
+  html.light {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   html.vibrant {
     color-scheme: light;
   }
@@ -332,16 +295,6 @@ html.vibrant-red aside.bg-sidebar {
       radial-gradient(ellipse 105% 72% at 100% 0%, oklch(0.62 0.2 225 / 0.3), transparent 54%),
       radial-gradient(ellipse 95% 58% at 52% 108%, oklch(0.65 0.16 285 / 0.18), transparent 60%),
       linear-gradient(168deg, oklch(0.988 0.02 268), oklch(0.975 0.028 258));
-  }
-  html.vibrant-red {
-    color-scheme: light;
-  }
-  html.vibrant-red body {
-    background-color: transparent;
-    background-image: linear-gradient(180deg, oklch(0.996 0.008 30), oklch(0.998 0.004 30));
-  }
-  html.light-red {
-    color-scheme: light;
   }
   html.rainbow-explosion {
     color-scheme: light;
@@ -362,9 +315,6 @@ html.vibrant-red aside.bg-sidebar {
         oklch(0.95 0.09 195),
         oklch(0.93 0.08 268)
       );
-  }
-  html.dark-red {
-    color-scheme: dark;
   }
 }
 
@@ -627,6 +577,11 @@ html.rainbow-explosion [data-slot="card"]:nth-child(16n + 16 of [data-slot="card
 /* Boards page: static hover lift (no oscillation) */
 .workspace-board-chip {
   isolation: isolate;
+}
+
+/* Vibrant: project board rows under project spaces — darker chip while theme hues stay aligned */
+html.vibrant .workspace-board-chip.boards-draggable-card {
+  background-color: color-mix(in oklch, var(--foreground) 22%, var(--muted)) !important;
 }
 
 .boards-draggable-card,

@@ -461,8 +461,10 @@ export function BrainstormWorkspace({
         {sessionQuery.isLoading && (
           <p className="border-b px-3 py-2 text-xs text-muted-foreground">Loading studio board…</p>
         )}
-        {header ? <div className="shrink-0 border-b bg-background px-3 py-2.5">{header}</div> : null}
-        <div className="min-h-0 flex-1">{children}</div>
+        {header ? (
+          <div className="shrink-0 border-b bg-background px-3 py-2.5">{header}</div>
+        ) : null}
+        <div className="min-h-0 flex-1 bg-white dark:bg-background">{children}</div>
       </div>
       <BrainstormAgentsSheet sessionId={sessionId} workspaceId={workspaceId} />
     </div>
