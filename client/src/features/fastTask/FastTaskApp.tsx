@@ -88,7 +88,7 @@ function FastTaskNoteCard({
 }) {
   const qc = useQueryClient();
   return (
-    <div className="flex h-full min-h-0 w-[min(90vw,28rem)] shrink-0 snap-center snap-always flex-col rounded-xl border border-border bg-white p-4 shadow-md dark:bg-card md:w-[30rem] md:p-5">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2 border-b border-border pb-3">
         <AtlasNoteTitleInput key={note.id} note={note} onCommit={onTitleCommit} />
         <RoutingSourceBadge source={note.routingSource} className="shrink-0" />
@@ -97,7 +97,6 @@ function FastTaskNoteCard({
         <NoteEditor
           key={note.id}
           note={note}
-          whiteWorkSurface
           onSaved={() => {
             void qc.invalidateQueries({ queryKey: ["fast-task-boards"] });
             if (!localMode) void qc.invalidateQueries({ queryKey: ["notes-app"] });
@@ -298,7 +297,8 @@ export function FastTaskApp() {
                 if (el) boardWrapRefs.current.set(note.id, el);
                 else boardWrapRefs.current.delete(note.id);
               }}
-              className="shrink-0 snap-center snap-always"
+              data-slot="card"
+              className="flex h-full min-h-0 w-[min(90vw,28rem)] shrink-0 snap-center snap-always flex-col rounded-xl border border-border bg-card p-4 shadow-md md:w-[30rem] md:p-5"
             >
               <FastTaskNoteCard
                 note={note}

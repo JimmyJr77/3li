@@ -25,6 +25,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultTheme="vibrant"
         disableTransitionOnChange
         storageKey={THEME_STORAGE_KEY}
+        enableSystem={false}
         themes={[...REGISTERED_THEMES]}
       >
         <AccentPaletteSync />

@@ -35,7 +35,8 @@ export function FastTaskIndexer({
   return (
     <nav
       aria-label="Fast Task indexer"
-      className="sticky left-0 z-20 flex h-full min-h-[min(72vh,720px)] w-40 shrink-0 snap-none flex-col gap-2 rounded-lg border border-border bg-card/95 py-2.5 pl-2 pr-1.5 shadow-md backdrop-blur-sm supports-[backdrop-filter]:bg-card/80 sm:w-44"
+      data-slot="card"
+      className="sticky left-0 z-20 flex h-full min-h-[min(72vh,720px)] w-40 shrink-0 snap-none flex-col gap-2 rounded-lg border border-border bg-card py-2.5 pl-2 pr-1.5 shadow-md sm:w-44"
     >
       <div className="flex shrink-0 flex-col gap-1.5">
         <label className="sr-only" htmlFor="fast-task-indexer-view">
